@@ -1,0 +1,69 @@
+/* The progress panel, shared by one-off and batch runs. */
+
+.download-progress {
+  padding: 16px 16px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  font-size: 12px;
+  min-width: 0;
+}
+
+#progress-filename {
+  color: var(--text);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+  font-size: 12px;
+  min-width: 0;
+}
+
+#progress-percent {
+  color: var(--accent);
+  font-weight: 700;
+  font-family: ui-monospace, 'Cascadia Code', 'SF Mono', monospace;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 3px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+#progress-fill {
+  height: 100%;
+  background: var(--accent);
+  width: 0%;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+#progress-fill.indeterminate {
+  position: relative;
+  width: 35%;
+  animation: progress-indeterminate 1.1s ease-in-out infinite;
+}
+
+.progress-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: ui-monospace, 'Cascadia Code', 'SF Mono', monospace;
+  font-variant-numeric: tabular-nums;
+}
