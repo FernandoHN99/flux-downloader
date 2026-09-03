@@ -4,6 +4,7 @@ import type { HistoryEntry } from '../lib/types';
 import { videoKey } from '../lib/video-key';
 import { ListHeader } from './components/ListHeader';
 import { ProgressPanel } from './components/ProgressPanel';
+import { RefreshButton } from './components/RefreshButton';
 import { VideoList } from './components/VideoList';
 import { entriesForDomain } from './components/VideoList';
 import type { VideoRowState } from './components/VideoRow';
@@ -28,13 +29,15 @@ class App {
 
   private readonly header: ListHeader;
   private readonly progress: ProgressPanel;
+  private readonly refresh: RefreshButton;
   private readonly list: VideoList;
 
   constructor(private readonly root: {
-    section: HTMLElement; progress: HTMLElement;
+    section: HTMLElement; progress: HTMLElement; refresh: HTMLElement;
     empty: HTMLElement; status: HTMLElement; error: HTMLElement;
   }) {
     this.progress = new ProgressPanel({ view: null, detail: null }, () => this.stop());
+    this.refresh = new RefreshButton({ refreshing: false }, () => this.refreshTabs());
 
     this.header = new ListHeader(
       { selectionMode: false, renaming: false, selectedCount: 0, batchQuality: 'best',
@@ -94,15 +97,11 @@ class App {
 
   private mount(): void {
     this.root.progress.replaceWith(this.progress.el);
+    this.root.refresh.replaceWith(this.refresh.el);
     this.root.section.append(this.header.el, this.list.el);
 
     document.getElementById('settings-btn')?.addEventListener('click', () => {
       window.location.href = 'settings.html';
-    });
-    document.getElementById('refresh-btn')?.addEventListener('click', () => {
-      this.store.setUi({ status: { text: 'Rescanning open tabs…', tone: 'info' } });
-      this.messenger.send({ type: 'RESCAN' });
-      this.messenger.send({ type: 'GET_HISTORY' });
     });
     document.getElementById('error-dismiss')?.addEventListener('click', () => {
       this.store.setUi({ error: null });
@@ -114,6 +113,7 @@ class App {
     const blocked = downloadInProgress(state);
 
     this.progress.setState({ view: progressView(state), detail: state.remote.progress });
+    this.refresh.setState({ refreshing: state.ui.refreshing });
 
     this.header.setState({
       selectionMode: state.ui.selectionMode,
@@ -160,6 +160,19 @@ class App {
   }
 
   // --- intents ---
+
+  private refreshTabs(): void {
+    if (this.store.get().ui.refreshing) return;
+    this.store.setUi({
+      refreshing: true,
+      status: { text: 'Refreshing all open tabs…', tone: 'info' }
+    });
+    if (this.messenger.send({ type: 'REFRESH_TABS' })) return;
+    this.store.setUi({
+      refreshing: false,
+      status: { text: 'Could not reach the background service', tone: 'error' }
+    });
+  }
 
   /** A click on a row: a tick while picking, otherwise open or close it. */
   private activate(key: string): void {
@@ -296,6 +309,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const root = {
     section: document.getElementById('history-section')!,
     progress: document.getElementById('download-progress')!,
+    refresh: document.getElementById('refresh-tabs')!,
     empty: document.getElementById('empty-state')!,
     status: document.getElementById('status-bar')!,
     error: document.getElementById('error')!

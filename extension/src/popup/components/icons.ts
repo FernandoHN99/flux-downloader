@@ -25,6 +25,7 @@ export const PATHS = {
   remove: ['M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6'],
   confirm: ['M20 6 9 17l-5-5'],
   cancel: ['M18 6 6 18M6 6l12 12'],
+  refresh: ['M20 11a8 8 0 0 0-14.9-3M4 3v5h5', 'M4 13a8 8 0 0 0 14.9 3M20 21v-5h-5'],
   download: ['M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4', 'M7 10l5 5 5-5', 'M12 15V3']
 } as const;
 
@@ -41,6 +42,10 @@ export function downloadIcon(): SVGSVGElement {
   const el = svg(PATHS.download as unknown as string[], 15, '2.2');
   el.setAttribute('class', 'group-download');
   return el;
+}
+
+export function refreshIcon(): SVGSVGElement {
+  return svg(PATHS.refresh as unknown as string[], 12, '2.2');
 }
 
 export function dragHandle(): HTMLElement {

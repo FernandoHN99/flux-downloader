@@ -48,6 +48,7 @@ export interface RemoteState {
  */
 export interface UiState {
   search: string;
+  refreshing: boolean;
   selectionMode: boolean;
   selectedForDeletion: ReadonlySet<string>;
   /** The one row showing its download options. */
@@ -81,6 +82,7 @@ export function initialState(): AppState {
     },
     ui: {
       search: '',
+      refreshing: false,
       selectionMode: false,
       selectedForDeletion: new Set(),
       expandedKey: null,

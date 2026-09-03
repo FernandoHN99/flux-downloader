@@ -30,6 +30,12 @@ describe('MEDIA_LIST', () => {
     expect(store.get().ui.status).toEqual({ text: '0 media found', tone: 'info' });
   });
 
+  it('finishes the visible refresh state when the scan result arrives', () => {
+    store.setUi({ refreshing: true });
+    applyIncoming(store, { type: 'MEDIA_LIST', videos: [], currentKeys: [] });
+    expect(store.get().ui.refreshing).toBe(false);
+  });
+
   // The whole point of the remote/ui split.
   it('leaves a rename and a selection in progress alone', () => {
     store.setUi({ renamingKey: RS8, selectionMode: true, selectedForDeletion: new Set([RS9]) });

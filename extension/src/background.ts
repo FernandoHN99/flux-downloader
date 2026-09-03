@@ -8,6 +8,7 @@ import { DashParserWrapper } from './lib/dash-parser';
 import { loadSettings, Settings, DEFAULT_SETTINGS } from './lib/settings';
 import { videoKey } from './lib/video-key';
 import { PageMetadata, RelayCodec, TabStateStore } from './lib/tab-state';
+import { mergeDetectedVideosIntoHistory, sameHistoryContent } from './lib/history';
 
 const nativeClient = new NativeClient();
 
@@ -465,42 +466,28 @@ async function readHistory(): Promise<HistoryEntry[]> {
   return Array.isArray(entries) ? entries : [];
 }
 
-// Ignores detectedAt so re-detecting the same page doesn't churn storage.
-function historySignature(entries: HistoryEntry[]): string {
-  return entries.map((entry) => `${videoKey(entry.url)}|${entry.title}|${entry.qualities?.length || 0}`).join('\n');
-}
-
-function recordHistory(tabId: number, videos: VideoInfo[]): void {
-  if (videos.length === 0) return;
-  const metadata = tabStates.get(tabId)?.pageMetadata;
+function recordHistory(tabId: number, videos: VideoInfo[]): Promise<void> {
+  if (videos.length === 0) return historyWrites;
+  const state = tabStates.get(tabId);
+  const metadata = state?.pageMetadata;
+  const pageUrl = metadata?.pageUrl || state?.currentPageUrl || undefined;
   const snapshot = videos.map((video) => ({ ...video }));
   historyWrites = historyWrites
-    .then(() => mergeIntoHistory(snapshot, metadata?.pageUrl, metadata?.title))
+    .then(() => mergeIntoHistory(snapshot, pageUrl, metadata?.title))
     .catch((error) => console.warn('[MediaGrabber] Failed to record history:', error));
+  return historyWrites;
 }
 
 async function mergeIntoHistory(videos: VideoInfo[], pageUrl?: string, pageTitle?: string): Promise<void> {
   const history = await readHistory();
-  const previous = new Map(history.map((entry) => [videoKey(entry.url), entry]));
-  const now = Date.now();
-
-  // detectedAt tracks last seen, matching the newest-first ordering. The
-  // signature check below keeps it from being refreshed on every re-detection.
-  const incoming: HistoryEntry[] = videos.map((video) => {
-    const key = videoKey(video.url);
-    const existing = previous.get(key);
-    previous.delete(key);
-    return {
-      ...video,
-      pageUrl: pageUrl || existing?.pageUrl,
-      pageTitle: pageTitle || existing?.pageTitle,
-      detectedAt: now
-    };
-  });
-
-  // This page's videos move to the front; everything else keeps its order.
-  const next = [...incoming, ...history.filter((entry) => previous.has(videoKey(entry.url)))].slice(0, HISTORY_LIMIT);
-  if (historySignature(next) === historySignature(history)) return;
+  const next = mergeDetectedVideosIntoHistory(
+    history,
+    videos,
+    { pageUrl, pageTitle },
+    Date.now(),
+    HISTORY_LIMIT
+  );
+  if (sameHistoryContent(next, history)) return;
 
   await chrome.storage.local.set({ [HISTORY_KEY]: next });
   await broadcastHistory(next);
@@ -811,7 +798,14 @@ function getVisibleVideosForTab(tabId: number): VideoInfo[] {
 }
 
 function upsertVideo(tabId: number, video: VideoInfo): void {
-  let videos = tabStates.get(tabId)?.media || [];
+  const state = tabStates.ensure(tabId);
+  // A media URL often belongs to a CDN or embedded player. Ownership always
+  // follows the top-level page whose tab exposed it.
+  video = {
+    ...video,
+    pageUrl: state.pageMetadata?.pageUrl || state.currentPageUrl || video.pageUrl || undefined
+  };
+  let videos = state.media || [];
 
   if (video.type === 'hls') {
     const childUrls = new Set([
@@ -1067,6 +1061,7 @@ async function handleInterceptedMedia(
     qualities,
     childUrls,
     referer,
+    pageUrl: metadata?.pageUrl || state.currentPageUrl || undefined,
     duration: duration || metadata?.duration,
     thumbnail: metadata?.thumbnail,
     fileSize
@@ -1100,10 +1095,17 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: any): void {
       if (!tabStates.hasMediaState()) void rescanAllTabs();
       break;
 
-    case 'RESCAN':
-      rescanAllTabs()
-        .then(() => port.postMessage({ type: 'MEDIA_LIST', ...currentMediaPayload() }))
-        .catch(() => port.postMessage({ type: 'MEDIA_LIST', ...currentMediaPayload() }));
+    case 'REFRESH_TABS':
+      refreshOpenTabs()
+        .catch((error) => console.warn('[MediaGrabber] Failed to refresh open tabs:', error))
+        .then(() => {
+          port.postMessage({ type: 'MEDIA_LIST', ...currentMediaPayload() });
+          return historyWrites
+            .then(() => readHistory())
+            .then((entries) => decorateHistory(entries))
+            .then((entries) => port.postMessage({ type: 'HISTORY_LIST', entries }));
+        })
+        .catch((error) => console.warn('[MediaGrabber] Failed to send refreshed history:', error));
       break;
 
     case 'DOWNLOAD':
@@ -1195,6 +1197,25 @@ function notifyPopups(_tabId?: number): void {
   popupPorts.forEach(port => {
     port.postMessage({ type: 'MEDIA_LIST', ...payload });
   });
+}
+
+/**
+ * Reinsert anything still playing before asking pages to scan again. Network-
+ * only streams may no longer have a discoverable DOM node, but the background
+ * still owns their current tab state and can restore a deleted history row.
+ */
+async function restoreCurrentMediaToHistory(): Promise<void> {
+  for (const [tabId] of tabStates.mediaEntries()) {
+    void recordHistory(tabId, getVisibleVideosForTab(tabId));
+  }
+  await historyWrites;
+}
+
+/** The single refresh path used by the popup for every open browser tab. */
+async function refreshOpenTabs(): Promise<void> {
+  await restoreCurrentMediaToHistory();
+  await rescanAllTabs();
+  await historyWrites;
 }
 
 /**
@@ -1680,8 +1701,8 @@ function isCurrentContentGeneration(tabId: number, generation: unknown, isTopFra
 
 function handleVideoDetected(tabId: number | undefined, video: VideoInfo, frameId?: number, frameUrl?: string, senderTabUrl?: string): any {
   if (tabId === undefined) return { error: 'No tabId' };
-  const detectedPageUrl = (video as VideoInfo & { pageUrl?: string; generation?: number }).pageUrl;
-  const generation = (video as VideoInfo & { pageUrl?: string; generation?: number }).generation;
+  const detectedPageUrl = video.pageUrl;
+  const generation = (video as VideoInfo & { generation?: number }).generation;
   const currentUrl = currentTopPageUrl(tabId, senderTabUrl);
   if (!detectedPageUrl || !frameUrl || detectedPageUrl !== frameUrl || !currentUrl) {
     return { success: true, stale: true };
@@ -1765,6 +1786,7 @@ async function loadYouTubeFormats(tabId: number, url: string, videoId: string, m
     upsertVideo(tabId, {
       id: videoId,
       title: info.title || currentMetadata.title || 'YouTube Video',
+      pageUrl: currentMetadata.pageUrl,
       url,
       type: 'ytdlp',
       qualities: qualities.length ? qualities : fallbackYtdlpQualities(url),
@@ -1778,6 +1800,7 @@ async function loadYouTubeFormats(tabId: number, url: string, videoId: string, m
     upsertVideo(tabId, {
       id: videoId,
       title: currentMetadata.title || 'YouTube Video',
+      pageUrl: currentMetadata.pageUrl,
       url,
       type: 'ytdlp',
       qualities: fallbackYtdlpQualities(url),
@@ -1802,6 +1825,7 @@ function addYouTubeVideo(tabId: number, metadata: PageMetadata): void {
             title: metadata.title || v.title,
             thumbnail: metadata.thumbnail || v.thumbnail,
             duration: metadata.duration || v.duration,
+            pageUrl: metadata.pageUrl,
             url,
             qualities: urlChanged ? [] : v.qualities
           }
@@ -1882,15 +1906,21 @@ function handlePageMetadata(tabId: number | undefined, metadata: PageMetadata, f
     const updated = videos.map((video) => {
       const next = {
         ...video,
+        pageUrl: merged.pageUrl || video.pageUrl,
         thumbnail: video.thumbnail || merged.thumbnail,
         duration: video.duration || merged.duration
       };
-      changed = changed || next.thumbnail !== video.thumbnail || next.duration !== video.duration;
+      changed = changed || next.pageUrl !== video.pageUrl ||
+        next.thumbnail !== video.thumbnail || next.duration !== video.duration;
       return next;
     });
 
     if (changed) {
       commitVideos(tabId, updated);
+    } else {
+      // Source title/URL can arrive after the media itself without changing
+      // its thumbnail or duration. Give history a chance to repair context.
+      void recordHistory(tabId, videos);
     }
   }
 

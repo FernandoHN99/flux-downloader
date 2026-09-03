@@ -14,6 +14,43 @@
   flex-shrink: 0;
 }
 
+.refresh-tabs-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 7px;
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  border: none;
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.refresh-tabs-btn:hover:not(:disabled) {
+  color: #fff;
+  background: var(--accent);
+}
+
+.refresh-tabs-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.refresh-tabs-btn:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.refresh-tabs-btn.refreshing svg {
+  animation: row-spin 0.8s linear infinite;
+}
+
 .popup-logo {
   width: 17px;
   height: 17px;
@@ -97,5 +134,12 @@
 .empty-state p {
   font-size: 13px;
   color: var(--text-muted);
-  margin-bottom: 8px;
+  margin-bottom: 0;
+}
+
+.empty-hint {
+  max-width: 210px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-dim);
 }

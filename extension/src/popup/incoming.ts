@@ -16,6 +16,7 @@ export function applyIncoming(store: Store, message: Incoming): void {
       const count = message.videos?.length ?? 0;
       store.setRemote({ currentKeys: keys });
       store.setUi({
+        refreshing: false,
         status: {
           text: count === 1 ? '1 media found' : `${count} media found`,
           tone: count > 0 ? 'success' : 'info'

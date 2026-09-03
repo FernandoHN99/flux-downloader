@@ -14,7 +14,7 @@ export type Outgoing =
   | { type: 'GET_HISTORY' }
   | { type: 'GET_BATCH_STATUS' }
   | { type: 'GET_ACTIVE_DOWNLOAD'; tabId: number }
-  | { type: 'RESCAN' }
+  | { type: 'REFRESH_TABS' }
   | { type: 'DOWNLOAD'; tabId: number | null; sourceUrl: string; checkFreshness: boolean;
       video: OutgoingVideo; filename: string }
   | { type: 'DOWNLOAD_ALL'; videos: HistoryEntry[]; tabId: number | null; quality: BatchQuality }
@@ -56,13 +56,15 @@ export class Messenger {
     this.port.onDisconnect.addListener(() => { this.port = null; });
   }
 
-  send(message: Outgoing): void {
-    if (!this.port) return;
+  send(message: Outgoing): boolean {
+    if (!this.port) return false;
     try {
       this.port.postMessage(message);
+      return true;
     } catch {
       // The worker went away mid-send; the next open reconnects.
       this.port = null;
+      return false;
     }
   }
 

@@ -6,6 +6,7 @@ describe('Store', () => {
     const store = new Store();
     expect(store.get().remote.history).toEqual([]);
     expect(store.get().ui.selectionMode).toBe(false);
+    expect(store.get().ui.refreshing).toBe(false);
   });
 
   it('patches one half without touching the other', () => {
