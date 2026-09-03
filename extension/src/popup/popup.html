@@ -68,6 +68,27 @@
       </button>
     </div>
     
+    <!-- Batch download status -->
+    <div id="batch-status" class="batch-status hidden" role="status" aria-live="polite">
+      <div class="batch-info">
+        <span id="batch-count">0 / 0</span>
+        <span id="batch-title"></span>
+      </div>
+      <button id="batch-stop-btn" class="btn btn-cancel">Stop</button>
+    </div>
+
+    <!-- History -->
+    <div id="history-section" class="history-section hidden">
+      <div class="history-header">
+        <span class="history-label">History</span>
+        <div class="history-actions">
+          <button id="download-all-btn" class="btn-link">Download all</button>
+          <button id="clear-history-btn" class="btn-link">Clear</button>
+        </div>
+      </div>
+      <div id="history-list" role="listbox" aria-label="Previously detected media"></div>
+    </div>
+
     <!-- Download Progress -->
     <div id="download-progress" class="download-progress hidden">
       <div class="progress-header">

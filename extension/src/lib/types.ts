@@ -48,6 +48,14 @@ export interface VideoInfo {
   fileSize?: number;
 }
 
+// A video kept in the global detection history, with the page it came from.
+export interface HistoryEntry extends VideoInfo {
+  pageUrl?: string;
+  pageTitle?: string;
+  /** When this video was last detected. */
+  detectedAt: number;
+}
+
 export interface DownloadProgress {
   downloadId: string;
   percent: number;

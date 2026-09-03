@@ -1,8 +1,10 @@
 // File Operations
 // Handles file system operations with proper error handling
+// Registers: file.uniquePath
 
 import * as fs from 'fs';
 import * as path from 'path';
+import rpc from './rpc';
 
 export interface FileInfo {
   path: string;
@@ -126,7 +128,7 @@ export class FileOperations {
    */
   getDefaultDownloadDir(): string {
     const home = process.env.HOME || process.env.USERPROFILE;
-    
+
     if (process.platform === 'win32') {
       return path.join(home!, 'Downloads');
     } else if (process.platform === 'darwin') {
@@ -136,3 +138,25 @@ export class FileOperations {
     }
   }
 }
+
+const fileOps = new FileOperations();
+
+// Returns a filename that doesn't exist yet in `directory`, appending _1, _2, …
+// before the extension. Keeps a repeated download from clobbering the first one.
+function uniquePath(directory: string, filename: string): string {
+  const ext = path.extname(filename);
+  const base = filename.slice(0, filename.length - ext.length);
+  let candidate = filename;
+  let attempt = 0;
+  while (fileOps.exists(path.join(directory, candidate))) {
+    attempt += 1;
+    candidate = `${base}_${attempt}${ext}`;
+  }
+  return candidate;
+}
+
+rpc.listen({
+  'file.uniquePath': (directory: string, filename: string) => uniquePath(directory, filename)
+});
+
+console.error('[MediaGrabber CoApp] File module loaded');

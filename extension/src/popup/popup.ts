@@ -31,6 +31,12 @@ interface VideoInfo {
   fileSize?: number;
 }
 
+interface HistoryEntry extends VideoInfo {
+  pageUrl?: string;
+  pageTitle?: string;
+  detectedAt: number;
+}
+
 interface QualityOption {
   label: string;
   bandwidth: number;
@@ -55,6 +61,8 @@ let selectedQualityIndex = 0;
 let currentQualities: QualityOption[] = [];
 let activeTabId: number | null = null;
 let currentDownloadId: string | null = null;
+let currentVideos: VideoInfo[] = [];
+let historyEntries: HistoryEntry[] = [];
 
 // Connect to background script
 function initPopup(): void {
@@ -67,6 +75,13 @@ function initPopup(): void {
     switch (msg.type) {
       case 'MEDIA_LIST':
         renderMediaList(msg.videos);
+        break;
+      case 'HISTORY_LIST':
+        historyEntries = msg.entries || [];
+        renderHistory();
+        break;
+      case 'BATCH_STATUS':
+        renderBatchStatus(msg.batch);
         break;
       case 'DOWNLOAD_STARTED':
         if (msg.success) {
@@ -111,6 +126,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
 async function initializePopupState(): Promise<void> {
   activeTabId = await getActiveTabId();
+  port?.postMessage({ type: 'GET_HISTORY' });
+  port?.postMessage({ type: 'GET_BATCH_STATUS' });
   if (port && activeTabId != null) {
     updateStatus('Checking for media…');
     port.postMessage({ type: 'GET_ACTIVE_DOWNLOAD', tabId: activeTabId });
@@ -155,6 +172,22 @@ function setupEventListeners(): void {
   document.getElementById('error-dismiss')?.addEventListener('click', () => {
     hideError();
   });
+
+  // Clear history button
+  document.getElementById('clear-history-btn')?.addEventListener('click', () => {
+    port?.postMessage({ type: 'CLEAR_HISTORY' });
+  });
+
+  // Download everything currently listed under History
+  document.getElementById('download-all-btn')?.addEventListener('click', () => {
+    const pending = visibleHistoryEntries();
+    if (pending.length === 0) return;
+    port?.postMessage({ type: 'DOWNLOAD_ALL', videos: pending, tabId: activeTabId });
+  });
+
+  document.getElementById('batch-stop-btn')?.addEventListener('click', () => {
+    port?.postMessage({ type: 'CANCEL_BATCH' });
+  });
 }
 
 function requestMediaList(): void {
@@ -188,7 +221,9 @@ function renderMediaList(videos: VideoInfo[]): void {
     (video) => typeof video.duration === 'number' && isFinite(video.duration) && video.duration > 0
   );
   const displayVideos = timedVideos.length > 0 ? timedVideos : videos;
-  
+  currentVideos = displayVideos || [];
+  renderHistory();
+
   if (!displayVideos || displayVideos.length === 0) {
     emptyState.classList.remove('hidden');
     videoList.classList.add('hidden');
@@ -221,10 +256,81 @@ function renderMediaList(videos: VideoInfo[]): void {
   updateStatus(`${displayVideos.length} media found`, 'success');
 }
 
+interface BatchStatus {
+  total: number;
+  completed: number;
+  failed: number;
+  currentTitle?: string;
+  cancelled: boolean;
+}
+
+function renderBatchStatus(batch: BatchStatus | null): void {
+  const bar = document.getElementById('batch-status')!;
+  const downloadAll = document.getElementById('download-all-btn') as HTMLButtonElement | null;
+
+  if (!batch) {
+    bar.classList.add('hidden');
+    if (downloadAll) downloadAll.disabled = false;
+    return;
+  }
+
+  bar.classList.remove('hidden');
+  if (downloadAll) downloadAll.disabled = true;
+  const done = batch.completed + batch.failed;
+  document.getElementById('batch-count')!.textContent = `${done} / ${batch.total}`;
+  document.getElementById('batch-title')!.textContent = batch.cancelled
+    ? 'Stopping…'
+    : (batch.currentTitle || '');
+}
+
+// Signed CDN links rotate their query token between visits, so the same video
+// would otherwise look new every time. Match on the path instead.
+function videoKey(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * History minus whatever is already listed as detected on the current page
+ */
+function visibleHistoryEntries(): HistoryEntry[] {
+  const currentKeys = new Set(currentVideos.map((video) => videoKey(video.url)));
+  return historyEntries.filter((entry) => !currentKeys.has(videoKey(entry.url)));
+}
+
+/**
+ * Render previously detected media, excluding whatever is already on this page
+ */
+function renderHistory(): void {
+  const section = document.getElementById('history-section')!;
+  const container = document.getElementById('history-list')!;
+  const entries = visibleHistoryEntries();
+
+  container.replaceChildren();
+  if (entries.length === 0) {
+    section.classList.add('hidden');
+    return;
+  }
+
+  section.classList.remove('hidden');
+  entries.forEach((entry, index) => {
+    const element = createMediaItem(entry, index, entry);
+    if (selectedVideo?.id === entry.id) {
+      element.classList.add('selected');
+      element.setAttribute('aria-selected', 'true');
+    }
+    container.appendChild(element);
+  });
+}
+
 /**
  * Create a media item element
  */
-function createMediaItem(video: VideoInfo, index: number): HTMLElement {
+function createMediaItem(video: VideoInfo, index: number, historyEntry?: HistoryEntry): HTMLElement {
   const div = document.createElement('div');
   div.className = 'media-item';
   div.dataset.index = String(index);
@@ -275,6 +381,17 @@ function createMediaItem(video: VideoInfo, index: number): HTMLElement {
     duration.className = 'media-duration';
     duration.textContent = durationStr;
     info.appendChild(duration);
+  }
+
+  if (historyEntry) {
+    div.classList.add('media-item-history');
+    const source = document.createElement('div');
+    source.className = 'media-source';
+    source.textContent = [getSiteLabel(historyEntry.pageUrl), formatRelativeTime(historyEntry.detectedAt)]
+      .filter(Boolean)
+      .join(' · ');
+    if (historyEntry.pageUrl) div.title = historyEntry.pageUrl;
+    info.appendChild(source);
   }
 
   div.appendChild(info);
@@ -850,6 +967,26 @@ function formatFileSize(bytes: number): string {
   if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
   if (bytes < 1073741824) return `${(bytes / 1048576).toFixed(1)} MB`;
   return `${(bytes / 1073741824).toFixed(2)} GB`;
+}
+
+function getSiteLabel(pageUrl?: string): string {
+  if (!pageUrl) return '';
+  try {
+    return new URL(pageUrl).hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+}
+
+function formatRelativeTime(timestamp: number): string {
+  const seconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
+  if (seconds < 60) return 'just now';
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  return `${days}d ago`;
 }
 
 function getSizeLabel(quality: VideoQuality, video: VideoInfo): string | undefined {

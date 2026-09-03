@@ -2,7 +2,7 @@
 // Manifest V3 — webRequest, media detection, download orchestration.
 
 import { NativeClient } from './lib/native-client';
-import { VideoInfo } from './lib/types';
+import { VideoInfo, HistoryEntry } from './lib/types';
 import { M3U8ParserWrapper } from './lib/m3u8-parser';
 import { DashParserWrapper } from './lib/dash-parser';
 import { loadSettings, Settings } from './lib/settings';
@@ -177,6 +177,33 @@ const activeDownloads = new Map<string, {
   lastProgress?: { percent: number; speed?: string; bytesReceived?: number; totalBytes?: number; eta?: number };
 }>();
 
+// Resolvers for callers waiting on a download to finish (batch downloads).
+const downloadWaiters = new Map<string, (succeeded: boolean) => void>();
+// Outcomes of downloads that finished before anyone awaited them.
+const recentOutcomes = new Map<string, boolean>();
+
+function finishDownload(key: string, succeeded: boolean): void {
+  activeDownloads.delete(key);
+  const waiter = downloadWaiters.get(key);
+  if (waiter) {
+    downloadWaiters.delete(key);
+    waiter(succeeded);
+    return;
+  }
+  // A short download can finish before the batch starts awaiting it.
+  recentOutcomes.set(key, succeeded);
+  setTimeout(() => recentOutcomes.delete(key), 30000);
+}
+
+function waitForDownload(key: string): Promise<boolean> {
+  if (recentOutcomes.has(key)) {
+    const outcome = recentOutcomes.get(key)!;
+    recentOutcomes.delete(key);
+    return Promise.resolve(outcome);
+  }
+  return new Promise((resolve) => downloadWaiters.set(key, resolve));
+}
+
 // Popup connections
 const popupPorts = new Set<chrome.runtime.Port>();
 
@@ -258,7 +285,7 @@ nativeClient.listen({
       popupPorts.forEach(port => {
         port.postMessage({ type: 'DOWNLOAD_COMPLETE', downloadId: key, outputPath });
       });
-      activeDownloads.delete(key);
+      finishDownload(key, true);
     }
   },
 
@@ -268,7 +295,7 @@ nativeClient.listen({
     popupPorts.forEach(port => {
       port.postMessage({ type: 'DOWNLOAD_ERROR', downloadId: key, error });
     });
-    activeDownloads.delete(key);
+    finishDownload(key, false);
   }
 });
 
@@ -425,12 +452,177 @@ function mergeChildUrls(a?: string[], b?: string[]): string[] | undefined {
 
 function commitVideos(tabId: number, videos: VideoInfo[]): void {
   mediaByTab.set(tabId, videos);
-  const visibleCount = getVisibleVideosForTab(tabId).length;
+  const visible = getVisibleVideosForTab(tabId);
+  const visibleCount = visible.length;
   chrome.action.setBadgeText({ tabId, text: visibleCount > 0 ? String(visibleCount) : '' });
   if (visibleCount > 0) {
     chrome.action.setBadgeBackgroundColor({ tabId, color: '#4CAF50' });
   }
+  recordHistory(tabId, visible);
   notifyPopups(tabId);
+}
+
+// --- Detection history (global, persisted across reloads and restarts) ---
+
+const HISTORY_KEY = 'mediaHistory';
+const HISTORY_LIMIT = 50;
+
+// chrome.storage read-modify-write must not interleave — commitVideos fires often.
+let historyWrites: Promise<void> = Promise.resolve();
+
+async function readHistory(): Promise<HistoryEntry[]> {
+  const stored = await chrome.storage.local.get(HISTORY_KEY);
+  const entries = stored[HISTORY_KEY];
+  return Array.isArray(entries) ? entries : [];
+}
+
+// Signed CDN links carry rotating tokens, so the same video comes back with a
+// different query string on each visit. Identity is the path, not the token.
+function videoKey(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return url;
+  }
+}
+
+// Ignores detectedAt so re-detecting the same page doesn't churn storage.
+function historySignature(entries: HistoryEntry[]): string {
+  return entries.map((entry) => `${videoKey(entry.url)}|${entry.title}|${entry.qualities?.length || 0}`).join('\n');
+}
+
+function recordHistory(tabId: number, videos: VideoInfo[]): void {
+  if (videos.length === 0) return;
+  const metadata = pageMetadataByTab.get(tabId);
+  const snapshot = videos.map((video) => ({ ...video }));
+  historyWrites = historyWrites
+    .then(() => mergeIntoHistory(snapshot, metadata?.pageUrl, metadata?.title))
+    .catch((error) => console.warn('[MediaGrabber] Failed to record history:', error));
+}
+
+async function mergeIntoHistory(videos: VideoInfo[], pageUrl?: string, pageTitle?: string): Promise<void> {
+  const history = await readHistory();
+  const previous = new Map(history.map((entry) => [videoKey(entry.url), entry]));
+  const now = Date.now();
+
+  // detectedAt tracks last seen, matching the newest-first ordering. The
+  // signature check below keeps it from being refreshed on every re-detection.
+  const incoming: HistoryEntry[] = videos.map((video) => {
+    const key = videoKey(video.url);
+    const existing = previous.get(key);
+    previous.delete(key);
+    return {
+      ...video,
+      pageUrl: pageUrl || existing?.pageUrl,
+      pageTitle: pageTitle || existing?.pageTitle,
+      detectedAt: now
+    };
+  });
+
+  // This page's videos move to the front; everything else keeps its order.
+  const next = [...incoming, ...history.filter((entry) => previous.has(videoKey(entry.url)))].slice(0, HISTORY_LIMIT);
+  if (historySignature(next) === historySignature(history)) return;
+
+  await chrome.storage.local.set({ [HISTORY_KEY]: next });
+  broadcastHistory(next);
+}
+
+async function clearHistory(): Promise<void> {
+  await chrome.storage.local.remove(HISTORY_KEY);
+  broadcastHistory([]);
+}
+
+function broadcastHistory(entries: HistoryEntry[]): void {
+  popupPorts.forEach((port) => {
+    port.postMessage({ type: 'HISTORY_LIST', entries });
+  });
+}
+
+// --- Batch download ("Download all" from history) ---
+
+interface BatchState {
+  total: number;
+  completed: number;
+  failed: number;
+  currentTitle?: string;
+  currentKey?: string;
+  cancelled: boolean;
+}
+
+let batch: BatchState | null = null;
+
+function broadcastBatch(): void {
+  popupPorts.forEach((port) => {
+    port.postMessage({ type: 'BATCH_STATUS', batch });
+  });
+}
+
+function pickBatchQuality(video: VideoInfo, preference: Settings['defaultQuality']): VideoInfo['qualities'][number] | undefined {
+  const all = video.qualities || [];
+  const videoOnly = all.filter((quality) => (quality.kind || 'video') === 'video');
+  const candidates = videoOnly.length > 0 ? videoOnly : all;
+  if (candidates.length === 0) return undefined;
+  return candidates.reduce((chosen, quality) => {
+    const better = preference === 'worst'
+      ? (quality.height || 0) < (chosen.height || 0)
+      : (quality.height || 0) > (chosen.height || 0);
+    return better ? quality : chosen;
+  }, candidates[0]);
+}
+
+// Downloads run one at a time: ffmpeg is network-bound and parallel pulls from
+// the same CDN tend to get throttled.
+async function runBatchDownload(videos: VideoInfo[], tabId?: number): Promise<void> {
+  if (batch) return;
+  const settings = await getSettings();
+  const state: BatchState = { total: videos.length, completed: 0, failed: 0, cancelled: false };
+  batch = state;
+  broadcastBatch();
+
+  for (const video of videos) {
+    if (state.cancelled) break;
+    const quality = pickBatchQuality(video, settings.defaultQuality);
+    if (!quality) {
+      state.failed += 1;
+      broadcastBatch();
+      continue;
+    }
+
+    state.currentTitle = video.title;
+    broadcastBatch();
+
+    try {
+      const started = await startDownload(
+        { ...video, url: quality.url, qualities: [quality] },
+        video.title,
+        tabId
+      );
+      state.currentKey = started?.downloadId;
+      const succeeded = state.currentKey ? await waitForDownload(state.currentKey) : false;
+      if (succeeded) state.completed += 1;
+      else state.failed += 1;
+    } catch {
+      state.failed += 1;
+    }
+    state.currentKey = undefined;
+    broadcastBatch();
+  }
+
+  batch = null;
+  broadcastBatch();
+  notify('Batch download finished', `${state.completed} downloaded, ${state.failed} failed`);
+}
+
+// Cancels only the batch's own download — a manually started one keeps running.
+async function cancelBatchDownload(): Promise<void> {
+  if (!batch) return;
+  batch.cancelled = true;
+  const key = batch.currentKey;
+  broadcastBatch();
+  if (key) {
+    try { await handleCancelDownload(key); } catch { /* already finished */ }
+  }
 }
 
 function getVisibleVideosForTab(tabId: number): VideoInfo[] {
@@ -751,6 +943,31 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: any): void {
         .catch(err => port.postMessage({ type: 'ERROR', message: err.message }));
       break;
 
+    case 'GET_HISTORY':
+      readHistory()
+        .then((entries) => port.postMessage({ type: 'HISTORY_LIST', entries }))
+        .catch(() => port.postMessage({ type: 'HISTORY_LIST', entries: [] }));
+      break;
+
+    case 'CLEAR_HISTORY':
+      historyWrites = historyWrites
+        .then(() => clearHistory())
+        .catch((error) => console.warn('[MediaGrabber] Failed to clear history:', error));
+      break;
+
+    case 'DOWNLOAD_ALL':
+      runBatchDownload(msg.videos || [], msg.tabId)
+        .catch((err) => port.postMessage({ type: 'ERROR', message: err.message }));
+      break;
+
+    case 'CANCEL_BATCH':
+      cancelBatchDownload().catch(() => { /* nothing left to cancel */ });
+      break;
+
+    case 'GET_BATCH_STATUS':
+      port.postMessage({ type: 'BATCH_STATUS', batch });
+      break;
+
     case 'GET_ACTIVE_DOWNLOAD': {
       const tabId = msg.tabId;
       const entry = [...activeDownloads.entries()].find(([, dl]) => dl.tabId === tabId);
@@ -899,11 +1116,16 @@ async function startDownload(video: VideoInfo, filename?: string, tabId?: number
   await ensureCoAppConnected();
 
   const type = video.type === 'm3u8' ? 'hls' : video.type === 'mpd' ? 'dash' : video.type;
-  const outFilename = ensureFilenameExtension(
+  const directory = defaultDownloadDir;
+  let outFilename = ensureFilenameExtension(
     sanitizeFilename(filename || `${video.title || 'video'}`),
     getDefaultExtension(video, type)
   );
-  const directory = defaultDownloadDir;
+  try {
+    outFilename = await nativeClient.uniquePath(directory, outFilename);
+  } catch {
+    // CoApp unreachable for this check — keep the original name rather than blocking the download.
+  }
 
   if (type === 'hls' || type === 'dash') {
     // FFmpeg convert path
@@ -945,13 +1167,13 @@ async function startDownload(video: VideoInfo, filename?: string, tabId?: number
           port.postMessage({ type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: formatFfmpegError(result.exitCode, result.stderr) });
         });
       }
-      activeDownloads.delete(downloadKey);
+      finishDownload(downloadKey, result.exitCode === 0);
     }).catch(err => {
       notify('Download failed', err.message);
       popupPorts.forEach(port => {
         port.postMessage({ type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: err.message });
       });
-      activeDownloads.delete(downloadKey);
+      finishDownload(downloadKey, false);
     });
 
     return { success: true, downloadId: downloadKey };
@@ -988,13 +1210,13 @@ async function startDownload(video: VideoInfo, filename?: string, tabId?: number
           port.postMessage({ type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: formatFfmpegError(result.exitCode, result.stderr) });
         });
       }
-      activeDownloads.delete(downloadKey);
+      finishDownload(downloadKey, result.exitCode === 0);
     }).catch(err => {
       notify('Download failed', err.message);
       popupPorts.forEach(port => {
         port.postMessage({ type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: err.message });
       });
-      activeDownloads.delete(downloadKey);
+      finishDownload(downloadKey, false);
     });
 
     return { success: true, downloadId: downloadKey };
@@ -1027,13 +1249,13 @@ async function startDownload(video: VideoInfo, filename?: string, tabId?: number
           port.postMessage({ type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: `yt-dlp exit code ${result.exitCode}: ${result.stderr}` });
         });
       }
-      activeDownloads.delete(downloadKey);
+      finishDownload(downloadKey, result.exitCode === 0);
     }).catch(err => {
       notify('Download failed', err.message);
       popupPorts.forEach(port => {
         port.postMessage({ type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: err.message });
       });
-      activeDownloads.delete(downloadKey);
+      finishDownload(downloadKey, false);
     });
 
     return { success: true, downloadId: downloadKey };
@@ -1089,13 +1311,13 @@ function startDirectProgressPolling(downloadKey: string, downloadId: number, dur
 
       if (dl.state === 'complete') {
         clearInterval(timer);
-        activeDownloads.delete(downloadKey);
+        finishDownload(downloadKey, true);
       } else if (dl.state === 'interrupted') {
         clearInterval(timer);
         popupPorts.forEach(port => {
           port.postMessage({ type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: dl.error || 'Download interrupted' });
         });
-        activeDownloads.delete(downloadKey);
+        finishDownload(downloadKey, false);
       }
     } catch {
       // Single poll failure — don't abort, just skip this tick
@@ -1117,7 +1339,7 @@ async function handleCancelDownload(downloadId: string): Promise<any> {
     await nativeClient.cancelDownload(dl.downloadId);
   }
 
-  activeDownloads.delete(downloadId);
+  finishDownload(downloadId, false);
   return { success: true };
 }
 
