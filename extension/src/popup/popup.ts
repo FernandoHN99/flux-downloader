@@ -68,17 +68,18 @@ let historyEntries: HistoryEntry[] = [];
 let historySearch = '';
 let draggingKey: string | null = null;
 let batchQuality: 'best' | 'worst' = 'best';
+let currentKeys = new Set<string>();
+let selectionMode = false;
+const selectedForDeletion = new Set<string>();
 
 // Connect to background script
 function initPopup(): void {
-  const version = document.querySelector('.version');
-  if (version) version.textContent = `MediaGrabber v${chrome.runtime.getManifest().version}`;
-
   port = chrome.runtime.connect({ name: 'popup' });
   
   port.onMessage.addListener((msg) => {
     switch (msg.type) {
       case 'MEDIA_LIST':
+        currentKeys = new Set(msg.currentKeys || []);
         renderMediaList(msg.videos);
         break;
       case 'HISTORY_LIST':
@@ -196,8 +197,14 @@ function setupEventListeners(): void {
     hideError();
   });
 
-  // Clear history button
+  // Clear: wipes everything normally, or just the ticked rows in selection mode
   document.getElementById('clear-history-btn')?.addEventListener('click', () => {
+    if (selectionMode) {
+      if (selectedForDeletion.size === 0) return;
+      port?.postMessage({ type: 'DELETE_HISTORY_ITEMS', keys: [...selectedForDeletion] });
+      exitSelectionMode();
+      return;
+    }
     port?.postMessage({ type: 'CLEAR_HISTORY' });
   });
 
@@ -218,6 +225,11 @@ function setupEventListeners(): void {
       renderBatchQuality();
       chrome.storage.local.set({ batchQuality }).catch(() => { /* preference is optional */ });
     });
+  });
+
+  document.getElementById('refresh-all-btn')?.addEventListener('click', () => {
+    port?.postMessage({ type: 'GET_HISTORY' });
+    requestMediaList();
   });
 
   document.getElementById('close-details-btn')?.addEventListener('click', () => {
@@ -263,7 +275,7 @@ function renderMediaList(videos: VideoInfo[]): void {
 }
 
 function isCurrentKey(key: string): boolean {
-  return currentVideos.some((video) => videoKey(video.url) === key);
+  return currentKeys.has(key);
 }
 
 interface BatchStatus {
@@ -353,6 +365,8 @@ function renderHistory(): void {
     }
     container.appendChild(element);
   });
+
+  updateClearButton();
 }
 
 function attachDragBehaviour(element: HTMLElement): void {
@@ -536,7 +550,13 @@ function createMediaItem(video: VideoInfo, index: number, historyEntry?: History
 
   const durationStr = video.duration ? formatDuration(video.duration) : '';
 
-  if (!isCurrent) div.appendChild(createDragHandle());
+  const key = videoKey(video.url);
+  if (selectionMode) {
+    div.appendChild(createSelectDot(selectedForDeletion.has(key)));
+    div.classList.toggle('picked', selectedForDeletion.has(key));
+  } else if (!isCurrent) {
+    div.appendChild(createDragHandle());
+  }
 
   if (video.thumbnail) {
     const wrapper = document.createElement('div');
@@ -591,21 +611,41 @@ function createMediaItem(video: VideoInfo, index: number, historyEntry?: History
 
   div.appendChild(info);
 
+  const actions = document.createElement('div');
+  actions.className = 'media-actions';
+
   const rename = createIconButton('rename', 'Rename', 'M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z');
   rename.classList.add('rename-btn');
   rename.addEventListener('click', (event) => {
     event.stopPropagation();
     startRename(div, video, isCurrent);
   });
-  div.appendChild(rename);
+  actions.appendChild(rename);
+
+  const remove = createIconButton('remove', 'Select to delete',
+    'M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6');
+  remove.classList.add('remove-btn');
+  remove.addEventListener('click', (event) => {
+    event.stopPropagation();
+    if (selectionMode) toggleSelection(key, div);
+    else enterSelectionMode(key);
+  });
+  actions.appendChild(remove);
+
+  div.appendChild(actions);
 
   if (!isCurrent) attachDragBehaviour(div);
 
-  div.addEventListener('click', () => selectMedia(video, div));
+  const activate = (): void => {
+    if (selectionMode) toggleSelection(key, div);
+    else selectMedia(video, div);
+  };
+
+  div.addEventListener('click', activate);
   div.addEventListener('keydown', (event) => {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
-      selectMedia(video, div);
+      activate();
     }
   });
 
@@ -914,6 +954,51 @@ function startDownload(video: VideoInfo, quality: QualityOption): void {
       filename: filename
     });
   }
+}
+
+// --- Selection mode: the trash on a row turns every row into a checkbox ---
+
+function enterSelectionMode(key: string): void {
+  selectionMode = true;
+  selectedForDeletion.clear();
+  selectedForDeletion.add(key);
+  renderHistory();
+  updateClearButton();
+}
+
+function exitSelectionMode(): void {
+  selectionMode = false;
+  selectedForDeletion.clear();
+  renderHistory();
+  updateClearButton();
+}
+
+function toggleSelection(key: string, element: HTMLElement): void {
+  if (selectedForDeletion.has(key)) selectedForDeletion.delete(key);
+  else selectedForDeletion.add(key);
+
+  // Emptying the selection leaves the mode, so there's no way to get stuck in it.
+  if (selectedForDeletion.size === 0) {
+    exitSelectionMode();
+    return;
+  }
+  element.classList.toggle('picked', selectedForDeletion.has(key));
+  element.querySelector('.select-dot')?.classList.toggle('checked', selectedForDeletion.has(key));
+  updateClearButton();
+}
+
+function updateClearButton(): void {
+  const button = document.getElementById('clear-history-btn');
+  if (!button) return;
+  button.textContent = selectionMode ? `Clear (${selectedForDeletion.size})` : 'Clear';
+  button.classList.toggle('danger', selectionMode);
+}
+
+function createSelectDot(checked: boolean): HTMLElement {
+  const dot = document.createElement('span');
+  dot.className = checked ? 'select-dot checked' : 'select-dot';
+  dot.setAttribute('aria-hidden', 'true');
+  return dot;
 }
 
 // Collapses the detail panel back to just the list.

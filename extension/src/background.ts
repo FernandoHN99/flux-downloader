@@ -156,13 +156,16 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status === 'loading' || changeInfo.url !== undefined) {
     navigationGenerationByTab.delete(tabId);
     resetTabState(tabId);
+    // An open popup should stop showing that tab's videos as current.
+    notifyPopups();
   }
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  currentPageUrlByTab.set(tabId, null);
+  currentPageUrlByTab.delete(tabId);
   navigationGenerationByTab.delete(tabId);
   resetTabState(tabId);
+  notifyPopups();
 });
 
 // Active downloads: key = downloadKey, value = tracking info
@@ -238,7 +241,7 @@ function notify(title: string, message: string): void {
       chrome.notifications.create({
         type: 'basic',
         iconUrl: chrome.runtime.getURL('public/icons/icon-128.png'),
-        title: `MediaGrabber — ${title}`,
+        title: `Flux — ${title}`,
         message
       });
     }
@@ -538,6 +541,16 @@ async function mergeIntoHistory(videos: VideoInfo[], pageUrl?: string, pageTitle
 async function clearHistory(): Promise<void> {
   await chrome.storage.local.remove(HISTORY_KEY);
   await broadcastHistory([]);
+}
+
+async function deleteHistoryEntries(keys: string[]): Promise<void> {
+  if (keys.length === 0) return;
+  const doomed = new Set(keys);
+  const history = await readHistory();
+  const next = history.filter((entry) => !doomed.has(videoKey(entry.url)));
+  if (next.length === history.length) return;
+  await chrome.storage.local.set({ [HISTORY_KEY]: next });
+  await broadcastHistory(next);
 }
 
 async function renameHistoryEntry(key: string, title: string): Promise<void> {
@@ -1071,14 +1084,7 @@ chrome.runtime.onConnect.addListener((port) => {
 function handlePopupMessage(port: chrome.runtime.Port, msg: any): void {
   switch (msg.type) {
     case 'GET_MEDIA':
-      if (typeof msg.tabId === 'number') {
-        port.postMessage({ type: 'MEDIA_LIST', videos: getVisibleVideosForTab(msg.tabId) });
-      } else {
-        chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
-          const tabId = tabs[0]?.id;
-          port.postMessage({ type: 'MEDIA_LIST', videos: tabId ? getVisibleVideosForTab(tabId) : [] });
-        });
-      }
+      port.postMessage({ type: 'MEDIA_LIST', ...currentMediaPayload() });
       break;
 
     case 'DOWNLOAD':
@@ -1114,6 +1120,12 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: any): void {
 
     case 'RENAME_VIDEO':
       renameDetectedVideo(msg.tabId, msg.key, msg.title || '');
+      break;
+
+    case 'DELETE_HISTORY_ITEMS':
+      historyWrites = historyWrites
+        .then(() => deleteHistoryEntries(msg.keys || []))
+        .catch((error) => console.warn('[MediaGrabber] Failed to delete history entries:', error));
       break;
 
     case 'CLEAR_HISTORY':
@@ -1155,13 +1167,27 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: any): void {
   }
 }
 
-function notifyPopups(tabId: number): void {
-  const videos = getVisibleVideosForTab(tabId);
-  if (videos) {
-    popupPorts.forEach(port => {
-      port.postMessage({ type: 'MEDIA_LIST', videos });
-    });
+function notifyPopups(_tabId?: number): void {
+  const payload = currentMediaPayload();
+  popupPorts.forEach(port => {
+    port.postMessage({ type: 'MEDIA_LIST', ...payload });
+  });
+}
+
+// Every video any open tab is showing right now. The popup uses this to pin
+// and badge them, so switching tabs needs no reload.
+function currentMediaPayload(): { videos: VideoInfo[]; currentKeys: string[] } {
+  const videos: VideoInfo[] = [];
+  const seen = new Set<string>();
+  for (const tabId of mediaByTab.keys()) {
+    for (const video of getVisibleVideosForTab(tabId)) {
+      const key = videoKey(video.url);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      videos.push(video);
+    }
   }
+  return { videos, currentKeys: [...seen] };
 }
 
 // --- Download orchestration ---

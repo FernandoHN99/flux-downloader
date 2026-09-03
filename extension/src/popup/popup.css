@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════
-   MediaGrabber — Popup Styles
+   Flux — Popup Styles
    Refined minimalism · Dark-first · Indigo accent
    ═══════════════════════════════════════════════════════ */
 
@@ -105,20 +105,27 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 14px 16px;
+  padding: 7px 12px;
   border-bottom: 1px solid var(--border-soft);
 }
 
 .popup-brand {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   min-width: 0;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
 .popup-logo {
-  width: 22px;
-  height: 22px;
+  width: 17px;
+  height: 17px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -127,7 +134,7 @@ body {
 }
 
 .popup-title {
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: -0.01em;
   color: var(--text);
@@ -142,7 +149,7 @@ body {
   background: none;
   border: none;
   cursor: pointer;
-  padding: 6px;
+  padding: 4px;
   color: var(--text-muted);
   border-radius: var(--radius-sm);
   transition: background-color 0.15s, color 0.15s;
@@ -635,6 +642,47 @@ body {
   text-overflow: ellipsis;
 }
 
+.media-actions {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  flex-shrink: 0;
+}
+
+.select-dot {
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+  border: 1.5px solid var(--text-dim);
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+
+.select-dot.checked {
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow: inset 0 0 0 2.5px var(--bg-elevated);
+}
+
+.media-item.picked {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.btn-link.danger {
+  color: var(--error);
+  font-weight: 600;
+}
+
+.btn-link.danger:hover {
+  color: var(--error);
+  background: var(--error-soft);
+}
+
+.icon-btn-remove:hover {
+  color: var(--error);
+}
+
 .drag-handle {
   flex-shrink: 0;
   display: flex;
@@ -644,7 +692,48 @@ body {
   opacity: 0.5;
 }
 
-.media-item-history:hover .drag-handle {
+.media-item-history:hover .media-actions {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  flex-shrink: 0;
+}
+
+.select-dot {
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+  border: 1.5px solid var(--text-dim);
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+
+.select-dot.checked {
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow: inset 0 0 0 2.5px var(--bg-elevated);
+}
+
+.media-item.picked {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.btn-link.danger {
+  color: var(--error);
+  font-weight: 600;
+}
+
+.btn-link.danger:hover {
+  color: var(--error);
+  background: var(--error-soft);
+}
+
+.icon-btn-remove:hover {
+  color: var(--error);
+}
+
+.drag-handle {
   opacity: 1;
 }
 
@@ -685,18 +774,64 @@ body {
   color: var(--error);
 }
 
-.media-item .rename-btn {
+.media-item .media-actions {
   opacity: 0;
 }
 
-.media-item:hover .rename-btn,
-.media-item .rename-btn:focus-visible {
+.media-item:hover .media-actions,
+.media-item:focus-within .media-actions {
+  opacity: 1;
+}
+
+/* While selecting, the trash stays visible on every row. */
+.media-item .remove-btn {
   opacity: 1;
 }
 
 /* While renaming, only the confirm/cancel controls stay reachable. */
 .media-item.editing .rename-btn,
-.media-item.editing .drag-handle {
+.media-item.editing .media-actions {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  flex-shrink: 0;
+}
+
+.select-dot {
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+  border: 1.5px solid var(--text-dim);
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+
+.select-dot.checked {
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow: inset 0 0 0 2.5px var(--bg-elevated);
+}
+
+.media-item.picked {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.btn-link.danger {
+  color: var(--error);
+  font-weight: 600;
+}
+
+.btn-link.danger:hover {
+  color: var(--error);
+  background: var(--error-soft);
+}
+
+.icon-btn-remove:hover {
+  color: var(--error);
+}
+
+.drag-handle {
   display: none;
 }
 
@@ -955,10 +1090,10 @@ body {
 
 /* ═══ Buttons ═══ */
 .btn {
-  padding: 10px 18px;
+  padding: 6px 14px;
   border: none;
   border-radius: var(--radius-sm);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   transition: background-color 0.15s, color 0.15s, transform 0.1s;
@@ -1147,16 +1282,6 @@ body {
 }
 
 /* ═══ Footer ═══ */
-.popup-footer {
-  padding: 8px 16px;
-  border-top: 1px solid var(--border-soft);
-  background: var(--bg);
-  font-size: 10px;
-  color: var(--text-dim);
-  text-align: center;
-  font-family: ui-monospace, 'Cascadia Code', 'SF Mono', monospace;
-  letter-spacing: 0.04em;
-}
 
 /* ═══ Reduced Motion ═══ */
 @media (prefers-reduced-motion: reduce) {
