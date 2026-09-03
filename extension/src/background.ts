@@ -9,7 +9,13 @@ import { loadSettings, Settings, DEFAULT_SETTINGS } from './lib/settings';
 import { videoKey } from './lib/video-key';
 import { PageMetadata, RelayCodec, TabStateStore } from './lib/tab-state';
 import { mergeDetectedVideosIntoHistory, sameHistoryContent } from './lib/history';
-import { isMediaUrl, mediaTypeFromUrl } from './lib/media-url';
+import { isMediaUrl, isYouTubeUrl, mediaTypeFromUrl } from './lib/media-url';
+import {
+  mergeChildUrls,
+  mergeQualities,
+  upsertDetectedVideo,
+  visibleVideos
+} from './lib/video-catalog';
 
 const nativeClient = new NativeClient();
 
@@ -360,18 +366,6 @@ function getFfmpegHttpArgs(referer?: string): string[] {
   }
 }
 
-function isYouTubeUrl(url: string): boolean {
-  try {
-    const u = new URL(url);
-    const h = u.hostname;
-    return h === 'youtube.com' || h === 'www.youtube.com' ||
-           h === 'm.youtube.com' || h === 'youtu.be' ||
-           h === 'youtube-nocookie.com' || h === 'www.youtube-nocookie.com';
-  } catch {
-    return false;
-  }
-}
-
 function fallbackYtdlpQualities(url: string): VideoInfo['qualities'] {
   return [
     { label: 'Best', height: 0, url, bitrate: 0, formatArgs: ['-f', 'bv*+ba/b'] },
@@ -386,21 +380,6 @@ function generateVideoId(url: string): string {
   } catch {
     return `video_${Date.now()}_${Math.random().toString(36).substring(2, 12)}`;
   }
-}
-
-function mergeQualities(a: VideoInfo['qualities'] = [], b: VideoInfo['qualities'] = []): VideoInfo['qualities'] {
-  const merged = new Map<string, VideoInfo['qualities'][number]>();
-  [...a, ...b].forEach((quality) => {
-    if (quality?.url && !merged.has(quality.url)) {
-      merged.set(quality.url, quality);
-    }
-  });
-  return Array.from(merged.values());
-}
-
-function mergeChildUrls(a?: string[], b?: string[]): string[] | undefined {
-  const merged = Array.from(new Set([...(a || []), ...(b || [])]));
-  return merged.length > 0 ? merged : undefined;
 }
 
 function commitVideos(tabId: number, videos: VideoInfo[]): void {
@@ -760,75 +739,20 @@ async function cancelBatchDownload(): Promise<void> {
 
 function getVisibleVideosForTab(tabId: number): VideoInfo[] {
   const state = tabStates.get(tabId);
-  const videos = state?.media || [];
-  const metadata = state?.pageMetadata;
-  if (metadata?.pageUrl && isYouTubeUrl(metadata.pageUrl)) {
-    return videos.filter(video => video.type === 'ytdlp');
-  }
-  const timedVideos = videos.filter(video =>
-    typeof video.duration === 'number' && isFinite(video.duration) && video.duration > 0
-  );
-  return timedVideos.length > 0 ? timedVideos : videos;
+  return visibleVideos(state?.media || [], state?.pageMetadata?.pageUrl);
 }
 
 function upsertVideo(tabId: number, video: VideoInfo): void {
   const state = tabStates.ensure(tabId);
   // A media URL often belongs to a CDN or embedded player. Ownership always
   // follows the top-level page whose tab exposed it.
-  video = {
-    ...video,
-    pageUrl: state.pageMetadata?.pageUrl || state.currentPageUrl || video.pageUrl || undefined
-  };
-  let videos = state.media || [];
-
-  if (video.type === 'hls') {
-    const childUrls = new Set([
-      ...(video.qualities || []).map((q) => q.url),
-      ...(video.childUrls || [])
-    ]);
-
-    // Variant playlists are implementation details of a master HLS playlist.
-    // Keep only the master entry that owns the quality list.
-    const belongsToExistingMaster = videos.some((existing) =>
-      existing.type === 'hls' &&
-      existing.url !== video.url &&
-      (
-        existing.qualities?.some((quality) => quality.url === video.url) ||
-        existing.childUrls?.includes(video.url)
-      )
-    );
-
-    if (belongsToExistingMaster) {
-      return;
-    }
-
-    if (childUrls.size > 0) {
-      videos = videos.filter((existing) =>
-        !(existing.type === 'hls' && existing.url !== video.url && childUrls.has(existing.url))
-      );
-    }
-
-  }
-
-  const existingIndex = videos.findIndex((v) => v.url === video.url);
-
-  if (existingIndex >= 0) {
-    const existing = videos[existingIndex];
-    videos[existingIndex] = {
-      ...existing,
-      ...video,
-      title: video.title || existing.title,
-      qualities: video.qualities?.length ? video.qualities : videos[existingIndex].qualities,
-      childUrls: video.childUrls?.length ? video.childUrls : videos[existingIndex].childUrls,
-      thumbnail: video.thumbnail || existing.thumbnail,
-      duration: video.duration || existing.duration,
-      fileSize: video.fileSize || existing.fileSize
-    };
-  } else {
-    videos.push(video);
-  }
-
-  commitVideos(tabId, videos);
+  const previous = state.media || [];
+  const videos = upsertDetectedVideo(
+    previous,
+    video,
+    state.pageMetadata?.pageUrl || state.currentPageUrl || video.pageUrl || undefined
+  );
+  if (videos !== previous) commitVideos(tabId, videos);
 }
 
 async function getTabTitle(tabId: number): Promise<string> {

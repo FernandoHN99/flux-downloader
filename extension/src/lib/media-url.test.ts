@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isMediaUrl, mediaTypeFromUrl, resolveMediaUrl } from './media-url';
+import { isMediaUrl, isYouTubeUrl, mediaTypeFromUrl, resolveMediaUrl } from './media-url';
 
 const PAGE = 'https://course.example/lesson/intro';
 
@@ -64,5 +64,25 @@ describe('resolveMediaUrl', () => {
 
   it('returns null for a malformed base and value', () => {
     expect(resolveMediaUrl('video.mp4', 'not a base')).toBeNull();
+  });
+});
+
+describe('isYouTubeUrl', () => {
+  it.each([
+    'https://youtube.com/watch?v=1',
+    'https://www.youtube.com/watch?v=1',
+    'https://m.youtube.com/watch?v=1',
+    'https://youtu.be/id',
+    'https://www.youtube-nocookie.com/embed/id'
+  ])('recognizes %s', (url) => {
+    expect(isYouTubeUrl(url)).toBe(true);
+  });
+
+  it.each([
+    'https://notyoutube.com/watch?v=1',
+    'https://youtube.com.example/watch?v=1',
+    'not a URL'
+  ])('rejects %s', (url) => {
+    expect(isYouTubeUrl(url)).toBe(false);
   });
 });

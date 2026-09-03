@@ -43,3 +43,16 @@ export function isMediaUrl(value: string | URL, baseUrl?: string): boolean {
   if (!parsed || (parsed.protocol !== 'http:' && parsed.protocol !== 'https:')) return false;
   return typeFromPath(parsed.pathname) !== 'direct';
 }
+
+export function isYouTubeUrl(value: string | URL): boolean {
+  const parsed = parseUrl(value);
+  if (!parsed) return false;
+  return [
+    'youtube.com',
+    'www.youtube.com',
+    'm.youtube.com',
+    'youtu.be',
+    'youtube-nocookie.com',
+    'www.youtube-nocookie.com'
+  ].includes(parsed.hostname);
+}
