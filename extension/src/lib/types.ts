@@ -56,6 +56,8 @@ export interface HistoryEntry extends VideoInfo {
   detectedAt: number;
   /** Set when broadcasting: this video was downloaded at least once. */
   downloaded?: boolean;
+  /** Set when broadcasting: the last download attempt failed. */
+  failed?: boolean;
 }
 
 export interface DownloadProgress {

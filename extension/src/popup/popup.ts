@@ -36,6 +36,7 @@ interface HistoryEntry extends VideoInfo {
   pageTitle?: string;
   detectedAt: number;
   downloaded?: boolean;
+  failed?: boolean;
 }
 
 interface QualityOption {
@@ -66,8 +67,6 @@ let currentVideos: VideoInfo[] = [];
 let historyEntries: HistoryEntry[] = [];
 let historySearch = '';
 let draggingKey: string | null = null;
-let draggingKind: 'history' | 'current' | null = null;
-let movedFromCurrentKeys = new Set<string>();
 let batchQuality: 'best' | 'worst' = 'best';
 
 // Connect to background script
@@ -80,7 +79,6 @@ function initPopup(): void {
   port.onMessage.addListener((msg) => {
     switch (msg.type) {
       case 'MEDIA_LIST':
-        movedFromCurrentKeys = new Set(msg.movedKeys || []);
         renderMediaList(msg.videos);
         break;
       case 'HISTORY_LIST':
@@ -222,6 +220,10 @@ function setupEventListeners(): void {
     });
   });
 
+  document.getElementById('close-details-btn')?.addEventListener('click', () => {
+    closeDetails();
+  });
+
   document.getElementById('history-search')?.addEventListener('input', (event) => {
     historySearch = (event.target as HTMLInputElement).value.trim().toLowerCase();
     renderHistory();
@@ -247,51 +249,21 @@ function updateStatus(text: string, type: 'info' | 'error' | 'success' = 'info')
 }
 
 /**
- * Render the list of detected media
+ * The current page's videos are no longer a separate list — they are the rows
+ * history already holds, pinned to the top and badged as current.
  */
 function renderMediaList(videos: VideoInfo[]): void {
-  const emptyState = document.getElementById('empty-state')!;
-  const videoList = document.getElementById('video-list')!;
-  const mediaDetails = document.getElementById('media-details')!;
-  const downloadSection = document.getElementById('download-section')!;
-  const container = document.getElementById('videos')!;
-  const timedVideos = videos.filter(
+  const timed = videos.filter(
     (video) => typeof video.duration === 'number' && isFinite(video.duration) && video.duration > 0
   );
-  const displayVideos = timedVideos.length > 0 ? timedVideos : videos;
-  currentVideos = displayVideos || [];
+  currentVideos = (timed.length > 0 ? timed : videos) || [];
+  const count = currentVideos.length;
+  updateStatus(count === 1 ? '1 media found' : `${count} media found`, count > 0 ? 'success' : 'info');
   renderHistory();
+}
 
-  if (!displayVideos || displayVideos.length === 0) {
-    emptyState.classList.remove('hidden');
-    videoList.classList.add('hidden');
-    mediaDetails.classList.add('hidden');
-    downloadSection.classList.add('hidden');
-    updateStatus('No media detected on this page', 'info');
-    return;
-  }
-  
-  emptyState.classList.add('hidden');
-  videoList.classList.remove('hidden');
-  
-  container.replaceChildren();
-  let updatedSelectedVideo: VideoInfo | null = null;
-  let updatedSelectedElement: HTMLElement | null = null;
-  
-  displayVideos.forEach((video, index) => {
-    const videoEl = createMediaItem(video, index);
-    container.appendChild(videoEl);
-    if (selectedVideo?.id === video.id) {
-      updatedSelectedVideo = video;
-      updatedSelectedElement = videoEl;
-    }
-  });
-
-  if (updatedSelectedVideo && updatedSelectedElement) {
-    selectMedia(updatedSelectedVideo, updatedSelectedElement);
-  }
-  
-  updateStatus(`${displayVideos.length} media found`, 'success');
+function isCurrentKey(key: string): boolean {
+  return currentVideos.some((video) => videoKey(video.url) === key);
 }
 
 interface BatchStatus {
@@ -299,6 +271,7 @@ interface BatchStatus {
   completed: number;
   failed: number;
   currentTitle?: string;
+  folder?: string;
   cancelled: boolean;
 }
 
@@ -318,7 +291,7 @@ function renderBatchStatus(batch: BatchStatus | null): void {
   document.getElementById('batch-count')!.textContent = `${done} / ${batch.total}`;
   document.getElementById('batch-title')!.textContent = batch.cancelled
     ? 'Stopping…'
-    : (batch.currentTitle || '');
+    : [batch.folder, batch.currentTitle].filter(Boolean).join(' · ');
 }
 
 // Signed CDN links rotate their query token between visits, so the same video
@@ -333,26 +306,27 @@ function videoKey(url: string): string {
 }
 
 /**
- * History minus whatever is already listed as detected on the current page
+ * Every known video, with the current page's pinned to the top.
  */
 function visibleHistoryEntries(): HistoryEntry[] {
-  const currentKeys = new Set(currentVideos.map((video) => videoKey(video.url)));
-  return historyEntries.filter((entry) => !currentKeys.has(videoKey(entry.url)));
+  const current: HistoryEntry[] = [];
+  const rest: HistoryEntry[] = [];
+  for (const entry of historyEntries) {
+    (isCurrentKey(videoKey(entry.url)) ? current : rest).push(entry);
+  }
+  return [...current, ...rest];
 }
 
 function matchesHistorySearch(entry: HistoryEntry): boolean {
   if (!historySearch) return true;
-  const haystack = `${entry.title || ''} ${entry.pageUrl || ''}`.toLowerCase();
-  return haystack.includes(historySearch);
+  return (entry.title || '').toLowerCase().includes(historySearch);
 }
 
-/**
- * Render previously detected media, excluding whatever is already on this page
- */
 function renderHistory(): void {
   const section = document.getElementById('history-section')!;
   const container = document.getElementById('history-list')!;
   const emptyNote = document.getElementById('history-empty')!;
+  const emptyState = document.getElementById('empty-state')!;
 
   // A detection arriving mid-rename would wipe what's being typed.
   if (container.querySelector('.editing')) return;
@@ -363,9 +337,11 @@ function renderHistory(): void {
   container.replaceChildren();
   if (available.length === 0) {
     section.classList.add('hidden');
+    emptyState.classList.remove('hidden');
     return;
   }
 
+  emptyState.classList.add('hidden');
   section.classList.remove('hidden');
   emptyNote.classList.toggle('hidden', entries.length > 0);
 
@@ -379,14 +355,9 @@ function renderHistory(): void {
   });
 }
 
-// --- Drag: reorder within history, and move current-page rows down into it ---
-
-function attachDragBehaviour(element: HTMLElement, kind: 'history' | 'current'): void {
-  element.dataset.kind = kind;
-
+function attachDragBehaviour(element: HTMLElement): void {
   element.addEventListener('dragstart', (event) => {
     draggingKey = element.dataset.key || null;
-    draggingKind = kind;
     element.classList.add('dragging');
     event.dataTransfer?.setData('text/plain', draggingKey || '');
     if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
@@ -395,7 +366,6 @@ function attachDragBehaviour(element: HTMLElement, kind: 'history' | 'current'):
   element.addEventListener('dragend', () => {
     element.classList.remove('dragging');
     draggingKey = null;
-    draggingKind = null;
     document.getElementById('history-list')?.classList.remove('drop-target');
   });
 }
@@ -406,14 +376,14 @@ function setupDropZones(): void {
 
   // Accepting the drop is what suppresses the browser's "fly back" animation.
   const accept = (event: DragEvent): void => {
-    if (!draggingKind) return;
+    if (!draggingKey) return;
     event.preventDefault();
     if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
   };
 
   historyList.addEventListener('dragover', (event) => {
     accept(event);
-    if (!draggingKind) return;
+    if (!draggingKey) return;
     historyList.classList.add('drop-target');
     const dragged = document.querySelector('.dragging') as HTMLElement | null;
     if (!dragged) return;
@@ -430,23 +400,11 @@ function setupDropZones(): void {
   historyList.addEventListener('drop', (event) => {
     accept(event);
     historyList.classList.remove('drop-target');
-    const kind = draggingKind;
-    const key = draggingKey;
-    if (!kind || !key || !port) return;
-
+    if (!draggingKey || !port) return;
     const keys = [...historyList.children]
       .map((child) => (child as HTMLElement).dataset.key)
       .filter((value): value is string => Boolean(value));
-
-    if (kind === 'history') {
-      port.postMessage({ type: 'REORDER_HISTORY', keys });
-      return;
-    }
-
-    const video = currentVideos.find((candidate) => videoKey(candidate.url) === key);
-    if (!video) return;
-    movedFromCurrentKeys.add(key);
-    port.postMessage({ type: 'MOVE_TO_HISTORY', tabId: activeTabId, video, keys });
+    port.postMessage({ type: 'REORDER_HISTORY', keys });
   });
 }
 
@@ -463,7 +421,7 @@ function rowAfterPointer(container: HTMLElement, clientY: number): HTMLElement |
 
 // --- Inline rename ---
 
-function startRename(element: HTMLElement, video: VideoInfo, isHistory: boolean): void {
+function startRename(element: HTMLElement, video: VideoInfo, isCurrent: boolean): void {
   const info = element.querySelector('.media-info') as HTMLElement | null;
   if (!info || element.classList.contains('editing')) return;
   element.classList.add('editing');
@@ -497,9 +455,9 @@ function startRename(element: HTMLElement, video: VideoInfo, isHistory: boolean)
     const title = input.value.trim();
     close();
     if (!title || title === video.title) return;
-    port?.postMessage(isHistory
-      ? { type: 'RENAME_HISTORY_ITEM', key: videoKey(video.url), title }
-      : { type: 'RENAME_VIDEO', tabId: activeTabId, key: videoKey(video.url), title });
+    const key = videoKey(video.url);
+    port?.postMessage({ type: 'RENAME_HISTORY_ITEM', key, title });
+    if (isCurrent) port?.postMessage({ type: 'RENAME_VIDEO', tabId: activeTabId, key, title });
   };
 
   confirm.addEventListener('click', (event) => { event.stopPropagation(); commit(); });
@@ -571,11 +529,14 @@ function createMediaItem(video: VideoInfo, index: number, historyEntry?: History
   div.setAttribute('role', 'option');
   div.setAttribute('aria-selected', 'false');
   div.tabIndex = 0;
-  div.draggable = true;
+  // Current-page rows stay pinned at the top, so only the rest reorder.
+  const isCurrent = isCurrentKey(videoKey(video.url));
+  div.draggable = !isCurrent;
+  div.classList.toggle('media-item-current-page', isCurrent);
 
   const durationStr = video.duration ? formatDuration(video.duration) : '';
 
-  div.appendChild(createDragHandle());
+  if (!isCurrent) div.appendChild(createDragHandle());
 
   if (video.thumbnail) {
     const wrapper = document.createElement('div');
@@ -607,20 +568,24 @@ function createMediaItem(video: VideoInfo, index: number, historyEntry?: History
   titleText.textContent = video.title || 'Unknown Video';
   title.appendChild(titleText);
 
+  if (isCurrent) {
+    title.appendChild(createBadge('current-badge', 'current', "Detected on the page you have open"));
+  }
   if (historyEntry?.downloaded) {
     title.appendChild(createBadge('downloaded-badge', '✓', 'Already downloaded'));
   }
-  if (historyEntry && movedFromCurrentKeys.has(videoKey(video.url))) {
-    title.appendChild(createBadge('current-badge', 'current', "This page's video"));
+  if (historyEntry?.failed) {
+    title.appendChild(createBadge('failed-badge', 'error', 'Last download failed'));
   }
   info.appendChild(title);
 
   const meta = document.createElement('div');
   meta.className = 'media-meta';
-  meta.textContent = (historyEntry
-    ? [getTypeLabel(video.type), durationStr, getSiteLabel(historyEntry.pageUrl), formatRelativeTime(historyEntry.detectedAt)]
-    : [getTypeLabel(video.type), durationStr]
-  ).filter(Boolean).join(' · ');
+  meta.textContent = [
+    getTypeLabel(video.type),
+    durationStr,
+    historyEntry ? formatRelativeTime(historyEntry.detectedAt) : ''
+  ].filter(Boolean).join(' · ');
   if (historyEntry?.pageUrl) div.title = historyEntry.pageUrl;
   info.appendChild(meta);
 
@@ -630,11 +595,11 @@ function createMediaItem(video: VideoInfo, index: number, historyEntry?: History
   rename.classList.add('rename-btn');
   rename.addEventListener('click', (event) => {
     event.stopPropagation();
-    startRename(div, video, Boolean(historyEntry));
+    startRename(div, video, isCurrent);
   });
   div.appendChild(rename);
 
-  attachDragBehaviour(div, historyEntry ? 'history' : 'current');
+  if (!isCurrent) attachDragBehaviour(div);
 
   div.addEventListener('click', () => selectMedia(video, div));
   div.addEventListener('keydown', (event) => {
@@ -951,16 +916,26 @@ function startDownload(video: VideoInfo, quality: QualityOption): void {
   }
 }
 
+// Collapses the detail panel back to just the list.
+function closeDetails(): void {
+  selectedVideo = null;
+  currentQualities = [];
+  document.getElementById('media-details')?.classList.add('hidden');
+  document.getElementById('download-section')?.classList.add('hidden');
+  document.querySelectorAll('.media-item.selected').forEach((element) => {
+    element.classList.remove('selected');
+    element.setAttribute('aria-selected', 'false');
+  });
+}
+
 function showDownloadingUI(): void {
   const emptyState = document.getElementById('empty-state')!;
-  const videoList = document.getElementById('video-list')!;
   const mediaDetails = document.getElementById('media-details')!;
   const downloadSection = document.getElementById('download-section')!;
   const downloadProgress = document.getElementById('download-progress')!;
   const error = document.getElementById('error')!;
   
   emptyState.classList.add('hidden');
-  videoList.classList.add('hidden');
   mediaDetails.classList.add('hidden');
   downloadSection.classList.add('hidden');
   error.classList.add('hidden');
@@ -976,14 +951,12 @@ function restoreDownloadUI(downloadId: string, filename: string, progress: any):
   currentDownloadId = downloadId;
 
   const emptyState = document.getElementById('empty-state')!;
-  const videoList = document.getElementById('video-list')!;
   const mediaDetails = document.getElementById('media-details')!;
   const downloadSection = document.getElementById('download-section')!;
   const downloadProgress = document.getElementById('download-progress')!;
   const error = document.getElementById('error')!;
 
   emptyState.classList.add('hidden');
-  videoList.classList.add('hidden');
   mediaDetails.classList.add('hidden');
   downloadSection.classList.add('hidden');
   error.classList.add('hidden');
@@ -1091,15 +1064,12 @@ function cancelDownload(): void {
 function resetUI(): void {
   currentDownloadId = null;
   const emptyState = document.getElementById('empty-state')!;
-  const videoList = document.getElementById('video-list')!;
   const mediaDetails = document.getElementById('media-details')!;
   const downloadSection = document.getElementById('download-section')!;
   const downloadProgress = document.getElementById('download-progress')!;
   const error = document.getElementById('error')!;
   const fill = document.getElementById('progress-fill');
   
-  emptyState.classList.add('hidden');
-  videoList.classList.remove('hidden');
   mediaDetails.classList.add('hidden');
   downloadSection.classList.add('hidden');
   downloadProgress.classList.add('hidden');

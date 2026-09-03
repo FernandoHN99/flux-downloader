@@ -168,8 +168,8 @@ body {
 
 /* ═══ Status Bar ═══ */
 .status-bar {
-  padding: 8px 16px;
-  font-size: 12px;
+  padding: 5px 12px;
+  font-size: 10px;
   color: var(--text-muted);
   font-weight: 500;
   background: var(--bg);
@@ -191,10 +191,10 @@ body {
 .status-bar::before {
   content: '';
   display: inline-block;
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
-  margin-right: 8px;
+  margin-right: 6px;
   background: currentColor;
   opacity: 0.7;
   vertical-align: middle;
@@ -525,6 +525,22 @@ body {
   border-radius: var(--radius);
 }
 
+.failed-badge {
+  flex-shrink: 0;
+  padding: 1px 5px;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--error);
+  background: var(--error-soft);
+  border-radius: 999px;
+}
+
+.media-item-current-page {
+  opacity: 1;
+}
+
 .current-badge {
   flex-shrink: 0;
   padding: 1px 5px;
@@ -709,14 +725,22 @@ body {
 
 /* ═══ Media Details / Quality ═══ */
 .media-details {
-  padding: 12px 16px;
+  padding: 8px 12px;
   border-top: 1px solid var(--border-soft);
 }
 
+.media-details-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
 #media-title {
-  font-size: 13px;
+  flex: 1;
+  font-size: 11px;
   font-weight: 600;
-  margin-bottom: 10px;
+  margin-bottom: 0;
   color: var(--text);
   white-space: nowrap;
   overflow: hidden;
@@ -727,8 +751,8 @@ body {
 .quality-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  max-height: min(240px, 45vh);
+  gap: 4px;
+  max-height: min(190px, 40vh);
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
@@ -751,20 +775,21 @@ body {
 .quality-options {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 
 /* Quick buttons */
 .quick-options {
   display: flex;
-  gap: 6px;
-  margin-bottom: 6px;
+  gap: 4px;
+  margin-bottom: 4px;
 }
 
 .quick-btn {
   flex: 1;
   min-width: 0;
-  padding: 7px 10px;
+  padding: 4px 8px;
+  font-size: 11px;
   background: var(--bg-elevated);
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-sm);
@@ -792,7 +817,7 @@ body {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  padding: 8px 12px;
+  padding: 5px 8px;
   background: var(--bg-elevated);
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-sm);
@@ -828,7 +853,7 @@ body {
 
 .quality-label {
   font-weight: 600;
-  font-size: 13px;
+  font-size: 11px;
   color: var(--text);
   font-family: ui-monospace, 'Cascadia Code', 'SF Mono', monospace;
   min-width: 0;
@@ -836,7 +861,7 @@ body {
 }
 
 .quality-bandwidth {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-dim);
   margin-left: 8px;
   font-family: ui-monospace, 'Cascadia Code', 'SF Mono', monospace;
@@ -864,7 +889,7 @@ body {
 }
 
 .quality-size {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--accent-text);
   margin-left: auto;
   font-weight: 600;
@@ -884,7 +909,7 @@ body {
 
 /* ═══ Download Section ═══ */
 .download-section {
-  padding: 12px 16px;
+  padding: 8px 12px;
   border-top: 1px solid var(--border-soft);
 }
 

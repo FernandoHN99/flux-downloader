@@ -27,9 +27,6 @@ const navigationGenerationByTab = new Map<number, number>();
 const currentPageUrlByTab = new Map<number, string | null>();
 const relayMappingsByTab = new Map<number, Map<string, string>>();
 const relayCodecsByTab = new Map<number, Map<string, RelayCodec>>();
-// Videos the user dragged out of the current list and into history. Cleared on
-// navigation, so a reload surfaces them at the top again.
-const movedToHistoryByTab = new Map<number, Set<string>>();
 
 interface RelayCodec {
   hour: number;
@@ -52,7 +49,6 @@ function resetTabState(tabId: number): void {
   ytdlpFormatUrlByTab.delete(tabId);
   relayMappingsByTab.delete(tabId);
   relayCodecsByTab.delete(tabId);
-  movedToHistoryByTab.delete(tabId);
   chrome.action.setBadgeText({ tabId, text: '' }, () => { void chrome.runtime.lastError; });
 }
 
@@ -577,42 +573,6 @@ async function reorderHistory(keys: string[]): Promise<void> {
   await broadcastHistory(next);
 }
 
-// Dragging a current-page row into history: the dragged copy wins, so any
-// older entry for the same video is dropped rather than left as a duplicate.
-async function moveVideoToHistory(tabId: number | undefined, video: VideoInfo, keys: string[]): Promise<void> {
-  if (typeof tabId !== 'number' || !video?.url) return;
-  const key = videoKey(video.url);
-  const metadata = pageMetadataByTab.get(tabId);
-  const history = await readHistory();
-
-  const entry: HistoryEntry = {
-    ...video,
-    pageUrl: metadata?.pageUrl,
-    pageTitle: metadata?.title,
-    detectedAt: Date.now()
-  };
-
-  const withoutOld = history.filter((existing) => videoKey(existing.url) !== key);
-  const byKey = new Map([...withoutOld, entry].map((item) => [videoKey(item.url), item]));
-  const ordered: HistoryEntry[] = [];
-  for (const wanted of keys) {
-    const match = byKey.get(wanted);
-    if (match) {
-      ordered.push(match);
-      byKey.delete(wanted);
-    }
-  }
-  const next = [...ordered, ...[...byKey.values()]].slice(0, HISTORY_LIMIT);
-
-  const moved = movedToHistoryByTab.get(tabId) || new Set<string>();
-  moved.add(key);
-  movedToHistoryByTab.set(tabId, moved);
-
-  await chrome.storage.local.set({ [HISTORY_KEY]: next });
-  await broadcastHistory(next);
-  notifyPopups(tabId);
-}
-
 function renameDetectedVideo(tabId: number | undefined, key: string, title: string): void {
   const trimmed = title.trim();
   if (typeof tabId !== 'number' || !trimmed) return;
@@ -638,6 +598,7 @@ async function broadcastHistory(entries: HistoryEntry[]): Promise<void> {
 // --- Downloaded videos (drives the "already downloaded" marker) ---
 
 const DOWNLOADED_KEY = 'downloadedVideos';
+const FAILED_KEY = 'failedVideos';
 const DOWNLOADED_LIMIT = 500;
 
 async function readDownloadedKeys(): Promise<string[]> {
@@ -646,18 +607,43 @@ async function readDownloadedKeys(): Promise<string[]> {
   return Array.isArray(keys) ? keys : [];
 }
 
+async function readFailedKeys(): Promise<string[]> {
+  const stored = await chrome.storage.local.get(FAILED_KEY);
+  const keys = stored[FAILED_KEY];
+  return Array.isArray(keys) ? keys : [];
+}
+
 async function markDownloaded(url: string): Promise<void> {
   const key = videoKey(url);
   const keys = await readDownloadedKeys();
-  if (keys.includes(key)) return;
-  const next = [key, ...keys].slice(0, DOWNLOADED_LIMIT);
-  await chrome.storage.local.set({ [DOWNLOADED_KEY]: next });
+  const failed = await readFailedKeys();
+  const alreadyMarked = keys.includes(key);
+  if (alreadyMarked && !failed.includes(key)) return;
+
+  await chrome.storage.local.set({
+    [DOWNLOADED_KEY]: alreadyMarked ? keys : [key, ...keys].slice(0, DOWNLOADED_LIMIT),
+    // A success clears an earlier failure for the same video.
+    [FAILED_KEY]: failed.filter((entry) => entry !== key)
+  });
+  await broadcastHistory(await readHistory());
+}
+
+async function markFailed(url: string): Promise<void> {
+  const key = videoKey(url);
+  const failed = await readFailedKeys();
+  if (failed.includes(key)) return;
+  await chrome.storage.local.set({ [FAILED_KEY]: [key, ...failed].slice(0, DOWNLOADED_LIMIT) });
   await broadcastHistory(await readHistory());
 }
 
 async function decorateHistory(entries: HistoryEntry[]): Promise<HistoryEntry[]> {
   const downloaded = new Set(await readDownloadedKeys());
-  return entries.map((entry) => ({ ...entry, downloaded: downloaded.has(videoKey(entry.url)) }));
+  const failed = new Set(await readFailedKeys());
+  return entries.map((entry) => ({
+    ...entry,
+    downloaded: downloaded.has(videoKey(entry.url)),
+    failed: failed.has(videoKey(entry.url))
+  }));
 }
 
 // Statuses a signed CDN returns once a link's token has expired.
@@ -682,6 +668,7 @@ interface BatchState {
   failed: number;
   currentTitle?: string;
   currentKey?: string;
+  folder?: string;
   cancelled: boolean;
 }
 
@@ -712,7 +699,23 @@ async function runBatchDownload(videos: VideoInfo[], tabId?: number, quality?: '
   if (batch) return;
   const settings = await getSettings();
   const preference = quality || settings.defaultQuality;
-  const state: BatchState = { total: videos.length, completed: 0, failed: 0, cancelled: false };
+
+  // Each run drops its files in its own timestamped folder. Colons are not
+  // usable in filenames on Windows and read badly in Finder, so the clock
+  // part uses dashes.
+  const stamp = new Date();
+  const pad = (value: number) => String(value).padStart(2, '0');
+  const folder = `MediaGrabber ${stamp.getFullYear()}-${pad(stamp.getMonth() + 1)}-${pad(stamp.getDate())} `
+    + `${pad(stamp.getHours())}-${pad(stamp.getMinutes())}-${pad(stamp.getSeconds())}`;
+  const directory = joinOutputPath(defaultDownloadDir, folder);
+  try {
+    await nativeClient.ensureDir(directory);
+  } catch (error: any) {
+    popupPorts.forEach((port) => port.postMessage({ type: 'ERROR', message: `Could not create ${folder}: ${error?.message || error}` }));
+    return;
+  }
+
+  const state: BatchState = { total: videos.length, completed: 0, failed: 0, folder, cancelled: false };
   batch = state;
   broadcastBatch();
 
@@ -734,14 +737,20 @@ async function runBatchDownload(videos: VideoInfo[], tabId?: number, quality?: '
         video.title,
         tabId,
         video.url,
-        true
+        true,
+        directory
       );
       state.currentKey = started?.downloadId;
       const succeeded = state.currentKey ? await waitForDownload(state.currentKey) : false;
-      if (succeeded) state.completed += 1;
-      else state.failed += 1;
+      if (succeeded) {
+        state.completed += 1;
+      } else {
+        state.failed += 1;
+        await markFailed(video.url).catch(() => { /* badge is best-effort */ });
+      }
     } catch (error: any) {
       state.failed += 1;
+      await markFailed(video.url).catch(() => { /* badge is best-effort */ });
       const message = error?.message || String(error);
       popupPorts.forEach((port) => {
         port.postMessage({ type: 'ERROR', message: `${video.title}: ${message}` });
@@ -768,9 +777,7 @@ async function cancelBatchDownload(): Promise<void> {
 }
 
 function getVisibleVideosForTab(tabId: number): VideoInfo[] {
-  const moved = movedToHistoryByTab.get(tabId);
-  const stored = mediaByTab.get(tabId) || [];
-  const videos = moved ? stored.filter((video) => !moved.has(videoKey(video.url))) : stored;
+  const videos = mediaByTab.get(tabId) || [];
   const metadata = pageMetadataByTab.get(tabId);
   if (metadata?.pageUrl && isYouTubeUrl(metadata.pageUrl)) {
     return videos.filter(video => video.type === 'ytdlp');
@@ -1065,15 +1072,11 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: any): void {
   switch (msg.type) {
     case 'GET_MEDIA':
       if (typeof msg.tabId === 'number') {
-        port.postMessage({ type: 'MEDIA_LIST', videos: getVisibleVideosForTab(msg.tabId), movedKeys: movedKeysForTab(msg.tabId) });
+        port.postMessage({ type: 'MEDIA_LIST', videos: getVisibleVideosForTab(msg.tabId) });
       } else {
         chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
           const tabId = tabs[0]?.id;
-          port.postMessage({
-            type: 'MEDIA_LIST',
-            videos: tabId ? getVisibleVideosForTab(tabId) : [],
-            movedKeys: tabId ? movedKeysForTab(tabId) : []
-          });
+          port.postMessage({ type: 'MEDIA_LIST', videos: tabId ? getVisibleVideosForTab(tabId) : [] });
         });
       }
       break;
@@ -1107,12 +1110,6 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: any): void {
       historyWrites = historyWrites
         .then(() => reorderHistory(msg.keys || []))
         .catch((error) => console.warn('[MediaGrabber] Failed to reorder history:', error));
-      break;
-
-    case 'MOVE_TO_HISTORY':
-      historyWrites = historyWrites
-        .then(() => moveVideoToHistory(msg.tabId, msg.video, msg.keys || []))
-        .catch((error) => console.warn('[MediaGrabber] Failed to move video to history:', error));
       break;
 
     case 'RENAME_VIDEO':
@@ -1161,15 +1158,10 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: any): void {
 function notifyPopups(tabId: number): void {
   const videos = getVisibleVideosForTab(tabId);
   if (videos) {
-    const movedKeys = movedKeysForTab(tabId);
     popupPorts.forEach(port => {
-      port.postMessage({ type: 'MEDIA_LIST', videos, movedKeys });
+      port.postMessage({ type: 'MEDIA_LIST', videos });
     });
   }
-}
-
-function movedKeysForTab(tabId: number): string[] {
-  return [...(movedToHistoryByTab.get(tabId) || [])];
 }
 
 // --- Download orchestration ---
@@ -1292,7 +1284,8 @@ async function startDownload(
   filename?: string,
   tabId?: number,
   sourceUrl?: string,
-  checkFreshness = false
+  checkFreshness = false,
+  directoryOverride?: string
 ): Promise<any> {
   await ensureCoAppConnected();
 
@@ -1306,7 +1299,7 @@ async function startDownload(
   }
 
   const type = video.type === 'm3u8' ? 'hls' : video.type === 'mpd' ? 'dash' : video.type;
-  const directory = defaultDownloadDir;
+  const directory = directoryOverride || defaultDownloadDir;
   let outFilename = ensureFilenameExtension(
     sanitizeFilename(filename || `${video.title || 'video'}`),
     getDefaultExtension(video, type)

@@ -156,7 +156,14 @@ function uniquePath(directory: string, filename: string): string {
 }
 
 rpc.listen({
-  'file.uniquePath': (directory: string, filename: string) => uniquePath(directory, filename)
+  'file.uniquePath': (directory: string, filename: string) => uniquePath(directory, filename),
+
+  // ffmpeg will not create the output directory itself, so batch downloads ask
+  // for their folder up front.
+  'file.ensureDir': (directory: string) => {
+    fileOps.mkdir(directory);
+    return { path: directory };
+  }
 });
 
 console.error('[MediaGrabber CoApp] File module loaded');

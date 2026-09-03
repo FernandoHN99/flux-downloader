@@ -236,6 +236,8 @@ export class NativeClient {
 
   async uniquePath(directory: string, filename: string): Promise<string> { return this.call('file.uniquePath', directory, filename); }
 
+  async ensureDir(directory: string): Promise<{ path: string }> { return this.call('file.ensureDir', directory); }
+
   async probeStatus(url: string, referer?: string): Promise<{ status?: number; error?: string }> {
     return this.call('downloads.probeStatus', url, referer);
   }

@@ -45,14 +45,16 @@
       <button id="refresh-btn" class="btn btn-secondary">Refresh</button>
     </div>
     
-    <!-- Media List -->
-    <div id="video-list" class="media-list hidden">
-      <div id="videos" role="listbox" aria-label="Detected media"></div>
-    </div>
-    
     <!-- Selected Media Details -->
     <div id="media-details" class="media-details hidden">
-      <h2 id="media-title">Video Title</h2>
+      <div class="media-details-header">
+        <h2 id="media-title">Video Title</h2>
+        <button id="close-details-btn" class="icon-btn-sm" aria-label="Close details" title="Close">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true">
+            <path d="M18 6 6 18M6 6l12 12"></path>
+          </svg>
+        </button>
+      </div>
       <div id="quality-list" class="quality-list"></div>
     </div>
     
@@ -76,7 +78,7 @@
     <!-- History -->
     <div id="history-section" class="history-section hidden">
       <div class="history-header">
-        <span class="history-label">History</span>
+        <span class="history-label">Videos</span>
         <div class="history-actions">
           <div class="quality-toggle" role="radiogroup" aria-label="Quality for Download all">
             <button id="batch-best-btn" class="quality-badge selected" role="radio" aria-checked="true" data-quality="best">Best</button>
