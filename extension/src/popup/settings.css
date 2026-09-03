@@ -74,7 +74,7 @@ body {
   height: auto;
   min-height: 420px;
   max-height: 600px;
-  font-size: 14px;
+  font-size: 12px;
   color: var(--text);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
@@ -173,7 +173,7 @@ body {
 
 .setting-label {
   display: block;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -183,7 +183,7 @@ body {
 
 .setting-item > label:not(.setting-label):not(.checkbox-label) {
   display: block;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -191,33 +191,7 @@ body {
   margin-bottom: 5px;
 }
 
-.setting-item select {
-  width: 100%;
-  padding: 6px 9px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  font-size: 12px;
-  color: var(--text);
-  background-color: var(--bg-elevated);
-  cursor: pointer;
-  transition: border-color 0.15s;
-  font-family: inherit;
-  appearance: none;
-  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238b919e' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 12px center;
-  padding-right: 32px;
-}
-
 .setting-item select:focus,
-.setting-item select:focus-visible {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.setting-item select:focus-visible {
-  box-shadow: var(--focus-ring);
-}
 
 .setting-help {
   font-size: 10px;
@@ -245,7 +219,7 @@ body {
   border: none;
   background: none;
   border-radius: 4px;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 500;
   color: var(--text-muted);
   cursor: pointer;
@@ -284,7 +258,7 @@ body {
   border: none;
   background: none;
   border-radius: 4px;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 500;
   color: var(--text-muted);
   cursor: pointer;
@@ -307,8 +281,13 @@ body {
 }
 
 /* Shown while "Only current" is picked but not yet saved. */
-.setting-help.warn {
+.setting-help.error {
   color: var(--error);
+  margin-top: 5px;
+}
+
+.hidden {
+  display: none !important;
 }
 
 .theme-option:focus-visible {
@@ -322,33 +301,6 @@ body {
 }
 
 /* ═══ Checkbox ═══ */
-.checkbox-label {
-  display: flex;
-  align-items: center;
-  cursor: pointer;
-  gap: 0;
-}
-
-.checkbox-label input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  margin-right: 10px;
-  accent-color: var(--accent);
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.checkbox-label input[type="checkbox"]:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-  border-radius: 3px;
-}
-
-.checkbox-text {
-  font-weight: 500;
-  font-size: 12px;
-  color: var(--text);
-}
 
 /* ═══ Status Display ═══ */
 .status-display {
@@ -386,7 +338,7 @@ body {
 }
 
 .version-text {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-dim);
   font-family: ui-monospace, 'Cascadia Code', 'SF Mono', monospace;
   min-width: 0;
@@ -394,92 +346,10 @@ body {
 }
 
 /* ═══ Footer ═══ */
-.settings-footer {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 8px 12px;
-  border-top: 1px solid var(--border-soft);
-  background: var(--bg);
-}
 
 /* ═══ Buttons ═══ */
-.btn {
-  min-width: 0;
-  padding: 6px 14px;
-  border: none;
-  border-radius: var(--radius-sm);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background-color 0.15s, color 0.15s, transform 0.1s;
-  font-family: inherit;
-  letter-spacing: 0.01em;
-}
-
-.btn-primary {
-  background: var(--accent);
-  color: #fff;
-}
-
-.btn-primary:hover {
-  background: var(--accent-hover);
-}
-
-.btn-primary:active {
-  transform: scale(0.98);
-}
-
-.btn-primary:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
-.btn-secondary {
-  background: var(--bg-hover);
-  color: var(--text);
-  border: 1px solid var(--border-soft);
-}
-
-.btn-secondary:hover {
-  background: var(--bg-active);
-  border-color: var(--border);
-}
-
-.btn-secondary:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
 
 /* ═══ Notification Toast ═══ */
-.notification {
-  position: fixed;
-  bottom: 56px;
-  left: 16px;
-  right: 16px;
-  padding: 6px 9px;
-  border-radius: var(--radius-sm);
-  font-size: 12px;
-  z-index: 1000;
-  text-align: center;
-  font-weight: 500;
-  backdrop-filter: blur(8px);
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
-  animation: notification-slide 0.2s ease-out;
-}
-
-.notification.success {
-  background: var(--success-soft);
-  color: var(--success);
-  border: 1px solid var(--success);
-}
-
-.notification.error {
-  background: var(--error-soft);
-  color: var(--error);
-  border: 1px solid var(--error);
-}
 
 @keyframes notification-slide {
   from {

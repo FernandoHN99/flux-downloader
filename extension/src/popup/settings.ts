@@ -1,35 +1,43 @@
-import { Settings, DEFAULT_SETTINGS, loadSettings, saveSettings, resetSettings, checkCoAppStatus, ThemeMode } from '../lib/settings';
+import { Settings, DEFAULT_SETTINGS, loadSettings, saveSettings, checkCoAppStatus, ThemeMode } from '../lib/settings';
 import { applyTheme, initTheme } from '../lib/theme';
 
 let currentSettings: Settings = { ...DEFAULT_SETTINGS };
-let selectedTheme: ThemeMode = 'system';
-let selectedBatchQuality: Settings['batchQuality'] = 'best';
-let keepHistory = true;
 
 document.addEventListener('DOMContentLoaded', async () => {
   await initTheme();
   await initializeSettings();
-  setupEventListeners();
   setupThemeSelector();
-  setupSegmented();
+  setupHistoryMode();
   checkCoAppConnection();
 });
 
 async function initializeSettings(): Promise<void> {
   try {
     currentSettings = await loadSettings();
-    selectedTheme = currentSettings.theme;
-
-    const defaultQuality = document.getElementById('default-quality') as HTMLSelectElement;
-    const showNotifications = document.getElementById('show-notifications') as HTMLInputElement;
-
-    if (defaultQuality) defaultQuality.value = currentSettings.defaultQuality;
-    if (showNotifications) showNotifications.checked = currentSettings.showNotifications;
-    selectedBatchQuality = currentSettings.batchQuality;
-    keepHistory = currentSettings.keepHistory;
-    renderSegmented();
   } catch (error) {
-    console.error('[Settings] Failed to load settings:', error);
+    showStatusError('Could not read your settings — showing defaults.');
+  }
+  render();
+}
+
+function render(): void {
+  updateThemeButtons(currentSettings.theme);
+  updateHistoryButtons(currentSettings.keepHistory);
+}
+
+/**
+ * There is no Save button: a click is the commit. Everything writes through
+ * here so a storage failure is reported instead of silently lost.
+ */
+async function commit(change: Partial<Settings>): Promise<void> {
+  const next = { ...currentSettings, ...change };
+  currentSettings = next;
+  render();
+  try {
+    await saveSettings(next);
+    hideStatusError();
+  } catch (error: any) {
+    showStatusError(`Could not save: ${error?.message || error}`);
   }
 }
 
@@ -37,164 +45,66 @@ function setupThemeSelector(): void {
   const selector = document.getElementById('theme-selector');
   if (!selector) return;
 
-  updateThemeButtons(selectedTheme);
-
   const buttons = Array.from(selector.querySelectorAll<HTMLButtonElement>('.theme-option'));
-  buttons.forEach(btn => {
-    btn.addEventListener('click', () => {
-      const theme = (btn as HTMLElement).dataset.theme as ThemeMode;
+  buttons.forEach((button) => {
+    button.addEventListener('click', () => {
+      const theme = button.dataset.theme as ThemeMode;
       if (!theme) return;
-      selectedTheme = theme;
       applyTheme(theme);
-      updateThemeButtons(theme);
+      commit({ theme });
     });
 
-    btn.addEventListener('keydown', event => {
-      const currentIndex = buttons.indexOf(btn);
-      let nextIndex = currentIndex;
-      if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
-        nextIndex = (currentIndex - 1 + buttons.length) % buttons.length;
-      } else if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
-        nextIndex = (currentIndex + 1) % buttons.length;
-      } else if (event.key === 'Home') {
-        nextIndex = 0;
-      } else if (event.key === 'End') {
-        nextIndex = buttons.length - 1;
-      } else {
-        return;
-      }
+    button.addEventListener('keydown', (event) => {
+      const index = buttons.indexOf(button);
+      let next = index;
+      if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = (index - 1 + buttons.length) % buttons.length;
+      else if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (index + 1) % buttons.length;
+      else if (event.key === 'Home') next = 0;
+      else if (event.key === 'End') next = buttons.length - 1;
+      else return;
 
       event.preventDefault();
-      buttons[nextIndex].click();
-      buttons[nextIndex].focus();
+      buttons[next].click();
+      buttons[next].focus();
     });
   });
 }
 
 function updateThemeButtons(theme: ThemeMode): void {
-  document.querySelectorAll('.theme-option').forEach(btn => {
-    const el = btn as HTMLElement;
-    const isSelected = el.dataset.theme === theme;
-    el.classList.toggle('active', isSelected);
-    el.setAttribute('aria-checked', String(isSelected));
-    el.tabIndex = isSelected ? 0 : -1;
+  document.querySelectorAll<HTMLButtonElement>('.theme-option').forEach((button) => {
+    const selected = button.dataset.theme === theme;
+    button.classList.toggle('active', selected);
+    button.setAttribute('aria-checked', String(selected));
+    button.tabIndex = selected ? 0 : -1;
   });
 }
 
-/** The two-button pickers for batch quality and what the video list keeps. */
-function setupSegmented(): void {
-  document.querySelectorAll<HTMLButtonElement>('#batch-quality .segmented-option').forEach((button) => {
-    button.addEventListener('click', () => {
-      selectedBatchQuality = (button.dataset.batch as Settings['batchQuality']) || 'best';
-      renderSegmented();
-    });
-  });
-
+function setupHistoryMode(): void {
   document.querySelectorAll<HTMLButtonElement>('#history-mode .segmented-option').forEach((button) => {
     button.addEventListener('click', () => {
-      keepHistory = button.dataset.history !== 'current';
-      renderSegmented();
+      commit({ keepHistory: button.dataset.history !== 'current' });
     });
   });
 }
 
-function renderSegmented(): void {
-  document.querySelectorAll<HTMLButtonElement>('#batch-quality .segmented-option').forEach((button) => {
-    const active = button.dataset.batch === selectedBatchQuality;
-    button.classList.toggle('active', active);
-    button.setAttribute('aria-checked', String(active));
-  });
-
+function updateHistoryButtons(keepHistory: boolean): void {
   document.querySelectorAll<HTMLButtonElement>('#history-mode .segmented-option').forEach((button) => {
-    const active = (button.dataset.history === 'current') === !keepHistory;
-    button.classList.toggle('active', active);
-    button.setAttribute('aria-checked', String(active));
+    const selected = (button.dataset.history === 'current') === !keepHistory;
+    button.classList.toggle('active', selected);
+    button.setAttribute('aria-checked', String(selected));
   });
 
-  // Turning history off throws entries away, so say so before it is saved.
   const help = document.querySelector('#history-mode ~ .setting-help');
   if (help) {
     help.textContent = keepHistory
       ? 'Keeps everything Flux has detected, newest first'
-      : 'Saving this clears the list down to what your open tabs are playing';
-    help.classList.toggle('warn', !keepHistory && currentSettings.keepHistory);
-  }
-}
-
-function setupEventListeners(): void {
-  document.getElementById('save-btn')?.addEventListener('click', async () => {
-    await saveCurrentSettings();
-  });
-
-  document.getElementById('reset-btn')?.addEventListener('click', async () => {
-    await handleResetSettings();
-  });
-}
-
-async function saveCurrentSettings(): Promise<void> {
-  const saveButton = document.getElementById('save-btn') as HTMLButtonElement | null;
-  if (!saveButton || saveButton.disabled) return;
-
-  const defaultQuality = document.getElementById('default-quality') as HTMLSelectElement;
-  const showNotifications = document.getElementById('show-notifications') as HTMLInputElement;
-
-  const settings: Settings = {
-    defaultQuality: (defaultQuality?.value as Settings['defaultQuality']) || 'ask',
-    batchQuality: selectedBatchQuality,
-    keepHistory,
-    showNotifications: showNotifications?.checked ?? true,
-    theme: selectedTheme
-  };
-
-  saveButton.disabled = true;
-  saveButton.setAttribute('aria-busy', 'true');
-  saveButton.textContent = 'Saving\u2026';
-
-  try {
-    await saveSettings(settings);
-    currentSettings = settings;
-    renderSegmented();
-    showNotification(settings.keepHistory ? 'Settings saved' : 'Settings saved — history cleared');
-  } catch (error) {
-    showNotification('Failed to save settings', 'error');
-  } finally {
-    saveButton.disabled = false;
-    saveButton.removeAttribute('aria-busy');
-    saveButton.textContent = 'Save Settings';
-  }
-}
-
-async function handleResetSettings(): Promise<void> {
-  if (!confirm('Reset all settings to defaults?')) {
-    return;
-  }
-
-  try {
-    currentSettings = await resetSettings();
-    selectedTheme = currentSettings.theme;
-
-    const defaultQuality = document.getElementById('default-quality') as HTMLSelectElement;
-    const showNotifications = document.getElementById('show-notifications') as HTMLInputElement;
-
-    if (defaultQuality) defaultQuality.value = 'ask';
-    if (showNotifications) showNotifications.checked = true;
-    selectedBatchQuality = currentSettings.batchQuality;
-    keepHistory = currentSettings.keepHistory;
-
-    applyTheme(selectedTheme);
-    updateThemeButtons(selectedTheme);
-    renderSegmented();
-
-    showNotification('Settings reset to defaults');
-  } catch (error) {
-    showNotification('Failed to reset settings', 'error');
+      : 'Holds only what your open tabs are playing';
   }
 }
 
 async function checkCoAppConnection(): Promise<void> {
   const statusEl = document.getElementById('coapp-status');
   const versionEl = document.getElementById('coapp-version');
-
   if (!statusEl) return;
 
   statusEl.textContent = 'Checking\u2026';
@@ -205,31 +115,26 @@ async function checkCoAppConnection(): Promise<void> {
   if (status.connected) {
     statusEl.textContent = 'Connected';
     statusEl.className = 'status-indicator connected';
-    if (versionEl && status.version) {
-      versionEl.textContent = `v${status.version}`;
-    }
-  } else {
-    statusEl.textContent = 'Disconnected';
-    statusEl.className = 'status-indicator disconnected';
-    if (versionEl) {
-      versionEl.textContent = 'CoApp not running';
-    }
+    if (versionEl) versionEl.textContent = status.version ? `v${status.version}` : '';
+    hideStatusError();
+    return;
   }
+
+  statusEl.textContent = 'Disconnected';
+  statusEl.className = 'status-indicator disconnected';
+  if (versionEl) versionEl.textContent = '';
+  showStatusError(status.error || 'Flux could not reach its companion app. Downloads will not start until it is running.');
 }
 
-function showNotification(message: string, type: 'success' | 'error' = 'success'): void {
-  const existing = document.querySelector('.notification');
-  if (existing) existing.remove();
+// Errors surface in the status block itself rather than as a toast that
+// disappears before it can be read.
+function showStatusError(message: string): void {
+  const el = document.getElementById('coapp-error');
+  if (!el) return;
+  el.textContent = message;
+  el.classList.remove('hidden');
+}
 
-  const notification = document.createElement('div');
-  notification.className = `notification ${type}`;
-  notification.textContent = message;
-  notification.setAttribute('role', 'status');
-  notification.setAttribute('aria-live', 'polite');
-
-  document.body.appendChild(notification);
-
-  setTimeout(() => {
-    notification.remove();
-  }, 2000);
+function hideStatusError(): void {
+  document.getElementById('coapp-error')?.classList.add('hidden');
 }

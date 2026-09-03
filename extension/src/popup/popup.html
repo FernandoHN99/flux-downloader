@@ -47,13 +47,11 @@
       <button id="refresh-btn" class="btn btn-secondary">Refresh</button>
     </div>
     
-    <!-- Batch download status -->
+    <!-- Download progress: one bar for a single download and for a batch -->
     <div id="batch-status" class="batch-status hidden" role="status" aria-live="polite">
-      <div class="batch-info">
-        <span id="batch-count">0 / 0</span>
-        <span id="batch-title"></span>
-      </div>
-      <button id="batch-stop-btn" class="btn btn-cancel">Stop</button>
+      <span id="batch-count" class="batch-count">1 / 1</span>
+      <span id="batch-title" class="batch-title"></span>
+      <button id="batch-stop-btn" class="btn-stop">Stop</button>
     </div>
 
     <!-- History -->
@@ -61,6 +59,10 @@
       <div class="history-header">
         <span class="history-label">Videos</span>
         <div class="history-actions">
+          <div class="quality-toggle" role="radiogroup" aria-label="Quality for Download all">
+            <button id="batch-best-btn" class="quality-badge selected" role="radio" aria-checked="true" data-quality="best">Best</button>
+            <button id="batch-worst-btn" class="quality-badge" role="radio" aria-checked="false" data-quality="worst">Lowest</button>
+          </div>
           <button id="download-all-btn" class="btn-link">Download all</button>
           <button id="clear-history-btn" class="btn-link">Clear All</button>
         </div>
@@ -70,22 +72,6 @@
       <p id="history-empty" class="history-empty hidden">No match</p>
     </div>
 
-    <!-- Download Progress -->
-    <div id="download-progress" class="download-progress hidden">
-      <div class="progress-header">
-        <span id="progress-filename">downloading…</span>
-        <span id="progress-percent">0%</span>
-      </div>
-      <div class="progress-bar">
-        <div id="progress-fill" role="progressbar" aria-label="Download progress" aria-valuemin="0" aria-valuemax="100" aria-valuetext="Downloading…"></div>
-      </div>
-      <div class="progress-info">
-        <span id="progress-speed"></span>
-        <span id="progress-eta"></span>
-        <button id="cancel-btn" class="btn btn-cancel">Cancel</button>
-      </div>
-    </div>
-    
     <!-- Error -->
     <div id="error" class="error hidden" role="alert" aria-live="polite">
       <span id="error-message"></span>

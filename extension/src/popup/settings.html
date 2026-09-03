@@ -12,10 +12,10 @@
   <div class="settings-container">
     <header class="settings-header">
       <h1>Settings</h1>
-      <a id="close-btn" class="icon-btn" href="popup.html" aria-label="Back to Popup">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <line x1="18" y1="6" x2="6" y2="18"></line>
-          <line x1="6" y1="6" x2="18" y2="18"></line>
+      <a id="close-btn" class="icon-btn" href="popup.html" aria-label="Back to videos" title="Back to videos">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M3 10.5 12 3l9 7.5"></path>
+          <path d="M5 9.5V20a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9.5"></path>
         </svg>
       </a>
     </header>
@@ -40,26 +40,7 @@
         </div>
         <p class="setting-help">Choose how Flux looks</p>
       </div>
-      
-      <!-- Default Quality -->
-      <div class="setting-item">
-        <label for="default-quality">Default Quality</label>
-        <select id="default-quality" name="default-quality">
-          <option value="best">Best Available</option>
-          <option value="worst">Lowest Quality</option>
-          <option value="ask">Ask Each Time</option>
-        </select>
-      </div>
-      
-      <!-- Batch quality -->
-      <div class="setting-item">
-        <span class="setting-label">Download All Quality</span>
-        <div class="segmented" id="batch-quality" role="radiogroup" aria-label="Quality used by Download all">
-          <button type="button" class="segmented-option" data-batch="best" role="radio" aria-checked="false">Best</button>
-          <button type="button" class="segmented-option" data-batch="worst" role="radio" aria-checked="false">Lowest</button>
-        </div>
-        <p class="setting-help">Which rendition every video gets in a batch run</p>
-      </div>
+
 
       <!-- History -->
       <div class="setting-item">
@@ -71,30 +52,16 @@
         <p class="setting-help">Only current clears the list down to what your open tabs are playing</p>
       </div>
 
-      <!-- Notifications -->
-      <div class="setting-item">
-        <label class="checkbox-label">
-          <input type="checkbox" id="show-notifications" name="show-notifications" checked>
-          <span class="checkbox-text">Show Notifications</span>
-        </label>
-        <p class="setting-help">Display notifications for download progress and completion</p>
-      </div>
-      
       <!-- CoApp Status -->
       <div class="setting-item">
-        <span class="setting-label">CoApp Status</span>
+        <span class="setting-label">Flux Status</span>
         <div class="status-display">
           <span id="coapp-status" class="status-indicator checking">Checking…</span>
           <span id="coapp-version" class="version-text"></span>
         </div>
-        <p class="setting-help">Native companion app for advanced download features</p>
+        <p id="coapp-error" class="setting-help error hidden" role="alert"></p>
       </div>
     </div>
-    
-    <footer class="settings-footer">
-      <button id="reset-btn" class="btn btn-secondary">Reset</button>
-      <button id="save-btn" class="btn btn-primary">Save Settings</button>
-    </footer>
   </div>
   
   <script src="../../dist/settings.js"></script>

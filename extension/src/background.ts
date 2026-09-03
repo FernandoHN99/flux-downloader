@@ -240,15 +240,11 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 
 function notify(title: string, message: string): void {
-  getSettings().then(settings => {
-    if (settings.showNotifications) {
-      chrome.notifications.create({
-        type: 'basic',
-        iconUrl: chrome.runtime.getURL('public/icons/icon-128.png'),
-        title: `Flux — ${title}`,
-        message
-      });
-    }
+  chrome.notifications.create({
+    type: 'basic',
+    iconUrl: chrome.runtime.getURL('public/icons/icon-128.png'),
+    title: `Flux — ${title}`,
+    message
   });
 }
 
@@ -723,6 +719,9 @@ interface BatchState {
   currentKey?: string;
   // videoKey of the row being downloaded — the popup marks it as busy.
   currentSourceKey?: string;
+  // Every video still queued, including the one in flight, so the popup can
+  // show the whole run as pending rather than one row at a time.
+  remainingKeys?: string[];
   folder?: string;
   cancelled: boolean;
 }
@@ -735,7 +734,7 @@ function broadcastBatch(): void {
   });
 }
 
-function pickBatchQuality(video: VideoInfo, preference: Settings['defaultQuality']): VideoInfo['qualities'][number] | undefined {
+function pickBatchQuality(video: VideoInfo, preference: Settings['batchQuality']): VideoInfo['qualities'][number] | undefined {
   const all = video.qualities || [];
   const videoOnly = all.filter((quality) => (quality.kind || 'video') === 'video');
   const candidates = videoOnly.length > 0 ? videoOnly : all;
@@ -753,7 +752,7 @@ function pickBatchQuality(video: VideoInfo, preference: Settings['defaultQuality
 async function runBatchDownload(videos: VideoInfo[], tabId?: number, quality?: 'best' | 'worst'): Promise<void> {
   if (batch) return;
   const settings = await getSettings();
-  const preference = quality || settings.defaultQuality;
+  const preference = quality || settings.batchQuality;
 
   // Each run drops its files in its own folder, stamped with the epoch
   // milliseconds so two runs in the same second can't collide.
@@ -766,7 +765,14 @@ async function runBatchDownload(videos: VideoInfo[], tabId?: number, quality?: '
     return;
   }
 
-  const state: BatchState = { total: videos.length, completed: 0, failed: 0, folder, cancelled: false };
+  const state: BatchState = {
+    total: videos.length,
+    completed: 0,
+    failed: 0,
+    folder,
+    cancelled: false,
+    remainingKeys: videos.map((video) => videoKey(video.url))
+  };
   batch = state;
   broadcastBatch();
 
@@ -775,6 +781,8 @@ async function runBatchDownload(videos: VideoInfo[], tabId?: number, quality?: '
     const chosen = pickBatchQuality(video, preference);
     if (!chosen) {
       state.failed += 1;
+      const skipped = videoKey(video.url);
+      state.remainingKeys = (state.remainingKeys || []).filter((key) => key !== skipped);
       broadcastBatch();
       continue;
     }
@@ -810,6 +818,8 @@ async function runBatchDownload(videos: VideoInfo[], tabId?: number, quality?: '
     }
     state.currentKey = undefined;
     state.currentSourceKey = undefined;
+    const done = videoKey(video.url);
+    state.remainingKeys = (state.remainingKeys || []).filter((key) => key !== done);
     broadcastBatch();
   }
 
@@ -822,6 +832,7 @@ async function runBatchDownload(videos: VideoInfo[], tabId?: number, quality?: '
 async function cancelBatchDownload(): Promise<void> {
   if (!batch) return;
   batch.cancelled = true;
+  batch.remainingKeys = [];
   const key = batch.currentKey;
   broadcastBatch();
   if (key) {
@@ -1628,14 +1639,20 @@ async function handleMessage(message: any, sender: chrome.runtime.MessageSender)
     case 'PING': {
       let connected = false;
       let version: string | undefined;
+      let error: string | undefined;
       try {
+        // A cold service worker has no connection yet, so a plain "is it
+        // connected" check would report a working CoApp as down.
+        if (!nativeClient.connected) await nativeClient.connect();
         connected = nativeClient.connected;
         if (connected) {
           const info = await nativeClient.info();
           version = info?.version || 'unknown';
         }
-      } catch { /* ignore */ }
-      return { success: true, timestamp: Date.now(), connected, version };
+      } catch (err: any) {
+        error = err?.message || String(err);
+      }
+      return { success: true, timestamp: Date.now(), connected, version, error };
     }
 
     default:
