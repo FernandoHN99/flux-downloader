@@ -15,7 +15,8 @@ interface DetectedMedia {
 class MediaDetector {
   private mediaUrls = new Set<string>();
   private manifestUrls = new Set<string>();
-  private detectedVideos: VideoInfo[] = [];
+  // Everything this page has announced, keyed by media URL.
+  private announced = new Map<string, DetectedMedia>();
   private lastMetadataKey = '';
   private metadataTimer: number | undefined;
   private pageUrl = window.location.href;
@@ -26,6 +27,7 @@ class MediaDetector {
   };
 
   constructor() {
+    this.setupRescanListener();
     this.setupNavigationListener();
     this.setupMSEListener();
     this.setupDOMObserver();
@@ -34,6 +36,23 @@ class MediaDetector {
 
     document.addEventListener('DOMContentLoaded', () => this.sendPageMetadata(), { once: true });
     window.addEventListener('load', () => this.sendPageMetadata(), { once: true });
+  }
+
+  /**
+   * The background's media map lives only in memory, so an idle service
+   * worker restart wipes it. This lets it ask every page to say again what
+   * it has, instead of the user having to reload tabs.
+   */
+  private setupRescanListener(): void {
+    chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+      if (message?.type !== 'RESCAN') return undefined;
+      for (const media of this.announced.values()) this.sendToBackground(media);
+      this.scanExistingMedia();
+      this.lastMetadataKey = '';
+      this.sendPageMetadata();
+      sendResponse({ success: true, count: this.announced.size });
+      return undefined;
+    });
   }
 
   private setupNavigationListener(): void {
@@ -50,7 +69,7 @@ class MediaDetector {
     this.pageGeneration = generation ?? this.pageGeneration + 1;
     this.mediaUrls.clear();
     this.manifestUrls.clear();
-    this.detectedVideos = [];
+    this.announced.clear();
     this.lastMetadataKey = '';
     this.mseState = { totalBytes: 0, segmentUrls: [] };
     this.sendNavigation(pageUrl, this.pageGeneration);
@@ -366,6 +385,7 @@ class MediaDetector {
    * Send detected media to background script
    */
   private sendToBackground(media: DetectedMedia): void {
+    this.announced.set(media.url, media);
     try {
       chrome.runtime.sendMessage({
         type: 'VIDEO_DETECTED',

@@ -78,6 +78,9 @@ let renamingKey: string | null = null;
 // a batch run.
 let manualDownloadKey: string | null = null;
 let batchBusyKeys = new Set<string>();
+// The one video actually being written right now, and how far along it is.
+let activeDownloadKey: string | null = null;
+let activePercent = 0;
 let batchQuality: 'best' | 'worst' = 'best';
 let groupByDomain = false;
 const collapsedGroups = new Set<string>();
@@ -86,9 +89,6 @@ const collapsedGroups = new Set<string>();
 interface ProgressView {
   current: number;
   total: number;
-  label: string;
-  /** Live detail appended to the label, such as a percentage. */
-  detail?: string;
   kind: 'single' | 'batch';
 }
 let progressView: ProgressView | null = null;
@@ -118,7 +118,7 @@ function initPopup(): void {
         }
         break;
       case 'DOWNLOAD_PROGRESS':
-        updateSingleProgress(msg.progress || msg);
+        updateActiveProgress(msg.progress || msg);
         break;
       case 'DOWNLOAD_COMPLETE':
         showDownloadComplete();
@@ -133,7 +133,6 @@ function initPopup(): void {
         renderHistory();
         break;
       case 'NO_ACTIVE_DOWNLOAD':
-        requestMediaList();
         break;
       case 'ERROR':
         showError(msg.message);
@@ -164,11 +163,9 @@ async function initializePopupState(): Promise<void> {
   renderBatchQuality();
   port?.postMessage({ type: 'GET_HISTORY' });
   port?.postMessage({ type: 'GET_BATCH_STATUS' });
+  requestMediaList();
   if (port && activeTabId != null) {
-    updateStatus('Checking for media…');
     port.postMessage({ type: 'GET_ACTIVE_DOWNLOAD', tabId: activeTabId });
-  } else {
-    requestMediaList();
   }
 }
 
@@ -191,7 +188,9 @@ async function getActiveTabId(): Promise<number | null> {
 function setupEventListeners(): void {
   // Refresh button
   document.getElementById('refresh-btn')?.addEventListener('click', () => {
-    requestMediaList();
+    updateStatus('Rescanning open tabs\u2026');
+    port?.postMessage({ type: 'RESCAN' });
+    port?.postMessage({ type: 'GET_HISTORY' });
   });
   
   // Settings button
@@ -219,7 +218,7 @@ function setupEventListeners(): void {
   // Download everything currently listed
   document.getElementById('download-all-btn')?.addEventListener('click', () => {
     const pending = visibleHistoryEntries();
-    if (pending.length === 0) return;
+    if (pending.length === 0 || downloadInProgress()) return;
     port?.postMessage({ type: 'DOWNLOAD_ALL', videos: pending, tabId: activeTabId, quality: batchQuality });
   });
 
@@ -292,21 +291,20 @@ interface BatchStatus {
 function applyBatchStatus(batch: BatchStatus | null): void {
   batchBusyKeys = new Set(batch?.remainingKeys || []);
 
-  const downloadAll = document.getElementById('download-all-btn') as HTMLButtonElement | null;
-  if (downloadAll) downloadAll.disabled = Boolean(batch);
-
   if (!batch) {
-    // A finished batch must not clear a single download's bar.
-    if (progressView?.kind === 'batch') progressView = null;
+    // A finished batch must not clear a single download's panel.
+    if (progressView?.kind === 'batch') {
+      progressView = null;
+      activeDownloadKey = null;
+      activePercent = 0;
+    }
   } else {
+    activeDownloadKey = batch.currentSourceKey || null;
     progressView = {
       // The number names the video being fetched, not the ones already done,
-      // so a run of five reads 1 / 5 while the first is downloading.
+      // so a run of five opens at 1 / 5.
       current: Math.min(batch.total, batch.completed + batch.failed + 1),
       total: batch.total,
-      label: batch.cancelled
-        ? 'Stopping\u2026'
-        : [batch.folder, batch.currentTitle].filter(Boolean).join(' \u00b7 '),
       kind: 'batch'
     };
   }
@@ -315,31 +313,63 @@ function applyBatchStatus(batch: BatchStatus | null): void {
   renderHistory();
 }
 
-/**
- * A one-off download counts 1 / 1, so its percentage is what actually moves.
- * Batch runs ignore this — their movement is the counter.
- */
-function updateSingleProgress(progress: any): void {
-  if (progressView?.kind !== 'single') return;
+/** Progress always belongs to the one video currently being written. */
+function updateActiveProgress(progress: any): void {
+  if (!progressView) return;
   const percent = typeof progress?.percent === 'number' && Number.isFinite(progress.percent)
     ? Math.min(100, Math.max(0, progress.percent))
     : 0;
-  progressView.detail = percent > 0 ? `${Math.round(percent)}%` : undefined;
-  renderProgress();
+  activePercent = percent;
+  renderProgress(progress);
+  renderHistory();
 }
 
-/** The single bar at the top, shared by one-off downloads and batch runs. */
-function renderProgress(): void {
-  const bar = document.getElementById('batch-status')!;
+/** The panel at the top, shared by one-off downloads and batch runs. */
+function renderProgress(progress?: any): void {
+  const panel = document.getElementById('download-progress')!;
   if (!progressView) {
-    bar.classList.add('hidden');
+    panel.classList.add('hidden');
     return;
   }
-  bar.classList.remove('hidden');
-  document.getElementById('batch-count')!.textContent =
-    `${progressView.current} / ${progressView.total}`;
-  document.getElementById('batch-title')!.textContent =
-    [progressView.label, progressView.detail].filter(Boolean).join(' \u00b7 ');
+  panel.classList.remove('hidden');
+
+  document.getElementById('progress-filename')!.textContent =
+    `Downloading ${progressView.current}/${progressView.total}`;
+
+  const measured = activePercent > 0;
+  document.getElementById('progress-percent')!.textContent = measured ? `${Math.round(activePercent)}%` : '…';
+
+  const fill = document.getElementById('progress-fill')!;
+  if (measured) {
+    fill.classList.remove('indeterminate');
+    fill.style.width = `${activePercent}%`;
+    fill.setAttribute('aria-valuenow', String(Math.round(activePercent)));
+    fill.setAttribute('aria-valuetext', `${Math.round(activePercent)}%`);
+  } else {
+    fill.classList.add('indeterminate');
+    fill.style.width = '35%';
+    fill.removeAttribute('aria-valuenow');
+    fill.setAttribute('aria-valuetext', 'Downloading\u2026');
+  }
+
+  const speedEl = document.getElementById('progress-speed')!;
+  const etaEl = document.getElementById('progress-eta')!;
+  speedEl.textContent = '';
+  etaEl.textContent = '';
+
+  if (progress?.speed) {
+    if (typeof progress.speed === 'string') {
+      const label = progress.speed.trim().toLowerCase().endsWith('x') ? 'Processing' : 'Speed';
+      speedEl.textContent = `${label}: ${progress.speed}`;
+    } else if (typeof progress.speed === 'number' && progress.speed > 0) {
+      speedEl.textContent = formatSpeed(progress.speed);
+    }
+  }
+  if (progress?.bytesReceived !== undefined && progress.totalBytes > 0) {
+    speedEl.textContent =
+      `${(progress.bytesReceived / 1000000).toFixed(1)} / ${(progress.totalBytes / 1000000).toFixed(1)} MB`;
+  }
+  if (progress?.eta) etaEl.textContent = formatETA(progress.eta);
 }
 
 // Signed CDN links rotate their query token between visits, so the same video
@@ -474,7 +504,7 @@ function createGroupHead(domain: string, items: HistoryEntry[], collapsed: boole
 
   // Downloading is not part of the deletion flow, so the folder stops
   // offering it while rows are being picked.
-  icon.disabled = batchBusyKeys.size > 0 || selectionMode;
+  icon.disabled = downloadInProgress() || selectionMode;
   icon.addEventListener('click', (event) => {
     event.stopPropagation();
     if (icon.disabled) return;
@@ -514,7 +544,7 @@ function createGroupHead(domain: string, items: HistoryEntry[], collapsed: boole
 }
 
 function downloadGroup(items: HistoryEntry[]): void {
-  if (items.length === 0 || batchBusyKeys.size > 0) return;
+  if (items.length === 0 || downloadInProgress()) return;
   port?.postMessage({ type: 'DOWNLOAD_ALL', videos: items, tabId: activeTabId, quality: batchQuality });
 }
 
@@ -775,7 +805,7 @@ function createMediaItem(video: VideoInfo, index: number, historyEntry?: History
 
   const meta = document.createElement('div');
   meta.className = 'media-meta';
-  meta.textContent = busy ? 'Downloading…' : [
+  meta.textContent = busy ? busyLabel(key) : [
     getTypeLabel(video.type),
     video.duration ? formatDuration(video.duration) : '',
     historyEntry ? formatRelativeTime(historyEntry.detectedAt) : ''
@@ -883,6 +913,20 @@ function isDownloading(key: string): boolean {
   return key === manualDownloadKey || batchBusyKeys.has(key);
 }
 
+/**
+ * Only one video is written at a time, so only that one has a percentage —
+ * the rest of a batch are queued behind it and say so.
+ */
+function busyLabel(key: string): string {
+  if (key !== activeDownloadKey) return 'Queued';
+  return activePercent > 0 ? `Downloading… ${Math.round(activePercent)}%` : 'Downloading…';
+}
+
+/** A download in flight owns the CoApp, so nothing else may start one. */
+function downloadInProgress(): boolean {
+  return manualDownloadKey !== null || batchBusyKeys.size > 0;
+}
+
 function createBadge(className: string, text: string, label: string): HTMLElement {
   const badge = document.createElement('span');
   badge.className = className;
@@ -981,8 +1025,9 @@ function buildExpandPanel(video: VideoInfo): HTMLElement {
   const button = document.createElement('button');
   button.className = 'btn btn-primary expand-download-btn';
   button.textContent = 'Download';
+  button.disabled = downloadInProgress();
   button.addEventListener('click', () => {
-    if (currentQualities.length === 0) return;
+    if (currentQualities.length === 0 || downloadInProgress()) return;
     startDownload(video, currentQualities[selectedQualityIndex]);
   });
   panel.appendChild(button);
@@ -1005,7 +1050,7 @@ function renderQualityList(container: HTMLElement, downloadBtn: HTMLButtonElemen
     if (downloadBtn) downloadBtn.disabled = true;
     return;
   }
-  if (downloadBtn) downloadBtn.disabled = false;
+  if (downloadBtn) downloadBtn.disabled = downloadInProgress();
   
   // Quick options
   const quickOptions = document.createElement('div');
@@ -1173,8 +1218,10 @@ function startDownload(video: VideoInfo, quality: QualityOption): void {
 
   // The row shows a spinner and locks its actions until this finishes.
   manualDownloadKey = videoKey(video.url);
+  activeDownloadKey = manualDownloadKey;
+  activePercent = 0;
   expandedKey = null;
-  progressView = { current: 1, total: 1, label: filename, kind: 'single' };
+  progressView = { current: 1, total: 1, kind: 'single' };
   renderProgress();
   renderHistory();
   showDownloadingUI();
@@ -1254,6 +1301,8 @@ function updateHeaderMode(): void {
 
   document.querySelector('.quality-toggle')?.classList.toggle('hidden', busyFlow);
   show('download-all-btn', !busyFlow);
+  const downloadAll = document.getElementById('download-all-btn') as HTMLButtonElement | null;
+  if (downloadAll) downloadAll.disabled = downloadInProgress();
   show('clear-all-btn', selectionMode);
   show('clear-selected-btn', selectionMode);
 
@@ -1274,11 +1323,13 @@ function showDownloadingUI(): void {
   document.getElementById('batch-stop-btn')?.focus();
 }
 
-function restoreDownloadUI(downloadId: string, filename: string, _progress: any): void {
+function restoreDownloadUI(downloadId: string, _filename: string, progress: any): void {
   currentDownloadId = downloadId;
   document.getElementById('error')!.classList.add('hidden');
-  progressView = { current: 1, total: 1, label: filename || 'Downloading\u2026', kind: 'single' };
-  renderProgress();
+  activeDownloadKey = manualDownloadKey;
+  activePercent = 0;
+  progressView = { current: 1, total: 1, kind: 'single' };
+  updateActiveProgress(progress || { percent: 0 });
   updateStatus('Downloading\u2026', 'info');
 }
 
@@ -1307,7 +1358,11 @@ function resetUI(): void {
   currentDownloadId = null;
   // Whatever happened to the download, the row goes back to being editable.
   manualDownloadKey = null;
-  if (progressView?.kind === 'single') progressView = null;
+  if (progressView?.kind === 'single') {
+    progressView = null;
+    activeDownloadKey = null;
+    activePercent = 0;
+  }
   document.getElementById('error')!.classList.add('hidden');
   renderProgress();
   renderHistory();
@@ -1323,7 +1378,11 @@ function showError(message: string): void {
   
   // An error ends whatever run was showing, and frees its rows.
   manualDownloadKey = null;
-  if (progressView?.kind === 'single') progressView = null;
+  if (progressView?.kind === 'single') {
+    progressView = null;
+    activeDownloadKey = null;
+    activePercent = 0;
+  }
   renderProgress();
   renderHistory();
 

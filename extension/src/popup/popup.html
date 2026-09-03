@@ -43,15 +43,24 @@
         <polygon points="23 7 16 12 23 17 23 7"></polygon>
         <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
       </svg>
-      <p>No media detected on this page</p>
+      <p>No media detected in your open tabs</p>
       <button id="refresh-btn" class="btn btn-secondary">Refresh</button>
     </div>
     
-    <!-- Download progress: one bar for a single download and for a batch -->
-    <div id="batch-status" class="batch-status hidden" role="status" aria-live="polite">
-      <span id="batch-count" class="batch-count">1 / 1</span>
-      <span id="batch-title" class="batch-title"></span>
-      <button id="batch-stop-btn" class="btn-stop">Stop</button>
+    <!-- Download progress: one panel for a single download and for a batch -->
+    <div id="download-progress" class="download-progress hidden" role="status" aria-live="polite">
+      <div class="progress-header">
+        <span id="progress-filename">Downloading</span>
+        <span id="progress-percent">0%</span>
+      </div>
+      <div class="progress-bar">
+        <div id="progress-fill" role="progressbar" aria-label="Download progress" aria-valuemin="0" aria-valuemax="100" aria-valuetext="Downloading…"></div>
+      </div>
+      <div class="progress-info">
+        <span id="progress-speed"></span>
+        <span id="progress-eta"></span>
+        <button id="batch-stop-btn" class="btn btn-cancel">Stop</button>
+      </div>
     </div>
 
     <!-- History -->

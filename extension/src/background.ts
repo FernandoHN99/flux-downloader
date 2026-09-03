@@ -1136,6 +1136,15 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: any): void {
   switch (msg.type) {
     case 'GET_MEDIA':
       port.postMessage({ type: 'MEDIA_LIST', ...currentMediaPayload() });
+      // Nothing known usually means this worker was restarted and lost the
+      // map, not that the tabs are empty — ask them to say again.
+      if (mediaByTab.size === 0) void rescanAllTabs();
+      break;
+
+    case 'RESCAN':
+      rescanAllTabs()
+        .then(() => port.postMessage({ type: 'MEDIA_LIST', ...currentMediaPayload() }))
+        .catch(() => port.postMessage({ type: 'MEDIA_LIST', ...currentMediaPayload() }));
       break;
 
     case 'DOWNLOAD':
@@ -1227,6 +1236,29 @@ function notifyPopups(_tabId?: number): void {
   popupPorts.forEach(port => {
     port.postMessage({ type: 'MEDIA_LIST', ...payload });
   });
+}
+
+/**
+ * Ask every http(s) tab's content script to re-announce what it has found.
+ * Tabs without the content script (chrome:// pages, the web store, tabs open
+ * from before an extension reload) simply do not answer.
+ */
+async function rescanAllTabs(): Promise<void> {
+  let tabs: chrome.tabs.Tab[] = [];
+  try {
+    tabs = await chrome.tabs.query({});
+  } catch {
+    return;
+  }
+
+  await Promise.all(tabs.map(async (tab) => {
+    if (typeof tab.id !== 'number' || !tab.url || !/^https?:/i.test(tab.url)) return;
+    try {
+      await chrome.tabs.sendMessage(tab.id, { type: 'RESCAN' });
+    } catch {
+      // No listener in that tab; nothing to collect from it.
+    }
+  }));
 }
 
 // Every video any open tab is showing right now. The popup uses this to pin
