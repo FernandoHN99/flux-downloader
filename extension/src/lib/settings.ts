@@ -1,8 +1,6 @@
 // Settings Management
 // Handles loading, saving, and managing extension settings
 
-export type ThemeMode = 'dark' | 'light' | 'system';
-
 export interface Settings {
   /** Which rendition "Download all" picks for every video in the run. */
   batchQuality: 'best' | 'worst';
@@ -10,15 +8,13 @@ export interface Settings {
   keepHistory: boolean;
   /** Collect videos under the site they came from instead of one flat list. */
   groupByDomain: boolean;
-  theme: ThemeMode;
   coappPath?: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   batchQuality: 'best',
   keepHistory: true,
-  groupByDomain: false,
-  theme: 'system'
+  groupByDomain: false
 };
 
 /**

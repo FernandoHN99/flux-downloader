@@ -72,6 +72,8 @@ let selectionMode = false;
 const selectedForDeletion = new Set<string>();
 // At most one row shows its download options at a time.
 let expandedKey: string | null = null;
+// The row being renamed, if any — while set, the header steps out of the way.
+let renamingKey: string | null = null;
 // Rows with a download in flight: one started from a row, the rest queued by
 // a batch run.
 let manualDownloadKey: string | null = null;
@@ -202,15 +204,16 @@ function setupEventListeners(): void {
     hideError();
   });
 
-  // Clear: wipes everything normally, or just the ticked rows in selection mode
-  document.getElementById('clear-history-btn')?.addEventListener('click', () => {
-    if (selectionMode) {
-      if (selectedForDeletion.size === 0) return;
-      port?.postMessage({ type: 'DELETE_HISTORY_ITEMS', keys: [...selectedForDeletion] });
-      exitSelectionMode();
-      return;
-    }
+  // Both only exist while picking rows: one wipes the list, one the ticks.
+  document.getElementById('clear-all-btn')?.addEventListener('click', () => {
     port?.postMessage({ type: 'CLEAR_HISTORY' });
+    exitSelectionMode();
+  });
+
+  document.getElementById('clear-selected-btn')?.addEventListener('click', () => {
+    if (selectedForDeletion.size === 0) return;
+    port?.postMessage({ type: 'DELETE_HISTORY_ITEMS', keys: [...selectedForDeletion] });
+    exitSelectionMode();
   });
 
   // Download everything currently listed
@@ -393,7 +396,7 @@ function renderHistory(): void {
   if (groupByDomain) renderGrouped(container, entries);
   else appendRows(container, entries, 0);
 
-  updateClearButton();
+  updateHeaderMode();
 }
 
 /** One folder per site, in the order the sites appear in the list. */
@@ -469,9 +472,12 @@ function createGroupHead(domain: string, items: HistoryEntry[], collapsed: boole
   }
   icon.appendChild(download);
 
-  icon.disabled = batchBusyKeys.size > 0;
+  // Downloading is not part of the deletion flow, so the folder stops
+  // offering it while rows are being picked.
+  icon.disabled = batchBusyKeys.size > 0 || selectionMode;
   icon.addEventListener('click', (event) => {
     event.stopPropagation();
+    if (icon.disabled) return;
     downloadGroup(items);
   });
   head.appendChild(icon);
@@ -626,6 +632,8 @@ function startRename(element: HTMLElement, video: VideoInfo, isCurrent: boolean)
   if (!info || element.classList.contains('editing')) return;
   element.classList.add('editing');
   element.draggable = false;
+  renamingKey = videoKey(video.url);
+  updateHeaderMode();
 
   const original = info.innerHTML;
   const form = document.createElement('div');
@@ -649,6 +657,11 @@ function startRename(element: HTMLElement, video: VideoInfo, isCurrent: boolean)
     element.classList.remove('editing');
     element.draggable = !isCurrent;
     info.innerHTML = original;
+    renamingKey = null;
+    updateHeaderMode();
+    // Detections that arrived while the input was open were dropped to avoid
+    // wiping what was being typed, so pick them up now.
+    renderHistory();
   };
 
   const commit = (): void => {
@@ -774,9 +787,10 @@ function createMediaItem(video: VideoInfo, index: number, historyEntry?: History
 
   // A row being downloaded trades its actions for a spinner: renaming or
   // deleting it mid-write would leave the file and the entry disagreeing.
+  // While picking rows to delete, no row offers anything but its tick.
   if (busy) {
     head.appendChild(createSpinner());
-  } else {
+  } else if (!selectionMode) {
     const actions = document.createElement('div');
     actions.className = 'media-actions';
 
@@ -793,8 +807,7 @@ function createMediaItem(video: VideoInfo, index: number, historyEntry?: History
     remove.classList.add('remove-btn');
     remove.addEventListener('click', (event) => {
       event.stopPropagation();
-      if (selectionMode) toggleSelection(key, div);
-      else enterSelectionMode(key);
+      enterSelectionMode(key);
     });
     actions.appendChild(remove);
 
@@ -816,7 +829,7 @@ function createMediaItem(video: VideoInfo, index: number, historyEntry?: History
   if (!isCurrent && !busy && !selectionMode) attachDragBehaviour(div);
 
   const activate = (): void => {
-    if (selectionMode) toggleSelection(key, div);
+    if (selectionMode) toggleSelection(key);
     else if (!busy) toggleExpand(video);
   };
 
@@ -1206,17 +1219,17 @@ function enterSelectionMode(key: string): void {
   selectedForDeletion.clear();
   selectedForDeletion.add(key);
   renderHistory();
-  updateClearButton();
+  updateHeaderMode();
 }
 
 function exitSelectionMode(): void {
   selectionMode = false;
   selectedForDeletion.clear();
   renderHistory();
-  updateClearButton();
+  updateHeaderMode();
 }
 
-function toggleSelection(key: string, element: HTMLElement): void {
+function toggleSelection(key: string): void {
   if (selectedForDeletion.has(key)) selectedForDeletion.delete(key);
   else selectedForDeletion.add(key);
 
@@ -1225,16 +1238,27 @@ function toggleSelection(key: string, element: HTMLElement): void {
     exitSelectionMode();
     return;
   }
-  element.classList.toggle('picked', selectedForDeletion.has(key));
-  element.querySelector('.select-dot')?.classList.toggle('checked', selectedForDeletion.has(key));
-  updateClearButton();
+  renderHistory();
 }
 
-function updateClearButton(): void {
-  const button = document.getElementById('clear-history-btn');
-  if (!button) return;
-  button.textContent = selectionMode ? `Clear (${selectedForDeletion.size})` : 'Clear All';
-  button.classList.toggle('danger', selectionMode);
+/**
+ * Starting a flow narrows the header to that flow: picking rows to delete
+ * leaves only the two clear buttons, and renaming leaves nothing at all, so
+ * the only controls on screen are the ones the flow is about.
+ */
+function updateHeaderMode(): void {
+  const busyFlow = selectionMode || renamingKey !== null;
+  const show = (id: string, visible: boolean): void => {
+    document.getElementById(id)?.classList.toggle('hidden', !visible);
+  };
+
+  document.querySelector('.quality-toggle')?.classList.toggle('hidden', busyFlow);
+  show('download-all-btn', !busyFlow);
+  show('clear-all-btn', selectionMode);
+  show('clear-selected-btn', selectionMode);
+
+  const selected = document.getElementById('clear-selected-btn');
+  if (selected) selected.textContent = `Clear (${selectedForDeletion.size})`;
 }
 
 function createSelectDot(checked: boolean): HTMLElement {

@@ -3,7 +3,7 @@
    Refined minimalism · Dark-first · Indigo accent
    ═══════════════════════════════════════════════════════ */
 
-/* ── Theme: Dark ── */
+/* Flux is dark-only. */
 :root,
 [data-theme="dark"] {
   color-scheme: dark;
@@ -25,32 +25,6 @@
   --error:         #f87171;
   --error-soft:    rgba(248, 113, 113, 0.12);
   --warning:       #fbbf24;
-  --radius:        10px;
-  --radius-sm:     6px;
-  --focus-ring:    0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
-}
-
-/* ── Theme: Light ── */
-[data-theme="light"] {
-  color-scheme: light;
-  --bg:            #f7f8fa;
-  --bg-elevated:   #ffffff;
-  --bg-hover:      #f0f1f5;
-  --bg-active:     #e7e9ee;
-  --border:        #e4e6ec;
-  --border-soft:   #eef0f4;
-  --text:          #1a1d24;
-  --text-muted:    #6b7180;
-  --text-dim:      #687080;
-  --accent:        #5b3df5;
-  --accent-hover:  #4c2ee8;
-  --accent-soft:   rgba(91, 61, 245, 0.08);
-  --accent-text:   #4c2ee8;
-  --success:       #047857;
-  --success-soft:  rgba(16, 185, 129, 0.08);
-  --error:         #b91c1c;
-  --error-soft:    rgba(239, 68, 68, 0.06);
-  --warning:       #f59e0b;
   --radius:        10px;
   --radius-sm:     6px;
   --focus-ring:    0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
@@ -814,8 +788,8 @@ body {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--accent-text);
-  background: var(--accent-soft);
+  color: var(--success);
+  background: var(--success-soft);
   border-radius: 999px;
 }
 
@@ -886,6 +860,20 @@ body {
   background: var(--accent-soft);
 }
 
+.btn-link.danger-solid {
+  padding: 2px 8px;
+  color: #fff;
+  background: var(--error);
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+}
+
+.btn-link.danger-solid:hover {
+  color: #fff;
+  background: var(--error);
+  filter: brightness(1.1);
+}
+
 .btn-link.danger {
   color: var(--error);
   font-weight: 600;
@@ -949,13 +937,12 @@ body {
   opacity: 1;
 }
 
-/* While renaming, only the confirm/cancel controls stay reachable. */
-.media-item.editing .rename-btn,
-.media-item.editing .media-actions {
-  display: flex;
-  align-items: center;
-  gap: 1px;
-  flex-shrink: 0;
+/* While renaming, the row offers nothing but the confirm and cancel
+   controls inside the form. */
+.media-item.editing .media-actions,
+.media-item.editing .drag-handle,
+.media-item.editing .current-badge {
+  display: none;
 }
 
 .rename-form {

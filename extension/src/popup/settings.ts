@@ -1,12 +1,11 @@
-import { Settings, DEFAULT_SETTINGS, loadSettings, saveSettings, checkCoAppStatus, ThemeMode } from '../lib/settings';
-import { applyTheme, initTheme } from '../lib/theme';
+import { Settings, DEFAULT_SETTINGS, loadSettings, saveSettings, checkCoAppStatus } from '../lib/settings';
+import { initTheme } from '../lib/theme';
 
 let currentSettings: Settings = { ...DEFAULT_SETTINGS };
 
 document.addEventListener('DOMContentLoaded', async () => {
-  await initTheme();
+  initTheme();
   await initializeSettings();
-  setupThemeSelector();
   setupHistoryMode();
   setupGroupMode();
   checkCoAppConnection();
@@ -22,7 +21,6 @@ async function initializeSettings(): Promise<void> {
 }
 
 function render(): void {
-  updateThemeButtons(currentSettings.theme);
   updateHistoryButtons(currentSettings.keepHistory);
   updateGroupButtons(currentSettings.groupByDomain);
 }
@@ -41,44 +39,6 @@ async function commit(change: Partial<Settings>): Promise<void> {
   } catch (error: any) {
     showStatusError(`Could not save: ${error?.message || error}`);
   }
-}
-
-function setupThemeSelector(): void {
-  const selector = document.getElementById('theme-selector');
-  if (!selector) return;
-
-  const buttons = Array.from(selector.querySelectorAll<HTMLButtonElement>('.theme-option'));
-  buttons.forEach((button) => {
-    button.addEventListener('click', () => {
-      const theme = button.dataset.theme as ThemeMode;
-      if (!theme) return;
-      applyTheme(theme);
-      commit({ theme });
-    });
-
-    button.addEventListener('keydown', (event) => {
-      const index = buttons.indexOf(button);
-      let next = index;
-      if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = (index - 1 + buttons.length) % buttons.length;
-      else if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (index + 1) % buttons.length;
-      else if (event.key === 'Home') next = 0;
-      else if (event.key === 'End') next = buttons.length - 1;
-      else return;
-
-      event.preventDefault();
-      buttons[next].click();
-      buttons[next].focus();
-    });
-  });
-}
-
-function updateThemeButtons(theme: ThemeMode): void {
-  document.querySelectorAll<HTMLButtonElement>('.theme-option').forEach((button) => {
-    const selected = button.dataset.theme === theme;
-    button.classList.toggle('active', selected);
-    button.setAttribute('aria-checked', String(selected));
-    button.tabIndex = selected ? 0 : -1;
-  });
 }
 
 function setupHistoryMode(): void {

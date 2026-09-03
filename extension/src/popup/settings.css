@@ -2,7 +2,7 @@
    Flux — Settings Styles
    ═══════════════════════════════════════════════════════ */
 
-/* ── Theme: Dark ── */
+/* Flux is dark-only. */
 :root,
 [data-theme="dark"] {
   color-scheme: dark;
@@ -23,31 +23,6 @@
   --success-soft:  rgba(52, 211, 153, 0.12);
   --error:         #f87171;
   --error-soft:    rgba(248, 113, 113, 0.12);
-  --radius:        10px;
-  --radius-sm:     6px;
-  --focus-ring:    0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
-}
-
-/* ── Theme: Light ── */
-[data-theme="light"] {
-  color-scheme: light;
-  --bg:            #f7f8fa;
-  --bg-elevated:   #ffffff;
-  --bg-hover:      #f0f1f5;
-  --bg-active:     #e7e9ee;
-  --border:        #e4e6ec;
-  --border-soft:   #eef0f4;
-  --text:          #1a1d24;
-  --text-muted:    #6b7180;
-  --text-dim:      #687080;
-  --accent:        #5b3df5;
-  --accent-hover:  #4c2ee8;
-  --accent-soft:   rgba(91, 61, 245, 0.08);
-  --accent-text:   #4c2ee8;
-  --success:       #047857;
-  --success-soft:  rgba(16, 185, 129, 0.08);
-  --error:         #b91c1c;
-  --error-soft:    rgba(239, 68, 68, 0.06);
   --radius:        10px;
   --radius-sm:     6px;
   --focus-ring:    0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
@@ -202,44 +177,6 @@ body {
 }
 
 /* ═══ Theme Selector (Segmented Control) ═══ */
-.theme-segmented {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 3px;
-}
-
-.theme-option {
-  flex: 1;
-  min-width: 0;
-  padding: 4px 7px;
-  border: none;
-  background: none;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: background-color 0.15s, color 0.15s;
-  font-family: inherit;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-}
-
-.theme-option:hover:not(.active) {
-  background: var(--bg-hover);
-  color: var(--text);
-}
-
-.theme-option.active {
-  background: var(--accent);
-  color: #fff;
-}
 
 /* Batch quality and the history switch reuse the theme picker's shape. */
 .segmented {
@@ -288,16 +225,6 @@ body {
 
 .hidden {
   display: none !important;
-}
-
-.theme-option:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
-.theme-option svg {
-  width: 13px;
-  height: 13px;
 }
 
 /* ═══ Checkbox ═══ */
