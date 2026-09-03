@@ -1,7 +1,7 @@
 /* The progress panel, shared by one-off and batch runs. */
 
 .download-progress {
-  padding: 16px 16px;
+  padding: 8px 12px;
   border-top: 1px solid var(--border-soft);
 }
 
@@ -9,7 +9,8 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 10px;
+  gap: 6px;
+  margin-bottom: 6px;
   font-size: 12px;
   min-width: 0;
 }
@@ -18,11 +19,8 @@
   color: var(--text);
   font-weight: 600;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 220px;
   font-size: 12px;
-  min-width: 0;
+  flex-shrink: 0;
 }
 
 #progress-percent {
@@ -32,7 +30,6 @@
   font-size: 13px;
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
-  margin-left: 8px;
 }
 
 .progress-bar {
@@ -41,7 +38,6 @@
   background: var(--border);
   border-radius: 2px;
   overflow: hidden;
-  margin-bottom: 10px;
 }
 
 #progress-fill {
@@ -60,10 +56,46 @@
 
 .progress-info {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
   font-size: 11px;
   color: var(--text-muted);
   font-family: ui-monospace, 'Cascadia Code', 'SF Mono', monospace;
   font-variant-numeric: tabular-nums;
+}
+
+#progress-speed,
+#progress-eta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#progress-speed:not(:empty) + #progress-eta:not(:empty)::before {
+  content: ' · ';
+}
+
+.download-progress .btn-cancel {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  font-size: 10px;
+  line-height: 14px;
+  background: var(--error-soft);
+  color: var(--error);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+}
+
+.download-progress .btn-cancel:hover {
+  background: var(--error);
+  color: #fff;
+}
+
+.download-progress .btn-cancel:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }

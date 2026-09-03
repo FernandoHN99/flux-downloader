@@ -182,26 +182,6 @@
   padding: 10px 8px 8px;
 }
 
-.btn-cancel {
-  padding: 5px 14px;
-  font-size: 12px;
-  background: var(--error-soft);
-  color: var(--error);
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  font-weight: 600;
-}
-
-.btn-cancel:hover {
-  background: var(--error);
-  color: #fff;
-}
-
-.btn-cancel:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
 /* The site's icon, which becomes a download button while the row is pointed
    at — one click takes everything the site has. */
 .group-icon {
@@ -293,14 +273,6 @@
 /* Denser rows so the drag handle and rename button fit */
 .media-item-history {
   opacity: 0.82;
-}
-
-/* Only the reorderable rows live in here, so the drop outline never wraps a
-   pinned current row. */
-.reorder-zone.drop-target {
-  outline: 1px dashed var(--accent);
-  outline-offset: 2px;
-  border-radius: var(--radius);
 }
 
 .btn-link.danger-solid {

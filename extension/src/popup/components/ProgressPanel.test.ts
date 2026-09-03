@@ -31,9 +31,19 @@ describe('ProgressPanel', () => {
     expect(percent(panel)).toBe('38%');
   });
 
-  it('shows a one-off download as 1/1', () => {
+  it('does not spend space on a redundant 1/1 for one-off downloads', () => {
     const { panel } = mount({ view: { current: 1, total: 1, kind: 'single' }, detail: { percent: 22 } });
-    expect(label(panel)).toBe('Downloading 1/1');
+    expect(label(panel)).toBe('Downloading');
+  });
+
+  it('keeps the details inline so the panel has only a summary and a bar', () => {
+    const { panel } = mount({
+      view: { current: 1, total: 2, kind: 'batch' },
+      detail: { percent: 50, speed: 1_000_000, eta: 30 }
+    });
+    expect(panel.el.children).toHaveLength(2);
+    expect(panel.el.querySelector('.progress-info')?.parentElement)
+      .toBe(panel.el.querySelector('.progress-header'));
   });
 
   it('fills the bar to the reported percentage', () => {
@@ -58,7 +68,7 @@ describe('ProgressPanel', () => {
     expect(fill(panel).classList.contains('indeterminate')).toBe(true);
   });
 
-  describe('the second line', () => {
+  describe('the inline details', () => {
     const view = { current: 1, total: 1, kind: 'single' } as const;
 
     it('shows bytes for a direct download', () => {

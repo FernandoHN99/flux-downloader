@@ -32,9 +32,27 @@ export class ProgressPanel extends Component<ProgressPanelState> {
 
     const header = document.createElement('div');
     header.className = 'progress-header';
+    const label = view.kind === 'single'
+      ? 'Downloading'
+      : `Downloading ${view.current}/${view.total}`;
+
+    const info = document.createElement('span');
+    info.className = 'progress-info';
+    info.append(
+      text('span', 'progress-speed', describeSpeed(detail)),
+      text('span', 'progress-eta', detail?.eta ? formatETA(detail.eta) : '')
+    );
+
+    const stop = document.createElement('button');
+    stop.className = 'btn btn-cancel';
+    stop.textContent = 'Stop';
+    stop.addEventListener('click', () => this.onStop());
+
     header.append(
-      text('span', 'progress-filename', `Downloading ${view.current}/${view.total}`),
-      text('span', 'progress-percent', measured ? `${Math.round(percent)}%` : '…')
+      text('span', 'progress-filename', label),
+      info,
+      text('span', 'progress-percent', measured ? `${Math.round(percent)}%` : '…'),
+      stop
     );
 
     const track = document.createElement('div');
@@ -57,19 +75,7 @@ export class ProgressPanel extends Component<ProgressPanelState> {
     }
     track.appendChild(fill);
 
-    const info = document.createElement('div');
-    info.className = 'progress-info';
-    const stop = document.createElement('button');
-    stop.className = 'btn btn-cancel';
-    stop.textContent = 'Stop';
-    stop.addEventListener('click', () => this.onStop());
-    info.append(
-      text('span', 'progress-speed', describeSpeed(detail)),
-      text('span', 'progress-eta', detail?.eta ? formatETA(detail.eta) : ''),
-      stop
-    );
-
-    this.el.append(header, track, info);
+    this.el.append(header, track);
   }
 }
 
