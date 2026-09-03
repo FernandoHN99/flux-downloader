@@ -9,6 +9,7 @@ import { loadSettings, Settings, DEFAULT_SETTINGS } from './lib/settings';
 import { videoKey } from './lib/video-key';
 import { PageMetadata, RelayCodec, TabStateStore } from './lib/tab-state';
 import { mergeDetectedVideosIntoHistory, sameHistoryContent } from './lib/history';
+import { isMediaUrl, mediaTypeFromUrl } from './lib/media-url';
 
 const nativeClient = new NativeClient();
 
@@ -357,33 +358,6 @@ function getFfmpegHttpArgs(referer?: string): string[] {
   } catch {
     return ['-referer', referer];
   }
-}
-
-function isMediaUrl(url: URL): boolean {
-  // Only http(s) — exclude blob:, data:, chrome-extension:, ws:, etc.
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
-
-  const path = url.pathname.toLowerCase();
-
-  // HLS
-  if (path.endsWith('.m3u8') || path.includes('.m3u8')) return true;
-  // DASH
-  if (path.endsWith('.mpd') || path.includes('.mpd')) return true;
-  // Direct video files
-  if (path.endsWith('.mp4')) return true;
-  if (path.endsWith('.webm')) return true;
-
-  // Do NOT match .ts (TypeScript files) or /manifest (web app manifests)
-  return false;
-}
-
-function getMediaType(url: string): VideoInfo['type'] {
-  const path = new URL(url).pathname.toLowerCase();
-  if (path.includes('.m3u8')) return 'hls';
-  if (path.includes('.mpd')) return 'dash';
-  if (path.endsWith('.mp4')) return 'mp4';
-  if (path.endsWith('.webm')) return 'webm';
-  return 'direct';
 }
 
 function isYouTubeUrl(url: string): boolean {
@@ -881,7 +855,7 @@ async function handleInterceptedMedia(
   const metadata = state.pageMetadata;
   const title = metadata?.title || await getTabTitle(tabId);
   if (!tabStates.isCurrentPageGeneration(tabId, generation)) return;
-  const type = forcedType || getMediaType(url);
+  const type = forcedType || mediaTypeFromUrl(url);
   const referer = requestReferer || metadata?.pageUrl;
 
   // Deduplicate HLS/DASH manifests from redirect chains (same path, different CDN host)
