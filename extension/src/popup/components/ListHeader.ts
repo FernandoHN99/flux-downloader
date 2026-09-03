@@ -27,8 +27,9 @@ export interface ListHeaderHandlers {
  */
 export class ListHeader extends Component<ListHeaderState> {
   constructor(state: ListHeaderState, private readonly handlers: ListHeaderHandlers) {
-    super({ className: 'history-section', state });
-    this.el.id = 'history-section';
+    // Just the bar and the search box: the list is a sibling, not a child,
+    // so redrawing this cannot detach it.
+    super({ className: 'history-head', state });
   }
 
   protected render(): void {

@@ -32,12 +32,10 @@
       </div>
     </header>
     
-    <!-- Status Bar -->
-    <div id="status-bar" class="status-bar" role="status" aria-live="polite">
-      <span id="status-text">Checking for media…</span>
-    </div>
-    
-    <!-- Empty State -->
+    <!-- Status bar: filled by the app -->
+    <div id="status-bar" class="status-bar" role="status" aria-live="polite">Checking for media…</div>
+
+    <!-- Empty state -->
     <div id="empty-state" class="empty-state">
       <svg class="empty-icon" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <polygon points="23 7 16 12 23 17 23 7"></polygon>
@@ -46,48 +44,17 @@
       <p>No media detected in your open tabs</p>
       <button id="refresh-btn" class="btn btn-secondary">Refresh</button>
     </div>
-    
-    <!-- Download progress: one panel for a single download and for a batch -->
-    <div id="download-progress" class="download-progress hidden" role="status" aria-live="polite">
-      <div class="progress-header">
-        <span id="progress-filename">Downloading</span>
-        <span id="progress-percent">0%</span>
-      </div>
-      <div class="progress-bar">
-        <div id="progress-fill" role="progressbar" aria-label="Download progress" aria-valuemin="0" aria-valuemax="100" aria-valuetext="Downloading…"></div>
-      </div>
-      <div class="progress-info">
-        <span id="progress-speed"></span>
-        <span id="progress-eta"></span>
-        <button id="batch-stop-btn" class="btn btn-cancel">Stop</button>
-      </div>
-    </div>
 
-    <!-- History -->
-    <div id="history-section" class="history-section hidden">
-      <div class="history-header">
-        <span class="history-label">Videos</span>
-        <div class="history-actions">
-          <div class="quality-toggle" role="radiogroup" aria-label="Quality for Download all">
-            <button id="batch-best-btn" class="quality-badge selected" role="radio" aria-checked="true" data-quality="best">Best</button>
-            <button id="batch-worst-btn" class="quality-badge" role="radio" aria-checked="false" data-quality="worst">Lowest</button>
-          </div>
-          <button id="download-all-btn" class="btn-link">Download all</button>
-          <button id="clear-all-btn" class="btn-link danger-solid hidden">Clear All</button>
-          <button id="clear-selected-btn" class="btn-link danger hidden">Clear (0)</button>
-        </div>
-      </div>
-      <input type="search" id="history-search" class="history-search" placeholder="Search" autocomplete="off" spellcheck="false" aria-label="Search videos">
-      <div id="history-list" role="listbox" aria-label="Previously detected media"></div>
-      <p id="history-empty" class="history-empty hidden">No match</p>
-    </div>
+    <!-- Mount points: replaced by ProgressPanel and ListHeader on start -->
+    <div id="download-progress"></div>
+    <div id="history-section" class="history-section hidden"></div>
 
     <!-- Error -->
     <div id="error" class="error hidden" role="alert" aria-live="polite">
       <span id="error-message"></span>
       <button id="error-dismiss" class="btn-dismiss" aria-label="Dismiss error">&times;</button>
     </div>
-    
+
   </div>
   
   <script src="../../dist/popup.js"></script>

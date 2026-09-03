@@ -6,6 +6,7 @@ import { VideoInfo, HistoryEntry } from './lib/types';
 import { M3U8ParserWrapper } from './lib/m3u8-parser';
 import { DashParserWrapper } from './lib/dash-parser';
 import { loadSettings, Settings, DEFAULT_SETTINGS } from './lib/settings';
+import { videoKey } from './lib/video-key';
 
 interface PageMetadata {
   title?: string;
@@ -495,17 +496,6 @@ async function readHistory(): Promise<HistoryEntry[]> {
   const stored = await chrome.storage.local.get(HISTORY_KEY);
   const entries = stored[HISTORY_KEY];
   return Array.isArray(entries) ? entries : [];
-}
-
-// Signed CDN links carry rotating tokens, so the same video comes back with a
-// different query string on each visit. Identity is the path, not the token.
-function videoKey(url: string): string {
-  try {
-    const parsed = new URL(url);
-    return `${parsed.origin}${parsed.pathname}`;
-  } catch {
-    return url;
-  }
 }
 
 // Ignores detectedAt so re-detecting the same page doesn't churn storage.
