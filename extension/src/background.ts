@@ -30,6 +30,13 @@ import {
   pickBatchQuality,
   sanitizeFilename
 } from './lib/download-plan';
+import { isPopupRequest } from './lib/popup-protocol';
+import type {
+  BatchStatus,
+  PopupMessage,
+  PopupRequest,
+  ProgressDetail
+} from './lib/popup-protocol';
 
 const nativeClient = new NativeClient();
 
@@ -169,7 +176,7 @@ const activeDownloads = new Map<string, {
   directory: string;
   filename: string;
   tabId?: number;
-  lastProgress?: { percent: number; speed?: string; bytesReceived?: number; totalBytes?: number; eta?: number };
+  lastProgress?: ProgressDetail;
 }>();
 
 // Resolvers for callers waiting on a download to finish (batch downloads).
@@ -206,6 +213,10 @@ function waitForDownload(key: string): Promise<boolean> {
 
 // Popup connections
 const popupPorts = new Set<chrome.runtime.Port>();
+
+function postPopup(port: chrome.runtime.Port, message: PopupMessage): void {
+  port.postMessage(message);
+}
 
 // Default download directory (sent by CoApp or fallback)
 let defaultDownloadDir = '';
@@ -251,7 +262,7 @@ nativeClient.listen({
         : duration > 0 ? Math.min(100, (currentSeconds / duration) * 100) : 0;
       dl.lastProgress = { percent, speed: info?.speed || '', eta: info?.eta };
       popupPorts.forEach(port => {
-        port.postMessage({
+        postPopup(port, {
           type: 'DOWNLOAD_PROGRESS',
           downloadId: key,
           progress: { percent, currentSeconds, speed: info?.speed || '', eta: info?.eta, bitrate: info?.bitrate || '' }
@@ -283,7 +294,7 @@ nativeClient.listen({
     const dl = activeDownloads.get(key);
     if (dl) {
       popupPorts.forEach(port => {
-        port.postMessage({ type: 'DOWNLOAD_COMPLETE', downloadId: key, outputPath });
+        postPopup(port, { type: 'DOWNLOAD_COMPLETE', downloadId: key, outputPath });
       });
       finishDownload(key, true);
     }
@@ -293,7 +304,7 @@ nativeClient.listen({
   downloadError: (downloadId: number, error: string) => {
     const key = `direct_${downloadId}`;
     popupPorts.forEach(port => {
-      port.postMessage({ type: 'DOWNLOAD_ERROR', downloadId: key, error });
+      postPopup(port, { type: 'DOWNLOAD_ERROR', downloadId: key, error });
     });
     finishDownload(key, false);
   }
@@ -512,7 +523,7 @@ function renameDetectedVideo(tabId: number | undefined, key: string, title: stri
 async function broadcastHistory(entries: HistoryEntry[]): Promise<void> {
   const decorated = await decorateHistory(entries);
   popupPorts.forEach((port) => {
-    port.postMessage({ type: 'HISTORY_LIST', entries: decorated });
+    postPopup(port, { type: 'HISTORY_LIST', entries: decorated });
   });
 }
 
@@ -583,26 +594,15 @@ async function probeLinkStatus(url: string, referer?: string): Promise<number | 
 
 // --- Batch download ("Download all" from history) ---
 
-interface BatchState {
-  total: number;
-  completed: number;
-  failed: number;
-  currentTitle?: string;
+interface BatchState extends BatchStatus {
   currentKey?: string;
-  // videoKey of the row being downloaded — the popup marks it as busy.
-  currentSourceKey?: string;
-  // Every video still queued, including the one in flight, so the popup can
-  // show the whole run as pending rather than one row at a time.
-  remainingKeys?: string[];
-  folder?: string;
-  cancelled: boolean;
 }
 
 let batch: BatchState | null = null;
 
 function broadcastBatch(): void {
   popupPorts.forEach((port) => {
-    port.postMessage({ type: 'BATCH_STATUS', batch });
+    postPopup(port, { type: 'BATCH_STATUS', batch });
   });
 }
 
@@ -620,7 +620,7 @@ async function runBatchDownload(videos: VideoInfo[], tabId?: number, quality?: '
   try {
     await nativeClient.ensureDir(directory);
   } catch (error: any) {
-    popupPorts.forEach((port) => port.postMessage({ type: 'ERROR', message: `Could not create ${folder}: ${error?.message || error}` }));
+    popupPorts.forEach((port) => postPopup(port, { type: 'ERROR', message: `Could not create ${folder}: ${error?.message || error}` }));
     return;
   }
 
@@ -672,7 +672,7 @@ async function runBatchDownload(videos: VideoInfo[], tabId?: number, quality?: '
       await markFailed(video.url).catch(() => { /* badge is best-effort */ });
       const message = error?.message || String(error);
       popupPorts.forEach((port) => {
-        port.postMessage({ type: 'ERROR', message: `${video.title}: ${message}` });
+        postPopup(port, { type: 'ERROR', message: `${video.title}: ${message}` });
       });
     }
     state.currentKey = undefined;
@@ -936,8 +936,8 @@ chrome.runtime.onConnect.addListener((port) => {
   if (port.name === 'popup') {
     popupPorts.add(port);
 
-    port.onMessage.addListener((msg) => {
-      handlePopupMessage(port, msg);
+    port.onMessage.addListener((message) => {
+      if (isPopupRequest(message)) handlePopupMessage(port, message);
     });
 
     port.onDisconnect.addListener(() => {
@@ -946,10 +946,10 @@ chrome.runtime.onConnect.addListener((port) => {
   }
 });
 
-function handlePopupMessage(port: chrome.runtime.Port, msg: any): void {
+function handlePopupMessage(port: chrome.runtime.Port, msg: PopupRequest): void {
   switch (msg.type) {
     case 'GET_MEDIA':
-      port.postMessage({ type: 'MEDIA_LIST', ...currentMediaPayload() });
+      postPopup(port, { type: 'MEDIA_LIST', ...currentMediaPayload() });
       // Nothing known usually means this worker was restarted and lost the
       // map, not that the tabs are empty — ask them to say again.
       if (!tabStates.hasMediaState()) void rescanAllTabs();
@@ -959,25 +959,25 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: any): void {
       refreshOpenTabs()
         .catch((error) => console.warn('[MediaGrabber] Failed to refresh open tabs:', error))
         .then(() => {
-          port.postMessage({ type: 'MEDIA_LIST', ...currentMediaPayload() });
+          postPopup(port, { type: 'MEDIA_LIST', ...currentMediaPayload() });
           return historyWrites
             .then(() => readHistory())
             .then((entries) => decorateHistory(entries))
-            .then((entries) => port.postMessage({ type: 'HISTORY_LIST', entries }));
+            .then((entries) => postPopup(port, { type: 'HISTORY_LIST', entries }));
         })
         .catch((error) => console.warn('[MediaGrabber] Failed to send refreshed history:', error));
       break;
 
     case 'DOWNLOAD':
       startDownload(msg.video, msg.filename, msg.tabId, msg.sourceUrl, msg.checkFreshness)
-        .then(result => port.postMessage({ type: 'DOWNLOAD_STARTED', ...result }))
-        .catch(err => port.postMessage({ type: 'ERROR', message: err.message }));
+        .then(result => postPopup(port, { type: 'DOWNLOAD_STARTED', ...result }))
+        .catch(err => postPopup(port, { type: 'ERROR', message: err.message }));
       break;
 
     case 'CANCEL_DOWNLOAD':
       handleCancelDownload(msg.downloadId)
-        .then(result => port.postMessage({ type: 'DOWNLOAD_CANCELLED', ...result }))
-        .catch(err => port.postMessage({ type: 'ERROR', message: err.message }));
+        .then(result => postPopup(port, { type: 'DOWNLOAD_CANCELLED', ...result }))
+        .catch(err => postPopup(port, { type: 'ERROR', message: err.message }));
       break;
 
     case 'GET_HISTORY':
@@ -985,8 +985,8 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: any): void {
       historyWrites
         .then(() => readHistory())
         .then((entries) => decorateHistory(entries))
-        .then((entries) => port.postMessage({ type: 'HISTORY_LIST', entries }))
-        .catch(() => port.postMessage({ type: 'HISTORY_LIST', entries: [] }));
+        .then((entries) => postPopup(port, { type: 'HISTORY_LIST', entries }))
+        .catch(() => postPopup(port, { type: 'HISTORY_LIST', entries: [] }));
       break;
 
     case 'RENAME_HISTORY_ITEM':
@@ -1019,7 +1019,7 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: any): void {
 
     case 'DOWNLOAD_ALL':
       runBatchDownload(msg.videos || [], msg.tabId, msg.quality)
-        .catch((err) => port.postMessage({ type: 'ERROR', message: err.message }));
+        .catch((err) => postPopup(port, { type: 'ERROR', message: err.message }));
       break;
 
     case 'CANCEL_BATCH':
@@ -1027,7 +1027,7 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: any): void {
       break;
 
     case 'GET_BATCH_STATUS':
-      port.postMessage({ type: 'BATCH_STATUS', batch });
+      postPopup(port, { type: 'BATCH_STATUS', batch });
       break;
 
     case 'GET_ACTIVE_DOWNLOAD': {
@@ -1035,7 +1035,7 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: any): void {
       const entry = [...activeDownloads.entries()].find(([, dl]) => dl.tabId === tabId);
       if (entry) {
         const [key, dl] = entry;
-        port.postMessage({
+        postPopup(port, {
           type: 'ACTIVE_DOWNLOAD',
           downloadId: key,
           video: dl.video,
@@ -1044,7 +1044,7 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: any): void {
           progress: dl.lastProgress || { percent: 0 }
         });
       } else {
-        port.postMessage({ type: 'NO_ACTIVE_DOWNLOAD' });
+        postPopup(port, { type: 'NO_ACTIVE_DOWNLOAD' });
       }
       break;
     }
@@ -1055,7 +1055,7 @@ function notifyPopups(_tabId?: number): void {
   schedulePruneIfHistoryOff();
   const payload = currentMediaPayload();
   popupPorts.forEach(port => {
-    port.postMessage({ type: 'MEDIA_LIST', ...payload });
+    postPopup(port, { type: 'MEDIA_LIST', ...payload });
   });
 }
 
@@ -1261,19 +1261,19 @@ async function startDownload(
       if (result.exitCode === 0) {
         notify('Download complete', outFilename);
         popupPorts.forEach(port => {
-          port.postMessage({ type: 'DOWNLOAD_COMPLETE', downloadId: downloadKey, outputPath });
+          postPopup(port, { type: 'DOWNLOAD_COMPLETE', downloadId: downloadKey, outputPath });
         });
       } else {
         notify('Download failed', outFilename);
         popupPorts.forEach(port => {
-          port.postMessage({ type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: formatFfmpegError(result.exitCode, result.stderr) });
+          postPopup(port, { type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: formatFfmpegError(result.exitCode, result.stderr) });
         });
       }
       finishDownload(downloadKey, result.exitCode === 0);
     }).catch(err => {
       notify('Download failed', err.message);
       popupPorts.forEach(port => {
-        port.postMessage({ type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: err.message });
+        postPopup(port, { type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: err.message });
       });
       finishDownload(downloadKey, false);
     });
@@ -1305,19 +1305,19 @@ async function startDownload(
       if (result.exitCode === 0) {
         notify('Download complete', outFilename);
         popupPorts.forEach(port => {
-          port.postMessage({ type: 'DOWNLOAD_COMPLETE', downloadId: downloadKey, outputPath });
+          postPopup(port, { type: 'DOWNLOAD_COMPLETE', downloadId: downloadKey, outputPath });
         });
       } else {
         notify('Download failed', outFilename);
         popupPorts.forEach(port => {
-          port.postMessage({ type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: formatFfmpegError(result.exitCode, result.stderr) });
+          postPopup(port, { type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: formatFfmpegError(result.exitCode, result.stderr) });
         });
       }
       finishDownload(downloadKey, result.exitCode === 0);
     }).catch(err => {
       notify('Download failed', err.message);
       popupPorts.forEach(port => {
-        port.postMessage({ type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: err.message });
+        postPopup(port, { type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: err.message });
       });
       finishDownload(downloadKey, false);
     });
@@ -1345,19 +1345,19 @@ async function startDownload(
       if (result.exitCode === 0) {
         notify('Download complete', outFilename);
         popupPorts.forEach(port => {
-          port.postMessage({ type: 'DOWNLOAD_COMPLETE', downloadId: downloadKey });
+          postPopup(port, { type: 'DOWNLOAD_COMPLETE', downloadId: downloadKey });
         });
       } else {
         notify('Download failed', outFilename);
         popupPorts.forEach(port => {
-          port.postMessage({ type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: `yt-dlp exit code ${result.exitCode}: ${result.stderr}` });
+          postPopup(port, { type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: `yt-dlp exit code ${result.exitCode}: ${result.stderr}` });
         });
       }
       finishDownload(downloadKey, result.exitCode === 0);
     }).catch(err => {
       notify('Download failed', err.message);
       popupPorts.forEach(port => {
-        port.postMessage({ type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: err.message });
+        postPopup(port, { type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: err.message });
       });
       finishDownload(downloadKey, false);
     });
@@ -1407,7 +1407,7 @@ function startDirectProgressPolling(downloadKey: string, downloadId: number, dur
       }
 
       popupPorts.forEach(port => {
-        port.postMessage({
+        postPopup(port, {
           type: 'DOWNLOAD_PROGRESS',
           downloadId: downloadKey,
           progress: { percent, bytesReceived: dl.bytesReceived, totalBytes: dl.totalBytes }
@@ -1420,7 +1420,7 @@ function startDirectProgressPolling(downloadKey: string, downloadId: number, dur
       } else if (dl.state === 'interrupted') {
         clearInterval(timer);
         popupPorts.forEach(port => {
-          port.postMessage({ type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: dl.error || 'Download interrupted' });
+          postPopup(port, { type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: dl.error || 'Download interrupted' });
         });
         finishDownload(downloadKey, false);
       }

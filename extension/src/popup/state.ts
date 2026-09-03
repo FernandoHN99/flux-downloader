@@ -1,27 +1,7 @@
 import type { HistoryEntry } from '../lib/types';
+import type { BatchQuality, BatchStatus, ProgressDetail } from '../lib/popup-protocol';
 
-export type BatchQuality = 'best' | 'worst';
-
-/** What a batch run reports about itself. */
-export interface BatchStatus {
-  total: number;
-  completed: number;
-  failed: number;
-  currentTitle?: string;
-  currentSourceKey?: string;
-  remainingKeys?: string[];
-  folder?: string;
-  cancelled: boolean;
-}
-
-/** Live numbers from the video currently being written. */
-export interface ProgressDetail {
-  percent: number;
-  speed?: number | string;
-  eta?: number;
-  bytesReceived?: number;
-  totalBytes?: number;
-}
+export type { BatchQuality, BatchStatus, ProgressDetail } from '../lib/popup-protocol';
 
 /**
  * Everything the background owns. Replaced wholesale when a message arrives,
