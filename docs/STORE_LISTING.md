@@ -1,36 +1,91 @@
-# MediaGrabber - Chrome Web Store Listing
+# Flux store/listing copy
 
-## Short Description (80 characters)
-Download online videos with quality selection
+Updated: 2026-09-03.
 
-## Long Description
+> Distribution status: Flux is currently shipped through GitHub Releases as an unpacked extension, **not** through the Chrome Web Store. This is maintained as canonical product copy for release pages or a future listing. Review store policy—especially YouTube behavior—before publishing.
 
-**MediaGrabber - Video Download Extension**
+## Product name
 
-Easily download online videos directly to your computer with quality selection.
+Flux — Video Downloader
 
-**Features:**
-- Detect videos on any webpage automatically
-- Choose from available quality options (1080p, 720p, 480p, etc.)
-- Download HLS and DASH adaptive streams
-- Automatic video+audio merging
-- Works with most video hosting sites
-- Fast downloads with real-time progress tracking
-- Simple and intuitive interface
+## Short description
 
-**How to Use:**
-1. Install the MediaGrabber extension
-2. Install the companion app (CoApp) when prompted
-3. Visit a webpage with a video
-4. Click the MediaGrabber icon in your toolbar
-5. Select your preferred quality from available options
-6. Click Download
+Detect online media and download the quality you choose with local tools.
 
-**Note:** Some websites may restrict video downloading. Please respect copyright and intellectual property rights. Only download content that you have the right to download.
+## Long description
 
-**Privacy:** MediaGrabber does not collect any personal data. All processing happens locally on your device.
+**Flux detects media used by your open browser tabs and lets you choose exactly what to save.**
 
-**Requirements:**
-- Windows, macOS, or Linux
-- Chrome or Edge browser
-- Companion app installation required for downloads
+Supported detection includes HLS, DASH, direct MP4/WebM, video elements, and Media Source Extensions. When a manifest exposes several variants, Flux presents the available video qualities plus alternate audio and subtitle tracks.
+
+Your media appears in one clear list:
+
+- current items from every open tab stay pinned;
+- optional local history keeps recent detections;
+- search, rename, reorder, selective delete, and downloaded/failed markers;
+- flat view or collapsible folders grouped by the real source site;
+- one-click per-site or sequential batch downloads;
+- compact live progress with Stop.
+
+The always-visible **Refresh tabs** action rescans every open HTTP(S) page. It can also restore a current item that was accidentally removed from the local history list.
+
+Flux preserves where media came from separately from its CDN address. For example, a course lesson stays linked and grouped under the course page rather than the server that happens to deliver the stream.
+
+Downloads run through the local MediaGrabber companion application:
+
+- FFmpeg for HLS/DASH/MSE remuxing;
+- direct local HTTP streaming for ordinary files;
+- yt-dlp for YouTube format discovery/downloads in the current GitHub-distributed build.
+
+Flux does not bypass DRM. Only download content you own or are authorized to save.
+
+## How to use
+
+1. Install/register the MediaGrabber companion app.
+2. Load the Flux extension.
+3. Open a page and start its media when necessary.
+4. Click the Flux toolbar icon.
+5. Expand an item, choose a quality/audio/subtitle option, and download.
+6. Use **Refresh tabs** if an open page or current item needs to be rediscovered.
+
+## Requirements
+
+- Chrome or Edge 102+.
+- Windows, macOS, or Linux source/runtime support.
+- Local MediaGrabber CoApp for downloads.
+- FFmpeg/ffprobe for adaptive/MSE media.
+- yt-dlp for YouTube.
+
+The automated tagged release currently provides a Windows x64 installer; other platforms require source/manual setup.
+
+## Privacy copy
+
+Flux has no analytics, advertising, telemetry, or cloud account. Settings, up to 50 recent media-history entries, and downloaded/failed markers are stored in `chrome.storage.local`.
+
+The extension and local companion necessarily contact the page/media/CDN selected by the user; yt-dlp contacts YouTube for YouTube features. Files are written locally and are not uploaded to a Flux server.
+
+Read the complete [privacy policy](PRIVACY.md).
+
+## Permission explanations
+
+| Permission | User-facing explanation |
+|---|---|
+| Sites / `<all_urls>` | detect media and page ownership on sites the user visits |
+| `webRequest` | identify media manifests and response types |
+| `tabs` / `activeTab` | query current/open tabs; `activeTab` is declared although current lookup uses `tabs` |
+| `storage` | keep local settings/history/status |
+| `nativeMessaging` | ask the local companion to download/convert |
+| `notifications` | report local completion/failure |
+| `favicon` | show browser-provided source-site icons |
+| `downloads` | declared for compatibility; current file writes are performed by the local CoApp |
+
+## Support copy
+
+If no media appears:
+
+- start playback or scroll the player into view;
+- click **Refresh tabs**;
+- reload the page after updating/reloading the extension;
+- note that browser-internal pages and DRM-protected media are unsupported.
+
+Issues: [github.com/miroshArtem/MediaGrabber/issues](https://github.com/miroshArtem/MediaGrabber/issues)

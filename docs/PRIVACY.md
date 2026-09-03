@@ -1,52 +1,115 @@
-# Privacy Policy
+# Flux privacy policy
 
-**MediaGrabber** ("we", "our") operates this browser extension.
+Last updated: 2026-09-03.
 
-This page informs you of our policies regarding the collection, use, and disclosure of personal data when you use our extension.
+Flux is the user-facing name of the MediaGrabber browser extension and local companion application.
 
-## Information We Collect
+## Summary
 
-- **We do NOT collect any personal information**
-- **We do NOT track your browsing activity**
-- **We do NOT share any data with third parties**
+- Flux contains no analytics, advertising SDK, telemetry endpoint, or account system.
+- The project maintainers do not receive your browsing history, detected media list, settings, or downloaded files through the extension.
+- Detection and orchestration happen in the browser; downloads/conversion happen in a local companion process.
+- Flux **does store recent media metadata locally** when History mode is enabled.
+- Using Flux necessarily makes requests to the page/media services you choose to access.
 
-## Local Processing
+## Data stored in the browser
 
-- All video detection and downloading happens locally on your device
-- Video URLs are processed in memory only during the download session
-- No browsing history or video URLs are stored
-- Downloaded files are saved directly to your chosen location
+Flux uses `chrome.storage.local`. This storage stays in the browser profile and is not `storage.sync`.
 
-## Native Messaging
+| Key | Stored data | Retention |
+|---|---|---|
+| `settings` | batch quality, History/Only current, Flat/By site | until reset/uninstall/profile removal |
+| `mediaHistory` | media URL, exact source page URL/title, title, qualities, duration, thumbnail, Referer/context, detection time | up to 50 entries in History mode |
+| `downloadedVideos` | normalized media identifiers marked downloaded | up to 500 |
+| `failedVideos` | normalized media identifiers marked failed | up to 500 |
 
-- Our companion app (CoApp) runs locally on your computer
-- It is used only for video downloading functionality
-- No data is transmitted to external servers
-- The CoApp communicates with the extension via local native messaging only
+History exists so Flux can keep/reorder/rename past detections and distinguish current/downloaded/failed entries.
 
-## Permissions Used
+User controls:
 
-| Permission | Purpose |
-|------------|---------|
-| `<all_urls>` | Required to detect videos on any webpage |
-| `webRequest` | Required to intercept media URLs for detection |
-| `nativeMessaging` | Required to communicate with CoApp for downloading |
-| `storage` | Used to save user settings |
-| `tabs` | Required to identify active tab for media detection |
-| `downloads` | Required to save downloaded video files |
+- **Only current** immediately prunes persisted history to media still present in open tabs.
+- Selective delete removes chosen history rows.
+- Clear removes the history list.
+- Removing the extension/profile clears data according to the browser's extension-storage behavior.
 
-## Cookies
+The downloaded/failed marker keys are local normalized identifiers, not uploaded status events.
 
-We do not use cookies.
+## Data held only in memory
 
-## Changes to This Policy
+While running, the extension may hold:
 
-We may update this policy from time to time. We will notify users of any changes by posting the new policy on this page.
+- current media per tab;
+- page title/URL/thumbnail/duration;
+- parsed manifest variants and segment/child URLs;
+- relay URL mappings;
+- popup search/selection/rename state;
+- active/batch download status and progress.
 
-## Contact
+Most tab state disappears when a tab closes or the Manifest V3 service worker is stopped. Active native processes have their own local lifetime.
 
-For questions about this privacy policy, please open an issue in the [MediaGrabber GitHub repository](https://github.com/miroshArtem/MediaGrabber/issues).
+## Network activity
 
----
+“Local processing” does not mean Flux is offline. It contacts third-party servers only as required for the requested feature:
 
-*Last updated: 2026-04-07*
+1. The browser already loads the page and its media/CDN resources.
+2. The extension may fetch detected HLS/DASH manifests, including a source-page referrer.
+3. The local CoApp/FFmpeg/direct downloader requests the selected media URL.
+4. yt-dlp contacts YouTube and related media endpoints to inspect/download a selected YouTube page.
+5. The release installer downloads pinned FFmpeg, ffprobe, and yt-dlp assets from the project's GitHub Release and verifies SHA-256.
+
+Those source/CDN/service operators can receive ordinary request information such as IP address, requested URL, headers (including Referer/Origin where needed), and whatever authentication their own page/tool supplies. Their privacy policies apply.
+
+Flux has no separate maintainer-controlled collection endpoint.
+
+## Native companion
+
+The MediaGrabber CoApp:
+
+- runs locally;
+- is started through Chrome/Edge native messaging;
+- communicates over local stdin/stdout with an allowlisted extension;
+- writes downloaded output to the local filesystem;
+- runs separate FFmpeg/ffprobe/yt-dlp programs;
+- keeps direct download state in memory and removes completed records after a short delay;
+- does not expose a listening network server.
+
+Downloaded files remain wherever the local user/CoApp writes them. Flux does not upload those files.
+
+## Permissions
+
+Current `extension/manifest.json` permissions:
+
+| Permission | Why it is used |
+|---|---|
+| `storage` | save local settings, history, and status markers |
+| `downloads` | declared in the manifest; current file writes use CoApp and the code does not call `chrome.downloads` |
+| `nativeMessaging` | connect to the local CoApp |
+| `tabs` | query open tabs for current media and all-tab refresh |
+| `activeTab` | declared alongside tabs; the current popup identifies the active tab with `chrome.tabs.query` |
+| `webRequest` | observe media/manifest requests and response types |
+| `notifications` | show local success/failure notifications |
+| `favicon` | show browser-provided site icons in By site mode |
+| `<all_urls>` host access | run detectors and inspect media across supported web pages |
+
+Two scripts run at `document_start` in every frame: an isolated content detector and a MAIN-world MSE/fetch/XHR observer. The MAIN-world script cannot access extension storage/APIs and communicates through page messages.
+
+## What Flux does not do
+
+- No telemetry or analytics.
+- No advertising or behavioral profiling.
+- No sale/sharing of data by the project.
+- No cloud account or cross-device history sync.
+- No maintainer access to local browser storage or files.
+- No DRM bypass.
+
+## Security and responsibility
+
+Native host registration allowlists exact extension origins. Release runtime downloads require HTTPS and pinned SHA-256 checksums.
+
+Users are responsible for complying with website terms, copyright, privacy, and local law when downloading content.
+
+## Changes and contact
+
+Material changes to storage, permissions, external services, or telemetry must update this file and the store listing before release.
+
+Questions can be filed in the [MediaGrabber GitHub repository](https://github.com/miroshArtem/MediaGrabber/issues).

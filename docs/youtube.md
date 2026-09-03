@@ -1,181 +1,186 @@
-# YouTube and Video DownloadHelper
+# YouTube handling
 
-## Why YouTube is Different
+Updated: 2026-09-03.
 
-YouTube presents unique challenges for video download tools due to:
+Flux handles YouTube exclusively through yt-dlp running in the local MediaGrabber CoApp. The extension does not maintain its own YouTube signature decipherer.
 
-1. **Legal/Policy Reasons** — Google owns both Chrome and YouTube
-2. **Technical Complexity** — Sophisticated adaptive streaming
-3. **Active Blocking** — Continuous arms race with download tools
+## Why the route is separate
 
----
+YouTube format URLs and signatures change frequently, high qualities commonly separate video/audio, and subtitles have a different lifecycle from ordinary manifest variants. yt-dlp already owns that compatibility surface.
 
-## Platform Restrictions
+Using one dedicated route avoids:
 
-### Chrome: No YouTube Downloads
+- duplicate raw Googlevideo rows;
+- stale extension-side signature logic;
+- treating every intercepted rendition as a separate video;
+- losing real yt-dlp `format_id` selectors.
 
-Due to Google's policies:
-> "Due to a legal restriction imposed by Google, the owner of both Chrome & YouTube, VDH for Chrome does not download from YouTube."
+## Detection flow
 
-Chrome Web Store policies prohibit extensions that download YouTube content. VDH for Chrome would be **removed** if it supported YouTube.
-
-### Firefox and Edge: Full Support
-
-Google has no jurisdiction over Firefox (Mozilla) or Edge (Microsoft), so VDH for these browsers **can** download YouTube videos.
-
----
-
-## YouTube's Anti-Download Measures
-
-### 1. Encrypted Video Signatures
-
-YouTube video URLs contain encrypted signatures:
-```
-/watch?v=VIDEO_ID&s=ENCRYPTED_SIGNATURE
-```
-
-The signature cipher changes frequently and is obfuscated in JavaScript:
-```javascript
-// Simplified example of what YouTube does
-function createSignatureCipher(seed) {
-  return btoa(seed.split('').reverse().join('')).substr(20);
-}
+```text
+top-level YouTube page metadata
+  │ PAGE_METADATA with exact pageUrl/generation
+  ▼
+background addYouTubeVideo()
+  ├─ create one VideoInfo(type = "ytdlp")
+  ├─ suppress ordinary detected media on that tab
+  └─ call CoApp ytdlpFormats(pageUrl)
+                 │
+                 ▼
+       yt-dlp --no-playlist --no-warnings -J <url>
+                 │
+                 ▼
+       normalized qualities/title/duration/thumbnail
+                 │
+                 ▼
+       commit only if URL + page generation still match
 ```
 
-### 2. Regional Restrictions
+Recognized page hosts include:
 
-YouTube serves different content based on:
-- User's geographic location (Geo-IP)
-- VPN detection and blocking
-- Available CDN endpoints per region
+- `youtube.com` / `www.youtube.com` / `m.youtube.com`
+- `youtu.be`
+- `youtube-nocookie.com` and `www.youtube-nocookie.com`
 
-### 3. Adaptive HLS/DASH Streaming
+The exact top-level page URL is used. A result from an older SPA navigation is discarded.
 
-YouTube uses complex adaptive streaming:
-- Multiple quality levels (144p to 4K+)
-- Separate video and audio tracks
-- Periodic manifest updates
-- Token-based access
+## Format normalization
 
-### 4. Authentication Requirements
+`coapp/src/ytdlp.ts` parses the JSON returned by `-J` and creates Flux qualities.
 
-Some content requires:
-- User login
-- Age verification
-- Subscription (YouTube Premium)
+### Video
 
----
+- Requires a real `format_id`, video codec, and height.
+- Groups candidates by height, rounded FPS, and dynamic range.
+- Chooses the strongest candidate in each group by bitrate/size score.
+- Sorts highest resolution/FPS/score first.
+- Labels 4K/1440p/other heights, optional high FPS, and non-SDR dynamic range.
+- If the format has no audio, pairs its ID with a preferred audio selector.
+- Stores the selected yt-dlp expression in `formatArgs: ["-f", selector]`.
 
-## How VDH Handles YouTube
+### Audio
 
-Based on discussions (Discussion #1074, #942):
+When an audio-only format exists, Flux adds **Audio MP3**:
 
-### Detection Process
-
-1. **Manifest Extraction** — VDH finds the HLS/DASH manifest URL
-2. **Signature Decryption** — JavaScript-based cipher solver
-3. **Quality Selection** — User chooses preferred quality
-4. **Download** — FFmpeg downloads the stream
-
-### Challenges
-
-> "YouTube is trying to block every download (there are different tools which are updating continuously because they change the way to release the links to download the stream)"
-
-The VDH team must continuously update:
-- Signature decryption algorithms
-- Manifest parsing logic
-- CDN endpoint detection
-
-### YouTube Premium Content
-
-VDH **cannot download**:
-- DRM-protected content
-- Rentals/purchases
-- YouTube Premium exclusive videos
-
-These use Widevine DRM that cannot be bypassed.
-
----
-
-## VPN and Geographic Issues
-
-### VPN Detection
-
-YouTube actively detects and blocks VPN users:
-- Some videos return "not available in your country"
-- Some pages show captchas
-- Some streams fail to load
-
-### Solutions
-
-1. Disable VPN for YouTube
-2. Use browser profiles (VPN on/off per profile)
-3. Use Firefox/Edge with different DNS
-
----
-
-## YouTube Live Streams
-
-YouTube Live has different handling:
-- Live streams use RTMPS (real-time)
-- Not downloadable via HLS in real-time
-- VDH may offer "Download as recording" after stream ends
-
----
-
-## Technical Details (from discussions)
-
-### Manifest Format
-
-YouTube serves HLS via:
-```
-https://manifest.googlevideo.com/api/manifest/hls_playlist/...
+```text
+-f ba -x --audio-format mp3 --audio-quality 0
 ```
 
-This contains variant streams with different qualities.
+### Subtitles
 
-### Available Qualities
+Manual subtitle languages become options using `--write-subs`, and automatic caption languages use `--write-auto-subs`. Both use `--skip-download` and retain language/extension metadata.
 
-YouTube typically offers:
-- 144p, 240p, 360p, 480p (SD)
-- 720p, 1080p (HD)
-- 1440p, 2160p (QHD/4K)
-- Adaptive streams (separate audio/video)
+The exact available formats, languages, and metadata depend on yt-dlp, the page, region, login state, and YouTube at that moment.
 
-### Aggregated Streams
+## Fallback choices
 
-From Discussion #942:
-> "Aggregation of video & audio streams used to be a separate step that occurred after the data transmission. Now, VDH does use ffmpeg for..."
+The extension has fallback definitions for:
 
-In older VDH versions:
-1. Download video track
-2. Download audio track  
-3. Merge with ffmpeg
+- Best: `-f bv*+ba/b`
+- Audio MP3: `-f ba -x --audio-format mp3 --audio-quality 0`
 
-Now (v9+):
-1. Download via ffmpeg directly (ffmpeg handles both)
+The normal path uses the real format list returned by `ytdlpFormats`.
 
----
+## Download
 
-## Comparison with Other YouTube Downloaders
+Selecting a YouTube option routes to:
 
-| Tool | YouTube Support | Method |
-|------|----------------|--------|
-| VDH (Firefox/Edge) | Yes | HLS/DASH extraction |
-| VDH (Chrome) | No | Blocked by Google |
-| yt-dlp | Yes | Signature decryption + ytdlp protocol |
-| youtube-dl | Yes | Legacy approach |
-| Browser extensions | Varies | Many blocked |
+```ts
+ytdlp(pageUrl, formatArgs, {
+  progressTime: 1000,
+  startHandler: downloadKey,
+  outputDir,
+  filename: "<sanitized-name>.%(ext)s"
+})
+```
 
----
+The CoApp prepends:
 
-## The Arms Race Continues
+```text
+--no-playlist --no-warnings --newline -o <template>
+```
 
-YouTube vs download tools is an ongoing battle:
+If FFmpeg is found, its directory is supplied through `--ffmpeg-location` so yt-dlp can merge separate tracks or convert audio.
 
-1. YouTube implements new blocking
-2. Download tools find workarounds
-3. YouTube blocks again
-4. Cycle repeats
+The selected `VideoInfo.url` for a yt-dlp item remains the YouTube page URL, not an expiring Googlevideo rendition URL.
 
-VDH maintainers (Michel, then Paul) continuously update the extension to handle new YouTube changes. This is why beta versions often work when stable versions don't — fixes arrive faster in beta.
+## Progress and cancellation
+
+The CoApp parses yt-dlp `[download] N% ... at SPEED ... ETA ...` lines. It sends percent, optional speed, optional ETA, and `source: "ytdlp"` through the same `convertOutput` reverse RPC used by FFmpeg.
+
+The background associates the process PID through `convertStartNotification(startHandler, pid)`.
+
+Cancellation calls `abortYtdlp(pid)` and kills the child process. The popup uses the same compact progress panel and Stop action as every other route.
+
+## Runtime discovery
+
+Expected paths are:
+
+```text
+ytdlp/win/yt-dlp.exe
+ytdlp/darwin/yt-dlp
+ytdlp/linux/yt-dlp
+```
+
+Search roots include install/project/executable/current directories and `MEDIAGRABBER_HOME`. A generic `<cwd>/ytdlp/yt-dlp[.exe]` and system `PATH` are fallbacks. Windows additionally scans common per-user Python installation `Scripts` directories.
+
+Known caveat: the repository's historical `coapp/ytdlp/mac/` placeholder is not the `darwin` folder current code searches.
+
+The tagged Windows workflow currently pins **yt-dlp 2026.07.04**. Keep the workflow, release config, and third-party notice synchronized when updating it.
+
+## Supported and unsupported cases
+
+Flux asks yt-dlp for one page, not a playlist (`--no-playlist`).
+
+Possible failures include:
+
+- yt-dlp binary missing or too old;
+- login/age/region restrictions;
+- bot/captcha checks;
+- unavailable/private videos;
+- upstream extractor changes;
+- DRM-protected rentals/purchases/streams;
+- format disappearing between probe and download.
+
+Flux does not bypass authentication, regional controls, service policy, or DRM. The user remains responsible for permission to download content.
+
+## Chrome distribution note
+
+The current project is distributed as an unpacked GitHub Release, not through the Chrome Web Store. Do not copy old Video DownloadHelper claims that “Chrome cannot download YouTube but Edge can” into this codebase: that was documentation about another product and does not describe Flux's implementation.
+
+If a future store distribution changes YouTube behavior for policy reasons, update the manifest/code and this document together.
+
+## Troubleshooting
+
+### No YouTube entry
+
+- Confirm accepted `PAGE_METADATA.pageUrl` is a recognized YouTube URL.
+- Confirm top-frame/sender URL and generation checks pass.
+- Check Settings reports CoApp connected.
+- Run `yt-dlp --version` in the CoApp environment.
+- Reload the YouTube tab after rebuilding/reloading the extension.
+
+### Entry appears but has fallback/empty formats
+
+- Run `yt-dlp --no-playlist --no-warnings -J <url>` manually.
+- Upgrade/pin yt-dlp deliberately.
+- Inspect stderr for authentication or extractor errors.
+- Confirm the tab did not navigate while the probe was running.
+
+### Download lacks audio
+
+- Inspect the selected format's `formatArgs`.
+- Confirm a compatible audio selector exists.
+- Confirm FFmpeg was discovered and passed via `--ffmpeg-location`.
+
+### Progress is missing
+
+- Confirm `progressTime` is nonzero.
+- Confirm yt-dlp is writing newline progress to stdout.
+- Confirm the PID and reverse `convertOutput` callback reach the same active key.
+
+### Subtitle output is missing
+
+- Distinguish manual from automatic languages.
+- Confirm the chosen language/ext still exists.
+- Remember subtitle choices use `--skip-download` and do not create a video file.

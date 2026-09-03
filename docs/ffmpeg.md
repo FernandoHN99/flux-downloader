@@ -1,315 +1,217 @@
-# FFmpeg Integration in Video DownloadHelper
+# FFmpeg integration
 
-## Overview
+Updated: 2026-09-03.
 
-**FFmpeg** is the core engine of the Video DownloadHelper Companion Application (CoApp). It's used for:
+Flux uses FFmpeg and ffprobe as separate local runtime programs through the MediaGrabber CoApp. They are not linked into the extension or CoApp source.
 
-1. **Downloading** HLS/DASH streams (converting stream to file)
-2. **Merging** separate video and audio tracks
-3. **Converting** between formats
-4. **Probing** media information
+## Responsibilities
 
----
+FFmpeg handles:
 
-## Bundled FFmpeg
+- HLS download/remux;
+- DASH download/remux;
+- MSE/captured stream inputs;
+- video/audio stream combination described by selected format arguments;
+- machine-readable progress.
 
-CoApp ships with **modified FFmpeg builds** for each platform:
+ffprobe inspects media URLs/files when Flux needs stream metadata or a fallback quality.
 
-| Platform | Binary | Location |
-|----------|--------|----------|
-| Windows | `ffmpeg.exe`, `ffprobe.exe` | `C:\DownloadHelper CoApp\` |
-| macOS | `ffmpeg`, `ffprobe` | `/Applications/DownloadHelper CoApp/` |
-| Linux | `ffmpeg`, `ffprobe` | `~/.vdhcoapp/` |
+Direct MP4/WebM downloads do not normally use FFmpeg; they use the CoApp's Node HTTP/HTTPS downloader. YouTube is launched through yt-dlp, which may itself use the discovered FFmpeg directory.
 
-### Modified Builds
+Flux does not currently expose a generic conversion UI, transcoding presets, or watermarking.
 
-Paul (current maintainer) has submitted patches to FFmpeg for:
-- Bug fixes relevant to streaming
-- Improved handling of partial streams
-- Better progress reporting
+## Discovery
 
-These are **not** stock FFmpeg builds — they're compiled with VDH-specific modifications.
+`coapp/src/converter.ts` and `coapp/src/ytdlp.ts` search runtime roots from `coapp/src/paths.ts`.
 
----
+Install roots:
 
-## Executable Discovery
+- Windows: `%LOCALAPPDATA%\MediaGrabber`
+- macOS: `~/Library/Application Support/MediaGrabber`
+- Linux: `$XDG_DATA_HOME/MediaGrabber` or `~/.local/share/MediaGrabber`
 
-CoApp searches for FFmpeg in this order:
+Expected platform paths:
 
-```javascript
-function findExecutableFullPath(programName, extraPath = "") {
-  programName = ensureProgramExt(programName);
-  
-  // 1. Check bundled location first
-  // 2. Check PATH environment variable
-  // 3. Fall back to system default
-  
-  const envPath = (process.env.PATH || '');
-  const pathArr = envPath.split(path.delimiter);
-  
-  if (extraPath) {
-    pathArr.unshift(extraPath);  // Prioritize extra path
-  }
-  
-  return pathArr
-    .map((x) => path.join(x, programName))
-    .find((x) => fileExistsSync(x));
-}
-
-// Usage
-const ffmpeg = findExecutableFullPath("ffmpeg", coappDir);
-const ffprobe = findExecutableFullPath("ffprobe", coappDir);
+```text
+ffmpeg/win/ffmpeg.exe
+ffmpeg/win/ffprobe.exe
+ffmpeg/darwin/ffmpeg
+ffmpeg/darwin/ffprobe
+ffmpeg/linux/ffmpeg
+ffmpeg/linux/ffprobe
 ```
 
----
+Search roots include `MEDIAGRABBER_HOME`, current working directory, install directory, executable directory, and the project directory near compiled code. Converter code also checks `<cwd>/ffmpeg/ffmpeg[.exe]` and `ffprobe[.exe]`. The final fallback is the command name on system `PATH`.
 
-## FFmpeg Operations
+`MEDIAGRABBER_INSTALL_DIR` overrides the install root.
 
-### 1. HLS Stream Download
+## Release binary
 
-**Input**: M3U8 playlist URL (e.g., `https://example.com/video.m3u8`)
+The current Windows release workflow downloads the **GyanD/codexffmpeg 8.1.2 Essentials** archive and publishes/install its `ffmpeg.exe` and `ffprobe.exe` as separate GPLv3 runtime programs.
 
-**Command**:
-```bash
-ffmpeg -i "https://example.com/video.m3u8" -c copy -hide_banner output.mp4
+The project does not claim these are custom MediaGrabber builds. Keep the exact provider/version and corresponding source/license information synchronized with [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) whenever the workflow pin changes.
+
+## Converter RPC
+
+The extension calls:
+
+```ts
+convert(args, {
+  progressTime: 1000,
+  startHandler: downloadKey,
+  manifestFiles?: [{ placeholder, content }]
+})
 ```
 
-**Explanation**:
-- `-i "url"` — Input stream URL
-- `-c copy` — Copy streams without re-encoding (fast, no quality loss)
-- `-hide_banner` — Suppress version/URL printing
+The CoApp prepends:
 
-### 2. DASH Stream Download
-
-**Input**: MPD manifest URL (e.g., `https://example.com/video.mpd`)
-
-**Command**:
-```bash
-ffmpeg -i "https://example.com/video.mpd" -c copy -hide_banner output.mp4
+```text
+-progress pipe:1 -hide_banner -loglevel error
 ```
 
-### 3. Merge Video + Audio Tracks
+It then spawns the resolved FFmpeg binary without a shell.
 
-When video and audio are separate files:
-```bash
-ffmpeg -i video.mp4 -i audio.m4a -c copy -map 0:v:0 -map 1:a:0 output.mp4
+### Standard HLS/DASH shape
+
+When no specialized quality arguments exist, the background builds a stream-copy invocation equivalent to:
+
+```text
+ffmpeg -progress pipe:1 -hide_banner -loglevel error \
+  [Referer/Origin input options] -i <media-or-manifest-url> \
+  -c copy -y <output-path>
 ```
 
-### 4. Re-encode with Custom Settings
+Subtitle output uses `-c:s copy`. A selected quality can carry its own `formatArgs`, in which case those arguments are used before the final output path.
 
-For maximum compatibility or smaller size:
-```bash
-ffmpeg -i input.mp4 -c:v libx264 -c:a aac -preset medium -crf 23 output.mp4
+Stream copy/remux is intentional:
+
+- no quality loss from re-encoding;
+- lower CPU usage;
+- faster completion;
+- output compatibility remains dependent on source codecs/container.
+
+### Request context
+
+When source context is known, the background can prepend:
+
+```text
+-referer <page/referer>
+-headers "Origin: <source-origin>\r\n"
 ```
 
-### 5. Extract Single Track
+Preserve this context for CDNs that reject requests without a valid page origin. `VideoInfo.pageUrl` is the source-page fact; `VideoInfo.url` is the stream/CDN fact.
 
-**Video only**:
-```bash
-ffmpeg -i input.mp4 -c:v copy -an output.mp4
+### Local HLS manifests
+
+Some opaque HLS streams require rewritten manifests. The background can send `manifestFiles` with placeholder arguments. The CoApp:
+
+1. creates `<os tmp>/mediagrabber-hls-*`;
+2. writes `manifest-0.m3u8`, `manifest-1.m3u8`, etc.;
+3. replaces argument placeholders with local paths;
+4. executes FFmpeg;
+5. recursively removes the temporary directory on exit.
+
+Do not write these generated manifests into the repository or download folder.
+
+## Progress
+
+FFmpeg writes key/value records to stdout because of `-progress pipe:1`. The CoApp accumulates a record until it sees `progress=...` and then calls:
+
+```text
+convertOutput(progressTime, currentSeconds, info)
 ```
 
-**Audio only**:
-```bash
-ffmpeg -i input.mp4 -c:a copy -vn output.aac
+In this project, `out_time_ms` is treated as nanoseconds:
+
+```ts
+const seconds = parseInt(info.out_time_ms, 10) / 1_000_000;
 ```
 
----
+The field name is misleading, but changing the divisor without testing real output will break percentage calculations.
 
-## Progress Tracking
+The background uses the selected video's duration to calculate percent, clamps it to 100, records the last progress, updates the active popup row, and feeds the compact shared `ProgressPanel`.
 
-### The `-progress pipe:1` Flag
+Before a measurable value arrives, the popup shows an indeterminate bar rather than falsely claiming 0%.
 
-VDH uses FFmpeg's machine-readable progress output:
+## PID and cancellation
 
-```bash
-ffmpeg -i input -progress pipe:1 -hide_banner output.mp4
-```
+After spawning, CoApp calls `convertStartNotification(startHandler, pid)`. `startHandler` is the extension's logical download key, which avoids assigning a PID to the wrong concurrent record.
 
-**Output format** (key=value per line, frame every ~1s):
-```
-progress=continue
-out_time_ms=45200000
-out_time=00:00:45.200000
-frame=1080
-fps=30.00
-stream_0_0_q=28.0
-bitrate= 856.6kbits/s
-total_size=4875234
-speed= 1.85x
-```
+Cancellation:
 
-### Progress Parsing in CoApp
+1. extension finds the active download's PID;
+2. calls `abortConvert(pid)`;
+3. CoApp writes `q` to FFmpeg stdin;
+4. after 10 seconds, it force-kills the still-running child.
 
-```javascript
-function parseProgress(lines) {
-  const info = {};
-  lines.toString("utf-8").split("\n").forEach(line => {
-    const [key, value] = line.split("=");
-    if (key && value) {
-      info[key.trim()] = value.trim();
-    }
-  });
-  return info;
-}
+All tracked FFmpeg children are also killed when CoApp receives SIGINT/SIGTERM or exits.
 
-child.stdout.on("data", (lines) => {
-  const info = parseProgress(lines);
-  
-  // Report via RPC callback every N ms
-  if (shouldReport(now, lastReport, 1000)) {
-    rpc.call("convertOutput", 
-      options.progressTime,      // callback interval
-      info.out_time_ms / 1000,   // current time in seconds
-      info                       // full info object
-    );
-  }
-});
-```
+The popup prevents concurrent runs, but PID association must still remain keyed because async start/progress callbacks can interleave.
 
----
+## Completion and errors
 
-## ffprobe — Media Information
+`convert` resolves with:
 
-### Getting Stream Info
-
-```bash
-ffprobe -v quiet -print_format json -show_format -show_streams input.mp4
-```
-
-**Output**:
-```json
+```ts
 {
-  "streams": [
-    {
-      "index": 0,
-      "codec_name": "h264",
-      "codec_type": "video",
-      "width": 1920,
-      "height": 1080,
-      "r_frame_rate": "30/1",
-      "duration": "180.500"
-    },
-    {
-      "index": 1,
-      "codec_name": "aac",
-      "codec_type": "audio",
-      "channels": 2,
-      "sample_rate": "48000",
-      "duration": "180.500"
-    }
-  ],
-  "format": {
-    "filename": "input.mp4",
-    "size": "52428800",
-    "format_name": "mov,mp4,m4a"
-  }
+  exitCode: number | null,
+  pid: number | undefined,
+  stderr: string
 }
 ```
 
-### RPC Interface for Probe
+The background:
 
-```javascript
-"probe": (input, json = false, headers = []) => {
-  // If json=true, return parsed JSON
-  // If json=false, return human-readable text
-  const args = [
-    "-v", "quiet",
-    "-print_format", json ? "json" : "default",
-    "-show_format", "-show_streams",
-    input
-  ];
-  
-  const result = spawnSync(ffprobe, args);
-  return result;
-}
+- publishes `DOWNLOAD_COMPLETE` and a desktop notification for exit code 0;
+- formats stderr into `DOWNLOAD_ERROR` for nonzero exit;
+- marks the stable source key as downloaded only on success;
+- releases the active/batch waiter in both cases.
+
+Historical signed URLs are probed through `downloads.probeStatus` before FFmpeg starts. Common HTTP expiry statuses produce a direct “reopen the page” error instead of an opaque FFmpeg failure.
+
+## ffprobe
+
+`probe(input, json=true, headers=[])` invokes:
+
+```text
+ffprobe -v quiet -print_format json -show_format -show_streams [headers] <input>
 ```
 
----
+JSON output is parsed by the CoApp. Parse failure or nonzero exit rejects the RPC with stderr context.
 
-## Error Handling
+`converter.info` runs `ffmpeg -h` and extracts a version token plus the resolved binary path. The app-level `info` method is separate and reports CoApp/platform/download-directory data.
 
-### Truncated/Partial Files
+## Troubleshooting
 
-VDH CoApp has special handling for `ECONNRESET` errors:
+### Spawn fails
 
-```javascript
-downloadItem.on('error', (error) => {
-  if (error.code == 'ECONNRESET') {
-    // Server closed connection early
-    // FFmpeg can often still process the partial data
-    downloadEntry.state = "complete";
-  }
-});
-```
+- Run `ffmpeg -version` and `ffprobe -version` from the environment that launches CoApp.
+- Inspect resolved runtime roots and the `win`/`darwin`/`linux` folder name.
+- Ensure the file is executable on macOS/Linux.
+- Remember that tracked `mac` placeholders do not match Node's `darwin` platform string.
 
-### Invalid Stream URLs
+### HTTP/authorization error
 
-FFmpeg will exit with non-zero code:
-```
-ffmpeg exited with code 1: Invalid data found
-```
+- Reopen the source page and use **Refresh tabs**.
+- Confirm Referer/Origin survived parser and quality selection.
+- Confirm the media URL has not expired.
+- Check whether the stream is DRM-protected.
 
-This is caught and returned as RPC error.
+### Percentage is wrong
 
-### Missing Codecs
+- Confirm duration is seconds.
+- Inspect actual `out_time_ms` payload from this FFmpeg build.
+- Preserve the project's 1,000,000 divisor unless evidence/tests justify changing it.
+- For direct downloads, diagnose byte polling instead; it does not use FFmpeg progress.
 
-If codec is not supported:
-```
-ffmpeg exited with code 1: decoder (codec id 27) not found
-```
+### Output has no audio
 
----
+- Check whether HLS audio renditions or DASH/yt-dlp audio selectors are present.
+- Inspect selected `formatArgs`.
+- Confirm the source is not a video-only quality without a paired audio input.
 
-## Watermarking
+### Cancellation leaves work
 
-VDH can overlay watermarks using FFmpeg filters:
-
-```bash
-ffmpeg -i input.mp4 -i watermark.png -filter_complex "overlay=10:10" output.mp4
-```
-
-For unpaid CoApp users, VDH adds a **QR code watermark** via this mechanism.
-
----
-
-## Linux "noffmpeg" Builds
-
-For users who already have FFmpeg installed, VDH offers "noffmpeg" builds:
-
-```bash
-# Install system ffmpeg
-sudo apt install ffmpeg  # Ubuntu/Debian
-sudo dnf install ffmpeg  # Fedora
-
-# Install VDH CoApp without bundled ffmpeg
-curl -sSLf https://github.com/aclap-dev/vdhcoapp/releases/latest/download/install.sh | bash -s -- --no-ffmpeg
-```
-
-These builds use the system FFmpeg instead of the bundled one.
-
----
-
-## Performance Considerations
-
-### Why `-c copy`?
-
-Using `copy` avoids re-encoding:
-- **Faster**: No transcoding, just muxing
-- **Lossless**: Original quality preserved
-- **Limited**: Can't change resolution, bitrate, etc.
-
-### When to Re-encode?
-
-Use `-c:v libx264` instead of `-c copy` when:
-- Target device doesn't support codec
-- Need to reduce file size
-- Want to change resolution/bitrate
-
----
-
-## Relevant Source Files
-
-- `vdhcoapp/app/src/converter.js` — FFmpeg wrapper (main integration)
-- `vdhcoapp/app/src/downloads.js` — Download handling
-- `vdhcoapp/app/src/request.js` — HTTP requests for stream fetching
+- Confirm `convertStartNotification` associated the PID with the same download key.
+- Confirm the CoApp process is still connected to receive `abortConvert`.
+- Allow the 10-second graceful-to-force-kill window.

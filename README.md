@@ -1,12 +1,12 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="extension/public/icons/icon-128.png">
-    <img src="extension/public/icons/icon-128.png" width="128" alt="MediaGrabber logo">
+    <img src="extension/public/icons/icon-128.png" width="128" alt="Flux logo">
   </picture>
 </p>
 
 <p align="center">
-  <strong>Download videos from any website. Pick your quality. No surprises.</strong>
+  <strong>Flux — detect online media, choose a quality, and download it locally.</strong>
 </p>
 
 <p align="center">
@@ -16,248 +16,238 @@
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="License">
 </p>
 
----
+> The user-facing product is **Flux**. The repository, npm packages, native host, install paths, and release files still use the historical **MediaGrabber** name.
 
-## See It In Action
+## See it in action
 
 https://github.com/user-attachments/assets/05a171ad-6ba6-4ab1-8d7c-9ef7cbdec57d
 
-A browser extension that catches video streams as they pass through the browser and lets you download them in whatever quality you want. Think Video DownloadHelper, but modern, open source, and built for Manifest V3.
+Flux is a Manifest V3 browser extension plus a local companion app. The extension observes media used by open pages; the companion uses FFmpeg, yt-dlp, or direct HTTP streaming to save the selected item.
 
-Why another downloader? Because the ones that work either haven't been updated in years, come with sketchy installers, or hide quality selection behind a paywall. MediaGrabber does the one thing you actually need — grab the video, give you a quality picker, and get out of your way.
+### Features
 
-### What it does
+- Detects HLS (`.m3u8`), DASH (`.mpd`), direct MP4/WebM, DOM media elements, and streams exposed through Media Source Extensions.
+- Parses available video, alternate audio, and subtitle renditions.
+- Uses yt-dlp exclusively for YouTube format discovery and downloads.
+- Maintains one list containing media from all open tabs and, optionally, up to 50 historical detections.
+- Pins current media above history and can show either a flat list or collapsible groups by source site.
+- Preserves the real page that exposed a stream. A Rocketseat lesson remains grouped under `app.rocketseat.com.br` even when its bytes come from `b-cdn.net`.
+- Offers rename, search, drag reorder, selective delete, per-site download, and sequential batch download.
+- Provides one compact progress panel and prevents overlapping download runs.
+- Includes an always-visible **Refresh tabs** action that restores deleted current entries and asks every open HTTP(S) page to announce media again.
+- Stores settings/history locally and contains no telemetry or analytics.
 
-- **Detects everything.** HLS streams (.m3u8), DASH manifests (.mpd), direct MP4/WebM files, and even MSE-blobbed video that regular downloaders miss.
-- **Quality selection that actually works.** Pick from every variant in the manifest — 240p through 4K. Separate entries for audio tracks and subtitles when the stream offers them.
-- **YouTube support.** Full quality selection via yt-dlp integration. No, not just 360p and 720p. Everything the video was uploaded in.
-- **Progress you can see.** Badge counter on the icon, download progress in the popup, optional desktop notifications.
-- **No tracking, no analytics, no funny business.** The only thing that leaves your machine are the video files you ask for.
+Flux does not bypass DRM. Download only content you are authorized to save.
 
-### Quick start
+## Release installation
+
+Production artifacts are published through [GitHub Releases](https://github.com/miroshArtem/MediaGrabber/releases/latest). The extension is currently sideloaded and is not published in the Chrome Web Store.
+
+The tagged release workflow currently produces Windows x64 artifacts:
+
+- `MediaGrabber-extension.zip`
+- `MediaGrabber-CoApp-win-x64.exe`
+- `MediaGrabber-Setup-win-x64.exe`
+- pinned FFmpeg, ffprobe, and yt-dlp executables
+- `SHA256SUMS.txt`
+- `THIRD_PARTY_NOTICES.txt`
+
+### Windows x64
+
+1. Download `MediaGrabber-Setup-win-x64.exe` and `MediaGrabber-extension.zip` from the latest release.
+2. Optionally verify both against `SHA256SUMS.txt`.
+3. Run the setup executable. It installs CoApp and runtime tools in `%LOCALAPPDATA%\MediaGrabber` and registers the native host for Chrome and Edge.
+4. Extract the extension ZIP to a permanent folder.
+5. Open `chrome://extensions` or `edge://extensions`.
+6. Enable **Developer mode**, choose **Load unpacked**, and select the extracted folder containing `manifest.json`.
+7. Reload Flux after setup, then reload any already-open media pages.
+
+The manifest public key fixes the extension ID at `igephdkobpgbfgdjmehckbhffbimgkii`; the release installer registers this ID automatically.
+
+See [the release guide](docs/releasing.md) for maintainer details.
+
+## Source setup
+
+### Requirements
+
+- Node.js 22 is recommended and is what release CI uses.
+- npm (included with Node.js).
+- Chrome 102+ or Edge 102+.
+- FFmpeg + ffprobe for HLS/DASH/MSE work.
+- yt-dlp for YouTube.
+
+Clone, install, test, and build:
 
 ```bash
 git clone https://github.com/miroshArtem/MediaGrabber.git
 cd MediaGrabber
 npm install
+npm test
 npm run build
 ```
 
-Then head to [Loading the extension](#loading-the-extension) and you're off.
+The root is an npm-workspaces project. `npm run build` compiles and bundles the extension, then compiles the CoApp.
 
-### Release installation
+### Runtime binaries in development
 
-The production distribution uses [GitHub Releases](https://github.com/miroshArtem/MediaGrabber/releases/latest) for both the extension and native companion. The installer places CoApp, FFmpeg, ffprobe, and yt-dlp in a user-local MediaGrabber directory and registers native messaging automatically.
+The CoApp first looks below its runtime roots, then uses generic project fallbacks and finally the system `PATH`.
 
-#### Windows x64 installation
+Expected platform folder names come from Node's `process.platform`:
 
-1. Open the [latest release](https://github.com/miroshArtem/MediaGrabber/releases/latest).
-2. Download `MediaGrabber-Setup-win-x64.exe` and `MediaGrabber-extension.zip`.
-3. Check the downloaded files against `SHA256SUMS.txt` if you want to verify their integrity.
-4. Run `MediaGrabber-Setup-win-x64.exe`. It installs CoApp, FFmpeg, ffprobe, and yt-dlp and registers the native messaging host for Chrome and Edge.
-5. Extract `MediaGrabber-extension.zip` to a permanent folder. Do not delete or move this folder after loading it in the browser.
-6. Open `chrome://extensions` in Chrome or `edge://extensions` in Edge.
-7. Enable **Developer mode**.
-8. Click **Load unpacked** and select the extracted folder containing `manifest.json`.
-9. Reload the MediaGrabber extension, open a page with video, and click the MediaGrabber icon.
+```text
+coapp/ffmpeg/win/ffmpeg.exe
+coapp/ffmpeg/win/ffprobe.exe
+coapp/ffmpeg/darwin/ffmpeg
+coapp/ffmpeg/darwin/ffprobe
+coapp/ffmpeg/linux/ffmpeg
+coapp/ffmpeg/linux/ffprobe
 
-The extension is distributed as a sideload ZIP and is not published in the Chrome Web Store. Chrome and Edge require Developer mode and **Load unpacked** for this installation path.
-
-If the Settings page shows **CoApp: disconnected**, run the setup executable first, confirm that the extension was loaded from the extracted folder, and reload the extension.
-
-Release maintainer instructions are in [docs/releasing.md](docs/releasing.md).
-
-### What you'll need for source builds
-
-Here's everything you need to install before MediaGrabber will work. If you've never done this kind of thing before — don't worry, each one has a direct link and a plain-English explanation.
-
-| # | Thing | Why you need it | Where to get it |
-|---|---|---|---|
-| 1 | **Node.js 18 or newer** | Builds the extension and the companion app. Comes with npm (the package manager). | [nodejs.org](https://nodejs.org) — click the **LTS** button, run the installer, keep all defaults. |
-| 2 | **Chrome 102+ or Edge 102+** | The browser the extension runs in. | You almost certainly have one of these already. If not: [google.com/chrome](https://www.google.com/chrome) |
-| 3 | **FFmpeg** (and ffprobe) | Converts streaming video (HLS/DASH) into downloadable MP4 files. | [ffmpeg.org/download.html](https://ffmpeg.org/download.html) — see [Installing FFmpeg](#installing-ffmpeg) below. |
-| 4 | **yt-dlp** | Downloads YouTube videos at full quality. | Two ways to get it — see [Installing yt-dlp](#installing-yt-dlp) below. Pick one. |
-| 5 | **Python 3.8+** | Only needed if you install yt-dlp via pip (Option B). Not needed if you download the standalone yt-dlp binary. | [python.org/downloads](https://www.python.org/downloads) — run the installer, **check the box that says "Add Python to PATH"** before clicking Install. |
-
-> Node.js and Python are required for source builds. Release users do not need Node.js, Python, FFmpeg, or yt-dlp installed separately.
-
-#### Installing FFmpeg
-
-1. Go to [ffmpeg.org/download.html](https://ffmpeg.org/download.html)
-2. Hover over the Windows / Apple / Linux icon depending on your OS
-3. Under "Get packages & executable files" pick **"Windows builds from gyan.dev"** (Windows) or **"Static builds for macOS"** (Mac) or use your package manager on Linux (`sudo apt install ffmpeg` on Ubuntu)
-4. Download the **essentials** or **release** build (not the full one — it's 300MB)
-5. Open the zip, find `ffmpeg.exe` and `ffprobe.exe` inside the `bin/` folder
-6. Copy both files into the matching platform folder inside the project:
-
-```
-coapp/ffmpeg/win/        ← ffmpeg.exe + ffprobe.exe (Windows)
-coapp/ffmpeg/mac/        ← ffmpeg + ffprobe (macOS)
-coapp/ffmpeg/linux/      ← ffmpeg + ffprobe (Linux)
+coapp/ytdlp/win/yt-dlp.exe
+coapp/ytdlp/darwin/yt-dlp
+coapp/ytdlp/linux/yt-dlp
 ```
 
-The folders already exist in the repo — you're just dropping the files in. No installer to run, no PATH to set up.
+Generic fallbacks also exist at `coapp/ffmpeg/ffmpeg[.exe]` and `coapp/ytdlp/yt-dlp[.exe]`. A system installation is valid when `ffmpeg`, `ffprobe`, and `yt-dlp` resolve on `PATH`.
 
-#### Installing yt-dlp
+The repository still contains historical `coapp/ytdlp/mac/` placeholders, but current path resolution uses `darwin`; do not rely on the `mac` folder.
 
-You have two options. **Option A is easier if you're not a developer.** Both work exactly the same once installed.
+### Load the unpacked extension
 
-**Option A — standalone binary (recommended, no Python needed)**
+1. Open `chrome://extensions` or `edge://extensions`.
+2. Enable **Developer mode**.
+3. Click **Load unpacked**.
+4. Select the repository's **`extension/`** directory.
 
-1. Go to [yt-dlp releases](https://github.com/yt-dlp/yt-dlp/releases)
-2. Find the latest release (the one at the top)
-3. Download the file for your platform:
-   - Windows: `yt-dlp.exe`
-   - macOS: `yt-dlp_macos` (rename it to `yt-dlp` after downloading)
-   - Linux: `yt-dlp_linux` (rename to `yt-dlp`)
-4. Drop the file into the matching platform folder inside the project:
+Do not select `extension/dist/`. The manifest, popup HTML, icons, and source CSS are rooted in `extension/`; generated JavaScript and popup CSS are referenced from `dist/`.
 
-```
-coapp/ytdlp/win/         ← yt-dlp.exe (Windows)
-coapp/ytdlp/mac/         ← yt-dlp (macOS)
-coapp/ytdlp/linux/       ← yt-dlp (Linux)
-```
+After every build, reload the extension card. Also reload open test pages when content scripts from the previous extension instance were invalidated.
 
-Done. No terminal, no pip, no Python.
+### Register the development CoApp
 
-**Option B — pip (if you already have Python or prefer command-line)**
+Build first, copy the extension ID from the browser card when it differs from the fixed release ID, then run:
 
-```bash
-pip install yt-dlp
-```
-
-This puts `yt-dlp` into your Python Scripts folder, which the CoApp finds automatically on Windows. On macOS/Linux it'll be on your PATH. If you go this route, you can skip placing the binary in `coapp/ytdlp/` — the CoApp will find it.
-
-> On macOS/Linux you might need to run `chmod +x yt-dlp` after downloading the binary to make it executable.
-
-### Build it
-
-This is an npm monorepo — one `npm install` grabs everything for both packages.
-
-```bash
-# From the project root
-npm install        # installs deps for extension + CoApp
-npm run build      # compiles TypeScript and bundles the extension
-```
-
-The extension build runs esbuild automatically. TypeScript emits intermediate ES modules, while esbuild creates the self-contained files used by Chrome.
-
-### Loading the extension
-
-1. Open `chrome://extensions` (or `edge://extensions` in Edge)
-2. Flip on **Developer mode** (toggle in the top right)
-3. Click **Load unpacked**
-4. Select the **`extension/`** folder — the one with `manifest.json` in it
-5. Copy the 32-character **Extension ID** from the card that appears — you'll need it in a minute
-
-Folks sometimes try to load `extension/dist/` instead. Don't. The manifest lives in `extension/` and all its paths (popup HTML, icons, background script) are relative to that folder.
-
-### Setting up the native companion
-
-The extension alone can detect videos. But for HLS/DASH conversion, YouTube downloads, and progress notifications, it needs the CoApp running as a Native Messaging Host.
-
-Before registering, make sure FFmpeg and yt-dlp are in place (see [Installing FFmpeg](#installing-ffmpeg) and [Installing yt-dlp](#installing-yt-dlp) above). If you already have both available globally from any terminal, you can skip that step.
-
-Now register the native messaging host so Chrome knows how to talk to it:
-
-**Windows:**
 ```bash
 cd coapp
-node dist/native-autoinstall-cli.js register abcdef123456...   # your extension ID
+node dist/native-autoinstall-cli.js register <extension-id>
 ```
-This writes the necessary registry keys for both Chrome and Edge.
 
-**macOS:**
-```bash
-cd coapp
-node dist/native-autoinstall-cli.js register abcdef123456...
-```
-Copies the manifest to `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/`.
-
-**Linux:**
-```bash
-cd coapp
-node dist/native-autoinstall-cli.js register abcdef123456...
-```
-Copies the manifest to `~/.config/google-chrome/NativeMessagingHosts/`.
-
-After registering, go back to `chrome://extensions` and hit the reload button (↻) on the MediaGrabber card. Open any page with a video, click the MediaGrabber icon, then go to the **Settings** tab — you should see "CoApp: connected" near the top.
-
-If it doesn't connect, check the [Troubleshooting](#troubleshooting) section.
-
-### Using it
-
-Click the MediaGrabber icon on any page with video content. The popup lists everything it found — separate rows for different qualities, audio tracks, and subtitles.
-
-- Click a quality to start downloading
-- Use the **⚙** tab to set your default quality preference (best, 1080p, 720p, etc.)
-- The badge on the icon shows how many videos are available on the current tab
-
-YouTube works a little differently. When you're on a YouTube video, the popup shows yt-dlp formats instead of raw detected media. Same quality picker, just powered by yt-dlp under the hood. Everything from 144p to 4K shows up.
-
-### How it works (the short version)
-
-The extension runs a [service worker](extension/src/background.ts) that listens for network requests. When it spots a media manifest or direct video URL, it parses it to extract all available quality variants. For HLS and DASH, the parsing is pure regex (no DOMParser in service workers). For YouTube, a Node.js companion app shells out to yt-dlp and ships the format list back.
-
-Two content scripts run on every page: one in the normal isolated world for DOM scanning and media detection, and one injected into the page's own JavaScript context to hook into MSE (Media Source Extensions) — that's how we catch video served through blob URLs that normal request interception misses.
-
-The companion app handles the heavy lifting: FFmpeg for HLS/DASH conversion, yt-dlp for YouTube, and HTTP streaming for direct downloads. Communication between extension and CoApp uses Chrome's native messaging API with a 4-byte length-prefixed JSON protocol.
-
-### Troubleshooting
-
-**"CoApp: disconnected" in Settings**
-
-The most common issue. Check that:
-- You ran the `native-autoinstall-cli.js register` command with the correct extension ID
-- You reloaded the extension after registering
-- FFmpeg is in one of the expected locations (see [Setting up the native companion](#setting-up-the-native-companion))
-
-You can also run the CoApp manually to see error output:
-```bash
-cd coapp && node dist/main.js
-```
-It prints the resolved paths for FFmpeg, ffprobe, and yt-dlp on startup. If any of them show just `ffmpeg` or `yt-dlp` (without a full path), the binary wasn't found.
-
-**No videos showing up on a site**
-
-Most sites serve video a few seconds after the page loads. Try refreshing the page with the extension already active. If it's a site that lazy-loads video on scroll, scroll to where the player lives and wait a moment.
-
-**YouTube shows no formats**
-
-yt-dlp needs to be reachable. Check that it's in `coapp/ytdlp/{your-platform}/` or available on your system PATH. Test it manually: `yt-dlp --version` should work from any terminal.
-
-**Download starts but stalls**
-
-Probably FFmpeg missing. The conversion step needs FFmpeg to mux HLS/DASH segments into a playable file. Without it, the download will hang.
-
-### Development
-
-There are no tests or linter yet. CI now builds the Windows release on `v*` tags; local verification is a successful full build.
+To unregister:
 
 ```bash
-npm run build             # tsc + esbuild for extension, tsc for CoApp
+node dist/native-autoinstall-cli.js unregister
 ```
 
-> `npm run dev:extension` is broken — the extension package has no watch script. Re-run `npm run build` after changes.
+On Windows, `coapp/scripts/register-dev-host.ps1 -ExtensionId <id>` provides a development registration flow.
 
-For the CoApp:
+## Using Flux
+
+Open pages containing media, then click the Flux toolbar icon.
+
+- Click a row to open its quality panel, select a rendition, and download.
+- Use the search field to filter the combined list.
+- Use the trash action to enter selective deletion mode.
+- Drag historical rows to reorder them; current and busy rows stay pinned.
+- In **By site** mode, click the source heading to collapse it or its icon to download that site's visible entries.
+- Use **Download all** with the Best/Worst batch preference for a sequential run.
+- Use **Refresh tabs** whenever a current item was deleted, the service worker restarted, or an open page needs to be scanned again.
+- Open Settings to choose History versus Only current and Flat list versus By site.
+
+The empty state uses the same **Refresh tabs** action; there is no separate refresh implementation.
+
+YouTube pages use yt-dlp formats rather than raw intercepted Google video requests. Full behavior depends on the installed yt-dlp version and what the current page/account exposes.
+
+## Architecture in one minute
+
+```text
+open web pages
+  ├─ isolated content script: DOM scan, metadata, cached rescan
+  ├─ MAIN-world hook: MSE + fetch/XHR observations
+  └─ service-worker webRequest listeners
+                 │
+                 ▼
+      background TabStateStore
+        ├─ current media from every tab
+        ├─ persisted history and markers
+        ├─ popup message protocol
+        └─ download orchestration
+                 │
+      Chrome native messaging + weh#rpc
+                 │
+                 ▼
+         local Node.js CoApp
+      FFmpeg · yt-dlp · direct HTTP
+```
+
+`VideoInfo.url` is the media/CDN URL. `VideoInfo.pageUrl` is the exact top-level source page. Keeping those facts separate is essential for grouping, links, Referer handling, and restoring history.
+
+Read [architecture.md](docs/architecture.md), [detection.md](docs/detection.md), and [native-messaging.md](docs/native-messaging.md) for the complete flows.
+
+## Development
+
+### Commands
+
 ```bash
-npm run dev:coapp         # tsc --watch (this one works)
-cd coapp && npm start     # run the companion
+npm test                    # 19 files / 290 tests at the 2026-09-03 baseline
+npm run build               # full extension + CoApp verification
+npm run build:extension
+npm run build:coapp
+npm run package:extension
+npm run dev:coapp
 ```
 
-The extension's source lives in `extension/src/`. The main files:
-- `background.ts` — service worker, intercepts requests, manages tab state
-- `content.ts` — page-level media detection, MSE message listener
-- `mse-inject.ts` — injected into the page's JS context to hook MediaSource
-- `lib/m3u8-parser.ts` — HLS manifest parsing
-- `lib/dash-parser.ts` — DASH manifest parsing
-- `lib/native-client.ts` — native messaging bridge
+Tests use Vitest with happy-dom and live under `extension/src/**/*.test.ts`. There are currently no CoApp tests and no linter.
 
-### Contributing
+`npm run dev:extension` is currently broken because no extension `watch` script exists. Re-run the extension or full build after edits.
 
-This is a side project I'm actively hacking on. If you run into a site where detection doesn't work, open an issue with the URL — that's genuinely the most helpful thing you can do. PRs are welcome, especially for additional platform release targets.
+### Important source files
 
-### License
+| Path | Responsibility |
+|---|---|
+| `extension/src/background.ts` | MV3 service worker, current/history state, protocol, downloads |
+| `extension/src/lib/tab-state.ts` | one owner for per-tab state and page generations |
+| `extension/src/lib/history.ts` | pure history merge/source attribution rules |
+| `extension/src/content.ts` | DOM detection, metadata, navigation, rescan cache |
+| `extension/src/mse-inject.ts` | MAIN-world MSE/fetch/XHR hook |
+| `extension/src/lib/m3u8-parser.ts` | HLS parsing |
+| `extension/src/lib/dash-parser.ts` | DASH parsing |
+| `extension/src/lib/native-client.ts` | bidirectional native RPC client |
+| `extension/src/popup/index.ts` | popup app shell |
+| `extension/src/popup/state.ts` | separate remote and local UI state |
+| `extension/src/popup/components/` | DOM-owning UI components |
+| `extension/src/popup/styles/` | component/concern CSS imported by `index.css` |
+| `coapp/src/` | native RPC, downloads, runtimes, paths, registration |
 
-MIT — do whatever you want with it. If you build something cool, let me know.
+The detailed refactor record and invariants future agents must preserve are in [AGENTS.md](AGENTS.md) and [the project changelog](docs/changelog.md).
+
+## Troubleshooting
+
+### CoApp shows Disconnected
+
+- Build/install and register the native host with the exact extension ID.
+- Reload the extension after registration.
+- Confirm `com.mediagrabber.coapp.json` points to a real executable.
+- Run `cd coapp && node dist/main.js`; diagnostics must go to stderr because stdout is reserved for native messages.
+
+### No media appears
+
+- Click **Refresh tabs** and wait for all open pages to reply.
+- If the extension was just rebuilt/reloaded, reload the page itself; an invalidated old content script cannot receive `RESCAN`.
+- Start playback or scroll the player into view on lazy-loaded sites.
+- `chrome://`, `edge://`, and store pages cannot be scanned.
+- DRM-protected media is unsupported.
+
+### A historical link is expired
+
+Reopen the exact source page, start playback if necessary, then use **Refresh tabs**. Flux probes historical URLs before starting and reports common expired-link HTTP statuses.
+
+### Download fails or stalls
+
+- Verify `ffmpeg -version`, `ffprobe -version`, and/or `yt-dlp --version`.
+- Verify the page still authorizes its media URL; authenticated CDNs may require source Referer/Origin context.
+- Check the Settings status for the CoApp connection.
+
+## Privacy and license
+
+Flux has no telemetry or analytics. It stores settings, recent media/history metadata, and downloaded/failed markers in `chrome.storage.local`; downloads and manifest/format requests necessarily contact the selected source/CDN. See [the privacy policy](docs/PRIVACY.md) for exact details.
+
+The project source is MIT licensed. FFmpeg and yt-dlp are separate runtime programs with their own terms; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

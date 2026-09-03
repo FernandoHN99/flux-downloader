@@ -1,353 +1,273 @@
-# Native Messaging Protocol — Extension ↔ CoApp Communication
+# Native messaging protocol
 
-## Overview
+Updated: 2026-09-03.
 
-Video DownloadHelper uses a **custom RPC protocol** called `weh#rpc` ("WebExtension Host RPC") layered on top of the standard WebExtension Native Messaging API.
+Flux's extension talks to the local MediaGrabber CoApp through Chrome's native messaging port and a bidirectional request/reply layer named `weh#rpc`.
 
-This is NOT standard Native Messaging — VDH implements its own request/response semantics on top.
+Native host ID: `com.mediagrabber.coapp`.
 
----
+## Layers
 
-## Transport Layer
-
-### Standard Native Messaging (What Browser Provides)
-
-The browser handles:
-- Starting the CoApp process
-- Connecting extension's stdout/stdin to CoApp's stdin/stdout
-- Passing messages via JSON with newline delimiter
-
-### VDH Enhancement: Length-Prefixed Binary Protocol
-
-VDH adds a 4-byte length prefix to each message:
-
-```
-┌──────────────┬─────────────────────────────────────┐
-│  4 bytes     │  N bytes                             │
-│  (LE uint32) │  UTF-8 JSON                          │
-└──────────────┴─────────────────────────────────────┘
+```text
+extension TypeScript object
+  │ chrome.runtime.connectNative / Port.postMessage
+  ▼
+Chrome native messaging transport
+  │ 4-byte little-endian byte length + UTF-8 JSON
+  ▼
+coapp/src/native-messaging.ts
+  │ parsed RpcMessage
+  ▼
+coapp/src/rpc.ts (weh#rpc)
 ```
 
-**Sending**:
-```javascript
-let msgStr = Buffer.from(JSON.stringify(message), "utf8");
-let lengthBuf = Buffer.alloc(4);
-lengthBuf.writeUInt32LE(msgStr.length, 0);
-process.stdout.write(lengthBuf);
-process.stdout.write(msgStr);
+The extension does not manually write length bytes; Chrome performs native-host transport framing. The CoApp must parse/write framing on stdin/stdout.
+
+Native messaging is **not newline-delimited**. Stdout may contain only framed protocol bytes. Human diagnostics belong on stderr.
+
+## Process-side framing
+
+Each frame is:
+
+```text
+offset  size  meaning
+0       4     unsigned little-endian JSON byte length N
+4       N     UTF-8 JSON payload
 ```
 
-**Receiving**:
-```javascript
-function AppendInputString(chunk) {
-  msgBacklog = Buffer.concat([msgBacklog, chunk]);
-  
-  while (true) {
-    if (msgBacklog.length < 4) return;
-    
-    let msgLength = msgBacklog.readUInt32LE(0);
-    
-    if (msgBacklog.length < msgLength + 4) return;
-    
-    let msgString = msgBacklog.toString("utf8", 4, msgLength + 4);
-    let msgObject = JSON.parse(msgString);
-    
-    rpc.receive(msgObject, Send);
-    msgBacklog = msgBacklog.slice(msgLength + 4);
-  }
-}
+The CoApp accumulates chunks because a read may contain a partial frame or several frames. Once `backlog.length >= 4 + N`, it parses one payload and keeps the remainder.
+
+Sending performs the inverse:
+
+```ts
+const payload = Buffer.from(JSON.stringify(message), 'utf8');
+const header = Buffer.alloc(4);
+header.writeUInt32LE(payload.length, 0);
+process.stdout.write(header);
+process.stdout.write(payload);
 ```
 
----
+## `weh#rpc` envelope
 
-## The weh#rpc Protocol
-
-### Message Types
-
-#### 1. Request
+### Request
 
 ```json
 {
   "type": "weh#rpc",
-  "_request": 42,
-  "_method": "convert",
-  "_args": [
-    ["-i", "http://example.com/stream.m3u8", "-c", "copy", "output.mp4"],
-    { "progressTime": 1000 }
-  ]
+  "_request": 17,
+  "_method": "info",
+  "_args": []
 }
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `type` | string | Always `"weh#rpc"` |
-| `_request` | integer | Unique request ID for correlation |
-| `_method` | string | Method name to invoke |
-| `_args` | array | Arguments array (positional) |
-
-#### 2. Response (Success)
+### Success reply
 
 ```json
 {
   "type": "weh#rpc",
-  "_reply": 42,
+  "_reply": 17,
   "_result": {
-    "exitCode": 0,
-    "stdout": "...",
-    "stderr": ""
+    "version": "1.1.1",
+    "platform": "win32"
   }
 }
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `type` | string | Always `"weh#rpc"` |
-| `_reply` | integer | Correlates to `_request` |
-| `_result` | any | Return value from method |
-
-#### 3. Response (Error)
+### Error reply
 
 ```json
 {
   "type": "weh#rpc",
-  "_reply": 42,
-  "_error": "FFmpeg not found"
+  "_reply": 17,
+  "_error": "Method missing is not a function"
 }
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `type` | string | Always `"weh#rpc"` |
-| `_reply` | integer | Correlates to `_request` |
-| `_error` | string | Error message |
+Request IDs are local monotonically increasing counters. Each side maintains a pending map keyed by reply ID.
 
-#### 4. Notification (Server → Client)
+There is no separate `_notify` path in the current code. “Push” events are normal RPC requests in the reverse direction and therefore receive replies.
 
-Used for progress updates:
+## Bidirectional calls
+
+### Extension → CoApp
+
+The background uses convenience methods from `extension/src/lib/native-client.ts`:
+
+| Wrapper | RPC method |
+|---|---|
+| `ping()` | `ping` |
+| `info()` | `info` |
+| `convert()` / `abortConvert()` | `convert` / `abortConvert` |
+| `probe()` | `probe` |
+| `ytdlpFormats()` | `ytdlpFormats` |
+| `ytdlp()` / `abortYtdlp()` | `ytdlp` / `abortYtdlp` |
+| `downloadFile()` | `downloads.download` |
+| `searchDownloads()` | `downloads.search` |
+| `probeStatus()` | `downloads.probeStatus` |
+| `cancelDownload()` | `downloads.cancel` |
+| `uniquePath()` | `file.uniquePath` |
+| `ensureDir()` | `file.ensureDir` |
+
+### CoApp → extension
+
+The background registers:
+
+| Method | Purpose |
+|---|---|
+| `convertStartNotification(startHandler, pid)` | attach FFmpeg/yt-dlp PID to a logical download |
+| `convertOutput(progressTime, currentSeconds, info)` | push FFmpeg or yt-dlp progress |
+| `downloadComplete(downloadId, outputPath)` | finish direct download |
+| `downloadError(downloadId, error)` | fail direct download |
+
+The callback name `convertStartNotification` is historical; it is an RPC request, not an unacknowledged notification.
+
+## RPC dispatch behavior
+
+On request:
+
+1. Look up `listeners[_method]`.
+2. Invoke it with positional `_args`.
+3. Resolve sync/async result.
+4. Send `_result` or stringify the thrown error into `_error`.
+
+On reply:
+
+1. Find the pending promise by `_reply`.
+2. Delete it from the map.
+3. Resolve `_result` or reject an Error carrying `_error`.
+
+Unknown or non-function methods produce an error reply.
+
+## NativeClient lifecycle
+
+`NativeClient`:
+
+- opens `chrome.runtime.connectNative("com.mediagrabber.coapp")` lazily;
+- coalesces simultaneous connection attempts;
+- rejects every pending call when the port disconnects;
+- records Chrome's `runtime.lastError` in a `ConnectionError`;
+- schedules reconnect after five seconds unless disconnect was intentional;
+- times ordinary calls out after 60 seconds;
+- gives long-running `convert` and `ytdlp` calls no client timeout;
+- can retry recoverable operations with increasing delays through `withRetry`.
+
+The settings status does not trust a cold `connected` boolean. Its `PING` background handler first tries to connect, calls `info`, and then reports version/error.
+
+## Typical FFmpeg sequence
+
+```text
+Extension                         CoApp
+    │ connectNative                │
+    │── info request ─────────────▶│
+    │◀─ info reply ────────────────│
+    │                              │
+    │── convert(args, options) ───▶│
+    │                              ├─ spawn FFmpeg
+    │◀─ convertStartNotification ──│
+    │── callback reply ───────────▶│
+    │◀─ convertOutput ─────────────│  repeated
+    │── callback reply ───────────▶│
+    │                              ├─ process exits
+    │◀─ convert final reply ───────│
+```
+
+The final `convert` request stays pending for the whole process. Progress uses independent reverse requests.
+
+## Typical direct-download sequence
+
+```text
+Extension                         CoApp
+    │── downloads.download ───────▶│
+    │◀─ numeric ID ────────────────│
+    │── downloads.search({id}) ───▶│  repeated polling for bytes
+    │◀─ state/bytes ───────────────│
+    │◀─ downloadComplete/error ────│
+    │── callback reply ───────────▶│
+```
+
+## Popup protocol is separate
+
+Do not confuse native RPC with the long-lived `chrome.runtime.connect({name: "popup"})` port.
+
+The popup uses typed application messages such as `GET_MEDIA`, `REFRESH_TABS`, `DOWNLOAD`, `MEDIA_LIST`, and `DOWNLOAD_PROGRESS`. These have no `weh#rpc` envelope and never cross the native process boundary directly.
+
+Similarly, `RESCAN` is an internal background → content-script runtime message.
+
+## Native manifest
+
+Representative generated manifest:
 
 ```json
 {
-  "type": "weh#rpc",
-  "_notify": "convertOutput",
-  "_data": [1000, 45.2, { "out_time_ms": "45200000" }]
-}
-```
-
-### RPC Implementation (weh-rpc.js)
-
-```javascript
-class RpcRouter {
-  constructor() {
-    this.handlers = {};
-    this.pending = {};
-    this.nextRequestId = 1;
-  }
-  
-  listen(handlers) {
-    // Register method handlers
-    this.handlers = handlers;
-  }
-  
-  async receive(msg, sendFn) {
-    if (msg._request) {
-      // Handle incoming request
-      const handler = this.handlers[msg._method];
-      if (handler) {
-        try {
-          const result = await handler(...msg._args);
-          sendFn({ type: "weh#rpc", _reply: msg._request, _result: result });
-        } catch (e) {
-          sendFn({ type: "weh#rpc", _reply: msg._request, _error: e.message });
-        }
-      }
-    } else if (msg._notify) {
-      // Handle notification
-      const handler = this.handlers[msg._notify];
-      if (handler) {
-        handler(...msg._data);
-      }
-    } else if (msg._reply) {
-      // Handle response to our request
-      const pending = this.pending[msg._reply];
-      if (pending) {
-        if (msg._error) {
-          pending.reject(new Error(msg._error));
-        } else {
-          pending.resolve(msg._result);
-        }
-        delete this.pending[msg._reply];
-      }
-    }
-  }
-  
-  async call(method, ...args) {
-    // Send request and wait for response
-    const requestId = this.nextRequestId++;
-    return new Promise((resolve, reject) => {
-      this.pending[requestId] = { resolve, reject };
-      sendFn({
-        type: "weh#rpc",
-        _request: requestId,
-        _method: method,
-        _args: args
-      });
-    });
-  }
-}
-```
-
----
-
-## Typical Communication Sequence
-
-### Downloading a Video
-
-```
-Extension                          CoApp
-   │                                 │
-   │─── ping ───────────────────────▶│
-   │◀── pong ────────────────────────│
-   │                                 │
-   │─── info ───────────────────────▶│
-   │◀── {version, ffmpegPath} ───────│
-   │                                 │
-   │─── convert([args], {progress}) ▶│
-   │    │                            │
-   │    │─── progress update ────────│
-   │    │                            │
-   │    │─── progress update ────────│
-   │    │                            │
-   │◀── {exitCode: 0} ───────────────│
-   │                                 │
-```
-
-### Download with Progress Callbacks
-
-The extension can pass a `progress` callback in options:
-
-```javascript
-// Extension side
-coapp.convert([
-  "-i", "http://example.com/video.m3u8",
-  "-c", "copy",
-  "output.mp4"
-], {
-  progressTime: 1000  // Report every 1000ms
-});
-```
-
-CoApp responds with notifications:
-```json
-{
-  "type": "weh#rpc",
-  "_notify": "convertOutput",
-  "_data": [1000, 45.2, { "out_time_ms": "45200000" }]
-}
-```
-
----
-
-## Security Considerations
-
-### 1. Extension Allowlisting
-
-CoApp manifest specifies which extensions can invoke it:
-
-```json
-{
-  "allowed_extensions": [
-    "video-downloadhelper@downloadhelper.net"
-  ]
-}
-```
-
-Chrome/Edge use origins instead:
-```json
-{
+  "name": "com.mediagrabber.coapp",
+  "description": "MediaGrabber companion application",
+  "path": "C:\\Users\\name\\AppData\\Local\\MediaGrabber\\coapp.exe",
+  "type": "stdio",
   "allowed_origins": [
-    "chrome-extension://lmjnegcaeklhafolokijcfjliaokphfk/"
+    "chrome-extension://igephdkobpgbfgdjmehckbhffbimgkii/"
   ]
 }
 ```
 
-### 2. stdio Communication
+Chrome/Edge require exact extension origins. The release manifest key fixes the production/sideload ID so the installer can embed it.
 
-- No network sockets involved
-- OS-level process isolation
-- Messages are structured JSON only
+### Registration locations
 
-### 3. Method Access Control
+Windows stores registry values under the current user:
 
-Only registered methods can be called. Extensions cannot invoke arbitrary CoApp methods.
-
----
-
-## Browser Differences
-
-### Firefox
-
-- Uses extension ID for allowlisting
-- Manifest at: `~/.mozilla/native-messaging-hosts/`
-- Communication via `browser.runtime.sendNativeMessage()`
-
-### Chrome
-
-- Uses extension origin for allowlisting
-- Manifest at: `~/.config/google-chrome/NativeMessagingHosts/`
-- Communication via `chrome.runtime.sendNativeMessage()`
-
-### Edge
-
-- Similar to Chrome
-- Manifest at: `~/.config/microsoft-edge/NativeMessagingHosts/`
-
----
-
-## Error Handling
-
-### CoApp Not Found
-
-If CoApp is not installed/registered:
-```
-Error: No such native application net.downloadhelper.coapp
+```text
+HKCU\Software\Google\Chrome\NativeMessagingHosts\com.mediagrabber.coapp
+HKCU\Software\Microsoft\Edge\NativeMessagingHosts\com.mediagrabber.coapp
 ```
 
-### Method Not Found
+macOS copies JSON into:
 
-```json
-{
-  "type": "weh#rpc",
-  "_reply": 1,
-  "_error": "Unknown method: nonexistentMethod"
-}
+```text
+~/Library/Application Support/Google/Chrome/NativeMessagingHosts/
+~/Library/Application Support/Microsoft Edge/NativeMessagingHosts/
 ```
 
-### FFmpeg Errors
+Linux copies JSON into:
 
-FFmpeg execution errors are caught and returned:
-```json
-{
-  "type": "weh#rpc",
-  "_reply": 1,
-  "_error": "FFmpeg exited with code 1: Invalid data found"
-}
+```text
+~/.config/google-chrome/NativeMessagingHosts/
+~/.config/microsoft-edge/NativeMessagingHosts/
 ```
 
----
+This repository does not register Firefox `allowed_extensions`.
+
+## Security properties
+
+- Only allowlisted extension origins can start the host.
+- The channel is local stdio, not a listening network socket.
+- RPC dispatch only invokes registered method names.
+- The exposed file API is intentionally narrow: unique path and ensure directory.
+- Runtime downloads performed by the installer require HTTPS and pinned SHA-256.
+- Download URLs still cause outbound requests to their source/CDN; “local CoApp” does not mean “offline.”
 
 ## Debugging
 
-### Enable Logging
+### CoApp is not found
 
-Set environment variable:
-```bash
-WEH_NATIVE_LOGFILE=/tmp/vdh.log ./vdhcoapp
-```
+1. Confirm `com.mediagrabber.coapp.json` exists.
+2. Confirm its `path` is absolute and executable.
+3. Confirm `allowed_origins` contains the browser's actual extension ID.
+4. Confirm the Windows registry value points to that JSON.
+5. Reload the extension after registration.
 
-### Manual Testing
+### Port disconnects immediately
 
-Send raw messages via stdio:
-```bash
-# Length-prefixed JSON
-echo -ne '\x0b\x00\x00\x00{"type":"weh#rpc","_request":1,"_method":"ping","_args":[]}' | ./vdhcoapp
-```
+- Run `cd coapp && node dist/main.js` and inspect stderr.
+- Ensure no log is written to stdout.
+- Verify the built CommonJS files exist.
+- Verify the process does not exit due to a missing import/runtime exception.
+
+### Requests hang
+
+- Ordinary methods should time out after 60 seconds.
+- `convert`/`ytdlp` intentionally have no timeout; inspect the child process and progress callbacks.
+- Ensure each reverse callback gets a reply; CoApp may stop work when the extension disappears.
+
+### Manual framing tests
+
+Account for the **UTF-8 byte length**, not JavaScript character count. A shell `echo` is error-prone for binary framing; use a small Node script or the extension itself and keep diagnostic output on stderr.
