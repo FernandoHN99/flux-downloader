@@ -3,12 +3,15 @@ import { applyTheme, initTheme } from '../lib/theme';
 
 let currentSettings: Settings = { ...DEFAULT_SETTINGS };
 let selectedTheme: ThemeMode = 'system';
+let selectedBatchQuality: Settings['batchQuality'] = 'best';
+let keepHistory = true;
 
 document.addEventListener('DOMContentLoaded', async () => {
   await initTheme();
   await initializeSettings();
   setupEventListeners();
   setupThemeSelector();
+  setupSegmented();
   checkCoAppConnection();
 });
 
@@ -22,6 +25,9 @@ async function initializeSettings(): Promise<void> {
 
     if (defaultQuality) defaultQuality.value = currentSettings.defaultQuality;
     if (showNotifications) showNotifications.checked = currentSettings.showNotifications;
+    selectedBatchQuality = currentSettings.batchQuality;
+    keepHistory = currentSettings.keepHistory;
+    renderSegmented();
   } catch (error) {
     console.error('[Settings] Failed to load settings:', error);
   }
@@ -75,6 +81,46 @@ function updateThemeButtons(theme: ThemeMode): void {
   });
 }
 
+/** The two-button pickers for batch quality and what the video list keeps. */
+function setupSegmented(): void {
+  document.querySelectorAll<HTMLButtonElement>('#batch-quality .segmented-option').forEach((button) => {
+    button.addEventListener('click', () => {
+      selectedBatchQuality = (button.dataset.batch as Settings['batchQuality']) || 'best';
+      renderSegmented();
+    });
+  });
+
+  document.querySelectorAll<HTMLButtonElement>('#history-mode .segmented-option').forEach((button) => {
+    button.addEventListener('click', () => {
+      keepHistory = button.dataset.history !== 'current';
+      renderSegmented();
+    });
+  });
+}
+
+function renderSegmented(): void {
+  document.querySelectorAll<HTMLButtonElement>('#batch-quality .segmented-option').forEach((button) => {
+    const active = button.dataset.batch === selectedBatchQuality;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-checked', String(active));
+  });
+
+  document.querySelectorAll<HTMLButtonElement>('#history-mode .segmented-option').forEach((button) => {
+    const active = (button.dataset.history === 'current') === !keepHistory;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-checked', String(active));
+  });
+
+  // Turning history off throws entries away, so say so before it is saved.
+  const help = document.querySelector('#history-mode ~ .setting-help');
+  if (help) {
+    help.textContent = keepHistory
+      ? 'Keeps everything Flux has detected, newest first'
+      : 'Saving this clears the list down to what your open tabs are playing';
+    help.classList.toggle('warn', !keepHistory && currentSettings.keepHistory);
+  }
+}
+
 function setupEventListeners(): void {
   document.getElementById('save-btn')?.addEventListener('click', async () => {
     await saveCurrentSettings();
@@ -94,6 +140,8 @@ async function saveCurrentSettings(): Promise<void> {
 
   const settings: Settings = {
     defaultQuality: (defaultQuality?.value as Settings['defaultQuality']) || 'ask',
+    batchQuality: selectedBatchQuality,
+    keepHistory,
     showNotifications: showNotifications?.checked ?? true,
     theme: selectedTheme
   };
@@ -105,7 +153,8 @@ async function saveCurrentSettings(): Promise<void> {
   try {
     await saveSettings(settings);
     currentSettings = settings;
-    showNotification('Settings saved');
+    renderSegmented();
+    showNotification(settings.keepHistory ? 'Settings saved' : 'Settings saved — history cleared');
   } catch (error) {
     showNotification('Failed to save settings', 'error');
   } finally {
@@ -129,9 +178,12 @@ async function handleResetSettings(): Promise<void> {
 
     if (defaultQuality) defaultQuality.value = 'ask';
     if (showNotifications) showNotifications.checked = true;
+    selectedBatchQuality = currentSettings.batchQuality;
+    keepHistory = currentSettings.keepHistory;
 
     applyTheme(selectedTheme);
     updateThemeButtons(selectedTheme);
+    renderSegmented();
 
     showNotification('Settings reset to defaults');
   } catch (error) {

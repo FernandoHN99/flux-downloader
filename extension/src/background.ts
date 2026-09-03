@@ -5,7 +5,7 @@ import { NativeClient } from './lib/native-client';
 import { VideoInfo, HistoryEntry } from './lib/types';
 import { M3U8ParserWrapper } from './lib/m3u8-parser';
 import { DashParserWrapper } from './lib/dash-parser';
-import { loadSettings, Settings } from './lib/settings';
+import { loadSettings, Settings, DEFAULT_SETTINGS } from './lib/settings';
 
 interface PageMetadata {
   title?: string;
@@ -231,7 +231,11 @@ async function getSettings(): Promise<Settings> {
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes.settings) {
-    cachedSettings = changes.settings.newValue || null;
+    // Merge over the defaults: a settings object saved by an older build has
+    // no keepHistory, and an undefined flag must not read as "off".
+    cachedSettings = changes.settings.newValue
+      ? { ...DEFAULT_SETTINGS, ...changes.settings.newValue }
+      : null;
   }
 });
 
@@ -474,6 +478,17 @@ function commitVideos(tabId: number, videos: VideoInfo[]): void {
 
 // --- Detection history (global, persisted across reloads and restarts) ---
 
+// Switching history off is destructive by design — the user asked for the
+// list to hold only what is playing — so react the moment it is saved.
+let lastKeepHistory: boolean | null = null;
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local' || !changes.settings) return;
+  const keep = changes.settings.newValue?.keepHistory !== false;
+  if (keep === lastKeepHistory) return;
+  lastKeepHistory = keep;
+  if (!keep) schedulePruneIfHistoryOff();
+});
+
 const HISTORY_KEY = 'mediaHistory';
 const HISTORY_LIMIT = 50;
 
@@ -536,6 +551,31 @@ async function mergeIntoHistory(videos: VideoInfo[], pageUrl?: string, pageTitle
 
   await chrome.storage.local.set({ [HISTORY_KEY]: next });
   await broadcastHistory(next);
+}
+
+/**
+ * With history switched off the stored list is not allowed to outlive the
+ * tabs: anything no longer playing somewhere is dropped. Called whenever the
+ * current set changes, and once when the setting is turned off.
+ */
+async function pruneHistoryToCurrent(): Promise<void> {
+  const keep = new Set(currentMediaPayload().currentKeys);
+  const history = await readHistory();
+  const next = history.filter((entry) => keep.has(videoKey(entry.url)));
+  if (next.length === history.length) return;
+  await chrome.storage.local.set({ [HISTORY_KEY]: next });
+  await broadcastHistory(next);
+}
+
+// Fire-and-forget prune, queued behind any write already in flight.
+function schedulePruneIfHistoryOff(): void {
+  historyWrites = historyWrites
+    .then(async () => {
+      const settings = await getSettings();
+      if (settings.keepHistory) return;
+      await pruneHistoryToCurrent();
+    })
+    .catch((error) => console.warn('[MediaGrabber] Failed to prune history:', error));
 }
 
 async function clearHistory(): Promise<void> {
@@ -681,6 +721,8 @@ interface BatchState {
   failed: number;
   currentTitle?: string;
   currentKey?: string;
+  // videoKey of the row being downloaded — the popup marks it as busy.
+  currentSourceKey?: string;
   folder?: string;
   cancelled: boolean;
 }
@@ -713,13 +755,9 @@ async function runBatchDownload(videos: VideoInfo[], tabId?: number, quality?: '
   const settings = await getSettings();
   const preference = quality || settings.defaultQuality;
 
-  // Each run drops its files in its own timestamped folder. Colons are not
-  // usable in filenames on Windows and read badly in Finder, so the clock
-  // part uses dashes.
-  const stamp = new Date();
-  const pad = (value: number) => String(value).padStart(2, '0');
-  const folder = `MediaGrabber ${stamp.getFullYear()}-${pad(stamp.getMonth() + 1)}-${pad(stamp.getDate())} `
-    + `${pad(stamp.getHours())}-${pad(stamp.getMinutes())}-${pad(stamp.getSeconds())}`;
+  // Each run drops its files in its own folder, stamped with the epoch
+  // milliseconds so two runs in the same second can't collide.
+  const folder = `Flux_${Date.now()}`;
   const directory = joinOutputPath(defaultDownloadDir, folder);
   try {
     await nativeClient.ensureDir(directory);
@@ -742,6 +780,7 @@ async function runBatchDownload(videos: VideoInfo[], tabId?: number, quality?: '
     }
 
     state.currentTitle = video.title;
+    state.currentSourceKey = videoKey(video.url);
     broadcastBatch();
 
     try {
@@ -770,6 +809,7 @@ async function runBatchDownload(videos: VideoInfo[], tabId?: number, quality?: '
       });
     }
     state.currentKey = undefined;
+    state.currentSourceKey = undefined;
     broadcastBatch();
   }
 
@@ -1100,7 +1140,9 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: any): void {
       break;
 
     case 'GET_HISTORY':
-      readHistory()
+      schedulePruneIfHistoryOff();
+      historyWrites
+        .then(() => readHistory())
         .then((entries) => decorateHistory(entries))
         .then((entries) => port.postMessage({ type: 'HISTORY_LIST', entries }))
         .catch(() => port.postMessage({ type: 'HISTORY_LIST', entries: [] }));
@@ -1156,6 +1198,7 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: any): void {
           type: 'ACTIVE_DOWNLOAD',
           downloadId: key,
           video: dl.video,
+          sourceUrl: dl.sourceUrl || dl.video?.url,
           filename: dl.filename,
           progress: dl.lastProgress || { percent: 0 }
         });
@@ -1168,6 +1211,7 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: any): void {
 }
 
 function notifyPopups(_tabId?: number): void {
+  schedulePruneIfHistoryOff();
   const payload = currentMediaPayload();
   popupPorts.forEach(port => {
     port.postMessage({ type: 'MEDIA_LIST', ...payload });

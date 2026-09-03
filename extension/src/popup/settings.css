@@ -164,7 +164,7 @@ body {
 }
 
 .setting-item {
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 
 .setting-item:last-child {
@@ -178,7 +178,7 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-dim);
-  margin-bottom: 8px;
+  margin-bottom: 5px;
 }
 
 .setting-item > label:not(.setting-label):not(.checkbox-label) {
@@ -188,7 +188,7 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-dim);
-  margin-bottom: 8px;
+  margin-bottom: 5px;
 }
 
 .setting-item select {
@@ -220,9 +220,9 @@ body {
 }
 
 .setting-help {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-dim);
-  margin-top: 5px;
+  margin-top: 3px;
   line-height: 1.4;
   overflow-wrap: anywhere;
 }
@@ -241,7 +241,7 @@ body {
 .theme-option {
   flex: 1;
   min-width: 0;
-  padding: 5px 7px;
+  padding: 4px 7px;
   border: none;
   background: none;
   border-radius: 4px;
@@ -265,6 +265,50 @@ body {
 .theme-option.active {
   background: var(--accent);
   color: #fff;
+}
+
+/* Batch quality and the history switch reuse the theme picker's shape. */
+.segmented {
+  display: flex;
+  gap: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 3px;
+}
+
+.segmented-option {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 7px;
+  border: none;
+  background: none;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+  font-family: inherit;
+}
+
+.segmented-option:hover:not(.active) {
+  color: var(--text);
+}
+
+.segmented-option.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.segmented-option:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Shown while "Only current" is picked but not yet saved. */
+.setting-help.warn {
+  color: var(--error);
 }
 
 .theme-option:focus-visible {

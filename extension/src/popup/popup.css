@@ -257,16 +257,76 @@ body {
 }
 
 .media-item {
-  display: flex;
-  align-items: center;
-  padding: 10px;
-  margin-bottom: 6px;
+  display: block;
+  padding: 6px 8px;
+  margin-bottom: 4px;
   background: var(--bg-elevated);
   border: 1px solid var(--border-soft);
   border-radius: var(--radius);
   cursor: pointer;
   transition: background-color 0.15s, border-color 0.15s;
   min-width: 0;
+}
+
+/* The always-visible line: icon, title, actions. */
+.media-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* Download options, revealed under the row they belong to. */
+.media-expand {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-soft);
+  cursor: default;
+}
+
+.media-item.expanded {
+  border-color: var(--accent);
+}
+
+.expand-download-btn {
+  width: 100%;
+}
+
+/* The row is already elevated, so the options inside it sit recessed —
+   otherwise the two surfaces are the same colour. */
+.media-expand .quality-option {
+  background: var(--bg);
+}
+
+.media-expand .quality-list {
+  max-height: min(150px, 32vh);
+}
+
+/* A row mid-download: no actions, no dragging, just a spinner. */
+.media-item.busy {
+  cursor: default;
+  opacity: 0.85;
+}
+
+.row-spinner {
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: row-spin 0.7s linear infinite;
+}
+
+@keyframes row-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row-spinner { animation-duration: 2.4s; }
 }
 
 .media-item:last-child {
@@ -455,7 +515,7 @@ body {
 }
 
 #history-list {
-  max-height: 220px;
+  max-height: min(430px, 68vh);
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
@@ -506,12 +566,6 @@ body {
 }
 
 /* Denser rows so the drag handle and rename button fit */
-.media-item {
-  padding: 6px 8px;
-  margin-bottom: 4px;
-  gap: 6px;
-}
-
 .media-item-history {
   opacity: 0.82;
 }
@@ -560,39 +614,6 @@ body {
   border-radius: 999px;
 }
 
-.quality-toggle {
-  display: flex;
-  gap: 2px;
-  padding: 2px;
-  background: var(--bg-active);
-  border-radius: 999px;
-}
-
-.quality-badge {
-  padding: 2px 8px;
-  font-size: 10px;
-  font-family: inherit;
-  font-weight: 600;
-  color: var(--text-dim);
-  background: none;
-  border: none;
-  border-radius: 999px;
-  cursor: pointer;
-}
-
-.quality-badge:hover {
-  color: var(--text);
-}
-
-.quality-badge.selected {
-  color: #fff;
-  background: var(--accent);
-}
-
-.quality-badge:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
 
 .media-item .media-icon,
 .media-item .media-thumbnail-wrapper {
@@ -625,13 +646,6 @@ body {
   white-space: nowrap;
 }
 
-.downloaded-badge {
-  flex-shrink: 0;
-  font-size: 10px;
-  line-height: 1;
-  font-weight: 700;
-  color: var(--success);
-}
 
 .media-meta {
   font-size: 10px;
@@ -683,14 +697,6 @@ body {
   color: var(--error);
 }
 
-.drag-handle {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  color: var(--text-dim);
-  cursor: grab;
-  opacity: 0.5;
-}
 
 .media-item-history:hover .media-actions {
   display: flex;
@@ -699,47 +705,6 @@ body {
   flex-shrink: 0;
 }
 
-.select-dot {
-  flex-shrink: 0;
-  width: 13px;
-  height: 13px;
-  border: 1.5px solid var(--text-dim);
-  border-radius: 50%;
-  box-sizing: border-box;
-}
-
-.select-dot.checked {
-  border-color: var(--accent);
-  background: var(--accent);
-  box-shadow: inset 0 0 0 2.5px var(--bg-elevated);
-}
-
-.media-item.picked {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-}
-
-.btn-link.danger {
-  color: var(--error);
-  font-weight: 600;
-}
-
-.btn-link.danger:hover {
-  color: var(--error);
-  background: var(--error-soft);
-}
-
-.icon-btn-remove:hover {
-  color: var(--error);
-}
-
-.drag-handle {
-  opacity: 1;
-}
-
-.drag-handle:active {
-  cursor: grabbing;
-}
 
 .icon-btn-sm {
   flex-shrink: 0;
@@ -783,11 +748,6 @@ body {
   opacity: 1;
 }
 
-/* While selecting, the trash stays visible on every row. */
-.media-item .remove-btn {
-  opacity: 1;
-}
-
 /* While renaming, only the confirm/cancel controls stay reachable. */
 .media-item.editing .rename-btn,
 .media-item.editing .media-actions {
@@ -797,43 +757,6 @@ body {
   flex-shrink: 0;
 }
 
-.select-dot {
-  flex-shrink: 0;
-  width: 13px;
-  height: 13px;
-  border: 1.5px solid var(--text-dim);
-  border-radius: 50%;
-  box-sizing: border-box;
-}
-
-.select-dot.checked {
-  border-color: var(--accent);
-  background: var(--accent);
-  box-shadow: inset 0 0 0 2.5px var(--bg-elevated);
-}
-
-.media-item.picked {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-}
-
-.btn-link.danger {
-  color: var(--error);
-  font-weight: 600;
-}
-
-.btn-link.danger:hover {
-  color: var(--error);
-  background: var(--error-soft);
-}
-
-.icon-btn-remove:hover {
-  color: var(--error);
-}
-
-.drag-handle {
-  display: none;
-}
 
 .rename-form {
   display: flex;
@@ -859,17 +782,7 @@ body {
 }
 
 /* ═══ Media Details / Quality ═══ */
-.media-details {
-  padding: 8px 12px;
-  border-top: 1px solid var(--border-soft);
-}
 
-.media-details-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 6px;
-}
 
 #media-title {
   flex: 1;
@@ -1043,10 +956,6 @@ body {
 }
 
 /* ═══ Download Section ═══ */
-.download-section {
-  padding: 8px 12px;
-  border-top: 1px solid var(--border-soft);
-}
 
 .filename-input {
   margin-bottom: 10px;

@@ -67,10 +67,14 @@ let currentVideos: VideoInfo[] = [];
 let historyEntries: HistoryEntry[] = [];
 let historySearch = '';
 let draggingKey: string | null = null;
-let batchQuality: 'best' | 'worst' = 'best';
 let currentKeys = new Set<string>();
 let selectionMode = false;
 const selectedForDeletion = new Set<string>();
+// At most one row shows its download options at a time.
+let expandedKey: string | null = null;
+// Rows with a download in flight: one started from a row, one from the batch.
+let manualDownloadKey: string | null = null;
+let batchDownloadKey: string | null = null;
 
 // Connect to background script
 function initPopup(): void {
@@ -87,7 +91,9 @@ function initPopup(): void {
         renderHistory();
         break;
       case 'BATCH_STATUS':
+        batchDownloadKey = msg.batch?.currentSourceKey || null;
         renderBatchStatus(msg.batch);
+        renderHistory();
         break;
       case 'DOWNLOAD_STARTED':
         if (msg.success) {
@@ -106,7 +112,10 @@ function initPopup(): void {
         showError(msg.error || 'Download failed');
         break;
       case 'ACTIVE_DOWNLOAD':
+        // Reopening the popup mid-download has to re-mark the busy row.
+        manualDownloadKey = msg.sourceUrl ? videoKey(msg.sourceUrl) : null;
         restoreDownloadUI(msg.downloadId, msg.filename, msg.progress);
+        renderHistory();
         break;
       case 'NO_ACTIVE_DOWNLOAD':
         requestMediaList();
@@ -131,25 +140,8 @@ document.addEventListener('DOMContentLoaded', () => {
   initializePopupState();
 });
 
-function renderBatchQuality(): void {
-  document.querySelectorAll<HTMLButtonElement>('.quality-badge').forEach((badge) => {
-    const selected = badge.dataset.quality === batchQuality;
-    badge.classList.toggle('selected', selected);
-    badge.setAttribute('aria-checked', String(selected));
-  });
-}
-
 async function initializePopupState(): Promise<void> {
   activeTabId = await getActiveTabId();
-  try {
-    const stored = await chrome.storage.local.get('batchQuality');
-    if (stored.batchQuality === 'worst' || stored.batchQuality === 'best') {
-      batchQuality = stored.batchQuality;
-    }
-  } catch {
-    // Preference is optional — fall back to "best".
-  }
-  renderBatchQuality();
   port?.postMessage({ type: 'GET_HISTORY' });
   port?.postMessage({ type: 'GET_BATCH_STATUS' });
   if (port && activeTabId != null) {
@@ -208,32 +200,21 @@ function setupEventListeners(): void {
     port?.postMessage({ type: 'CLEAR_HISTORY' });
   });
 
-  // Download everything currently listed under History
-  document.getElementById('download-all-btn')?.addEventListener('click', () => {
+  // Download everything currently listed, at the quality set in Settings
+  document.getElementById('download-all-btn')?.addEventListener('click', async () => {
     const pending = visibleHistoryEntries();
     if (pending.length === 0) return;
-    port?.postMessage({ type: 'DOWNLOAD_ALL', videos: pending, tabId: activeTabId, quality: batchQuality });
+    const settings = await loadSettings().catch(() => null);
+    port?.postMessage({
+      type: 'DOWNLOAD_ALL',
+      videos: pending,
+      tabId: activeTabId,
+      quality: settings?.batchQuality || 'best'
+    });
   });
 
   document.getElementById('batch-stop-btn')?.addEventListener('click', () => {
     port?.postMessage({ type: 'CANCEL_BATCH' });
-  });
-
-  document.querySelectorAll<HTMLButtonElement>('.quality-badge').forEach((badge) => {
-    badge.addEventListener('click', () => {
-      batchQuality = (badge.dataset.quality as 'best' | 'worst') || 'best';
-      renderBatchQuality();
-      chrome.storage.local.set({ batchQuality }).catch(() => { /* preference is optional */ });
-    });
-  });
-
-  document.getElementById('refresh-all-btn')?.addEventListener('click', () => {
-    port?.postMessage({ type: 'GET_HISTORY' });
-    requestMediaList();
-  });
-
-  document.getElementById('close-details-btn')?.addEventListener('click', () => {
-    closeDetails();
   });
 
   document.getElementById('history-search')?.addEventListener('input', (event) => {
@@ -358,12 +339,7 @@ function renderHistory(): void {
   emptyNote.classList.toggle('hidden', entries.length > 0);
 
   entries.forEach((entry, index) => {
-    const element = createMediaItem(entry, index, entry);
-    if (selectedVideo?.id === entry.id) {
-      element.classList.add('selected');
-      element.setAttribute('aria-selected', 'true');
-    }
-    container.appendChild(element);
+    container.appendChild(createMediaItem(entry, index, entry));
   });
 
   updateClearButton();
@@ -422,10 +398,13 @@ function setupDropZones(): void {
   });
 }
 
-// Where the dragged row should sit: the first row whose midpoint is below the
-// pointer, or null to append at the end.
+// Where the dragged row should sit. Only the non-current rows are candidates,
+// which is what keeps a dragged row from landing above the pinned block: the
+// highest it can go is immediately before the first reorderable row.
 function rowAfterPointer(container: HTMLElement, clientY: number): HTMLElement | null {
-  const rows = [...container.querySelectorAll('.media-item:not(.dragging)')] as HTMLElement[];
+  const rows = [...container.querySelectorAll(
+    '.media-item:not(.dragging):not(.media-item-current-page)'
+  )] as HTMLElement[];
   for (const row of rows) {
     const box = row.getBoundingClientRect();
     if (clientY < box.top + box.height / 2) return row;
@@ -461,7 +440,7 @@ function startRename(element: HTMLElement, video: VideoInfo, isCurrent: boolean)
 
   const close = (): void => {
     element.classList.remove('editing');
-    element.draggable = true;
+    element.draggable = !isCurrent;
     info.innerHTML = original;
   };
 
@@ -506,56 +485,35 @@ function createIconButton(kind: string, label: string, path: string): HTMLButton
   return button;
 }
 
-function createDragHandle(): HTMLElement {
-  const handle = document.createElement('span');
-  handle.className = 'drag-handle';
-  handle.setAttribute('aria-hidden', 'true');
-  handle.title = 'Drag to reorder';
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('width', '12');
-  svg.setAttribute('height', '12');
-  svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('fill', 'none');
-  svg.setAttribute('stroke', 'currentColor');
-  svg.setAttribute('stroke-width', '2');
-  svg.setAttribute('stroke-linecap', 'round');
-  for (const y of [9, 15]) {
-    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    line.setAttribute('x1', '4');
-    line.setAttribute('x2', '20');
-    line.setAttribute('y1', String(y));
-    line.setAttribute('y2', String(y));
-    svg.appendChild(line);
-  }
-  handle.appendChild(svg);
-  return handle;
-}
-
 /**
- * Create a media item row. Current-page and history rows share one compact
- * layout; only the meta line and what dragging means differ.
+ * A row: a compact header, plus — when it is the one expanded row — the
+ * download options underneath it.
  */
 function createMediaItem(video: VideoInfo, index: number, historyEntry?: HistoryEntry): HTMLElement {
+  const key = videoKey(video.url);
+  const isCurrent = isCurrentKey(key);
+  const busy = isDownloading(key);
+
   const div = document.createElement('div');
   div.className = historyEntry ? 'media-item media-item-history' : 'media-item media-item-current';
   div.dataset.index = String(index);
-  div.dataset.key = videoKey(video.url);
+  div.dataset.key = key;
   div.setAttribute('role', 'option');
   div.setAttribute('aria-selected', 'false');
   div.tabIndex = 0;
-  // Current-page rows stay pinned at the top, so only the rest reorder.
-  const isCurrent = isCurrentKey(videoKey(video.url));
-  div.draggable = !isCurrent;
+  // Current-page rows stay pinned at the top, so only the rest reorder — and
+  // a row being written to disk holds still.
+  div.draggable = !isCurrent && !busy && !selectionMode;
   div.classList.toggle('media-item-current-page', isCurrent);
+  div.classList.toggle('busy', busy);
 
-  const durationStr = video.duration ? formatDuration(video.duration) : '';
+  const head = document.createElement('div');
+  head.className = 'media-head';
+  div.appendChild(head);
 
-  const key = videoKey(video.url);
   if (selectionMode) {
-    div.appendChild(createSelectDot(selectedForDeletion.has(key)));
+    head.appendChild(createSelectDot(selectedForDeletion.has(key)));
     div.classList.toggle('picked', selectedForDeletion.has(key));
-  } else if (!isCurrent) {
-    div.appendChild(createDragHandle());
   }
 
   if (video.thumbnail) {
@@ -566,16 +524,16 @@ function createMediaItem(video: VideoInfo, index: number, historyEntry?: History
     thumbnail.alt = video.title || 'Video thumbnail';
     thumbnail.src = video.thumbnail;
     wrapper.appendChild(thumbnail);
-    div.appendChild(wrapper);
+    head.appendChild(wrapper);
 
     const fallback = createMediaIcon('media-icon media-icon-fallback hidden');
-    div.appendChild(fallback);
+    head.appendChild(fallback);
     thumbnail.addEventListener('error', () => {
       wrapper.classList.add('hidden');
       fallback.classList.remove('hidden');
     });
   } else {
-    div.appendChild(createMediaIcon('media-icon'));
+    head.appendChild(createMediaIcon('media-icon'));
   }
 
   const info = document.createElement('div');
@@ -591,58 +549,68 @@ function createMediaItem(video: VideoInfo, index: number, historyEntry?: History
   if (isCurrent) {
     title.appendChild(createBadge('current-badge', 'current', "Detected on the page you have open"));
   }
-  if (historyEntry?.downloaded) {
-    title.appendChild(createBadge('downloaded-badge', '✓', 'Already downloaded'));
-  }
-  if (historyEntry?.failed) {
+  if (historyEntry?.failed && !busy) {
     title.appendChild(createBadge('failed-badge', 'error', 'Last download failed'));
   }
   info.appendChild(title);
 
   const meta = document.createElement('div');
   meta.className = 'media-meta';
-  meta.textContent = [
+  meta.textContent = busy ? 'Downloading…' : [
     getTypeLabel(video.type),
-    durationStr,
+    video.duration ? formatDuration(video.duration) : '',
     historyEntry ? formatRelativeTime(historyEntry.detectedAt) : ''
   ].filter(Boolean).join(' · ');
   if (historyEntry?.pageUrl) div.title = historyEntry.pageUrl;
   info.appendChild(meta);
 
-  div.appendChild(info);
+  head.appendChild(info);
 
-  const actions = document.createElement('div');
-  actions.className = 'media-actions';
+  // A row being downloaded trades its actions for a spinner: renaming or
+  // deleting it mid-write would leave the file and the entry disagreeing.
+  if (busy) {
+    head.appendChild(createSpinner());
+  } else {
+    const actions = document.createElement('div');
+    actions.className = 'media-actions';
 
-  const rename = createIconButton('rename', 'Rename', 'M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z');
-  rename.classList.add('rename-btn');
-  rename.addEventListener('click', (event) => {
-    event.stopPropagation();
-    startRename(div, video, isCurrent);
-  });
-  actions.appendChild(rename);
+    const rename = createIconButton('rename', 'Rename', 'M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z');
+    rename.classList.add('rename-btn');
+    rename.addEventListener('click', (event) => {
+      event.stopPropagation();
+      startRename(div, video, isCurrent);
+    });
+    actions.appendChild(rename);
 
-  const remove = createIconButton('remove', 'Select to delete',
-    'M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6');
-  remove.classList.add('remove-btn');
-  remove.addEventListener('click', (event) => {
-    event.stopPropagation();
-    if (selectionMode) toggleSelection(key, div);
-    else enterSelectionMode(key);
-  });
-  actions.appendChild(remove);
+    const remove = createIconButton('remove', 'Select to delete',
+      'M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6');
+    remove.classList.add('remove-btn');
+    remove.addEventListener('click', (event) => {
+      event.stopPropagation();
+      if (selectionMode) toggleSelection(key, div);
+      else enterSelectionMode(key);
+    });
+    actions.appendChild(remove);
 
-  div.appendChild(actions);
+    head.appendChild(actions);
+  }
 
-  if (!isCurrent) attachDragBehaviour(div);
+  if (expandedKey === key && !selectionMode && !busy) {
+    div.classList.add('expanded', 'selected');
+    div.setAttribute('aria-selected', 'true');
+    div.appendChild(buildExpandPanel(video));
+  }
+
+  if (!isCurrent && !busy && !selectionMode) attachDragBehaviour(div);
 
   const activate = (): void => {
     if (selectionMode) toggleSelection(key, div);
-    else selectMedia(video, div);
+    else if (!busy) toggleExpand(video);
   };
 
   div.addEventListener('click', activate);
   div.addEventListener('keydown', (event) => {
+    if (event.target !== div) return;
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
       activate();
@@ -650,6 +618,19 @@ function createMediaItem(video: VideoInfo, index: number, historyEntry?: History
   });
 
   return div;
+}
+
+function createSpinner(): HTMLElement {
+  const spinner = document.createElement('span');
+  spinner.className = 'row-spinner';
+  spinner.title = 'Downloading — stop the download to edit this video';
+  spinner.setAttribute('role', 'status');
+  spinner.setAttribute('aria-label', 'Downloading');
+  return spinner;
+}
+
+function isDownloading(key: string): boolean {
+  return key === manualDownloadKey || key === batchDownloadKey;
 }
 
 function createBadge(className: string, text: string, label: string): HTMLElement {
@@ -678,29 +659,45 @@ function createMediaIcon(className: string): HTMLElement {
 }
 
 /**
- * Select a media item and show quality options
+ * Clicking a row opens its download options underneath it; clicking it again
+ * closes them. Only one row is ever open, so the panel can keep using the
+ * shared selection state.
  */
-function selectMedia(video: VideoInfo, element: HTMLElement): void {
-  // Remove previous selection
-  document.querySelectorAll('.media-item').forEach(el => {
-    el.classList.remove('selected');
-    el.setAttribute('aria-selected', 'false');
-  });
-  
-  // Select this one
-  element.classList.add('selected');
-  element.setAttribute('aria-selected', 'true');
-  
+function toggleExpand(video: VideoInfo): void {
+  const key = videoKey(video.url);
+  if (expandedKey === key) {
+    collapseExpanded();
+    return;
+  }
+
+  expandedKey = key;
   selectedVideo = video;
-  
-  // Show media details with quality options
-  const mediaDetails = document.getElementById('media-details')!;
-  const downloadSection = document.getElementById('download-section')!;
-  
-  document.getElementById('media-title')!.textContent = video.title || 'Unknown Video';
-  
-  // Convert qualities to options
-  currentQualities = video.qualities.map(q => ({
+  currentQualities = buildQualityOptions(video);
+  selectedQualityIndex = 0;
+  renderHistory();
+
+  // The preferred rendition comes from settings; applying it after the first
+  // paint keeps opening a row instant.
+  loadSettings()
+    .then((settings) => {
+      if (expandedKey !== key) return;
+      if (settings.defaultQuality !== 'worst') return;
+      const lowest = findLowestVideoQualityIndex();
+      selectQuality(lowest >= 0 ? lowest : currentQualities.length - 1);
+    })
+    .catch(() => { /* the first entry is already selected */ });
+}
+
+function collapseExpanded(): void {
+  expandedKey = null;
+  selectedVideo = null;
+  currentQualities = [];
+  selectedQualityIndex = 0;
+  renderHistory();
+}
+
+function buildQualityOptions(video: VideoInfo): QualityOption[] {
+  const options: QualityOption[] = video.qualities.map((q) => ({
     label: q.label || getQualityLabel(q.height),
     bandwidth: q.bitrate || 0,
     bandwidthLabel: q.bitrate ? formatBandwidth(q.bitrate) : 'Unknown',
@@ -717,10 +714,11 @@ function selectMedia(video: VideoInfo, element: HTMLElement): void {
     kind: q.kind,
     language: q.language
   }));
-  
-  // If no qualities from detection, use direct URL
-  if (currentQualities.length === 0 && video.type !== 'ytdlp') {
-    currentQualities = [{
+
+  // Nothing parsed out of the manifest — offer the link itself. YouTube is the
+  // exception: its formats arrive later, from yt-dlp.
+  if (options.length === 0 && video.type !== 'ytdlp') {
+    return [{
       label: 'Direct',
       bandwidth: 0,
       bandwidthLabel: 'Unknown',
@@ -728,26 +726,36 @@ function selectMedia(video: VideoInfo, element: HTMLElement): void {
       sizeLabel: video.fileSize ? formatFileSize(video.fileSize) : undefined
     }];
   }
-  
-  renderQualityList();
-  
-  mediaDetails.classList.remove('hidden');
-  downloadSection.classList.remove('hidden');
-  
-  // Set default filename
-  const filenameInput = document.getElementById('filename') as HTMLInputElement;
-  if (filenameInput) {
-    const suffix = currentQualities[0]?.label ? `_${currentQualities[0].label}` : '';
-    filenameInput.value = `${video.title || 'video'}${suffix}`;
-  }
+  return options;
+}
+
+function buildExpandPanel(video: VideoInfo): HTMLElement {
+  const panel = document.createElement('div');
+  panel.className = 'media-expand';
+  // Picking a quality must not count as a click on the row itself.
+  panel.addEventListener('click', (event) => event.stopPropagation());
+
+  const list = document.createElement('div');
+  list.className = 'quality-list';
+  panel.appendChild(list);
+
+  const button = document.createElement('button');
+  button.className = 'btn btn-primary expand-download-btn';
+  button.textContent = 'Download';
+  button.addEventListener('click', () => {
+    if (currentQualities.length === 0) return;
+    startDownload(video, currentQualities[selectedQualityIndex]);
+  });
+  panel.appendChild(button);
+
+  renderQualityList(list, button);
+  return panel;
 }
 
 /**
  * Render quality selection list
  */
-function renderQualityList(): void {
-  const container = document.getElementById('quality-list')!;
-  const downloadBtn = document.getElementById('download-btn') as HTMLButtonElement | null;
+function renderQualityList(container: HTMLElement, downloadBtn: HTMLButtonElement | null): void {
   container.replaceChildren();
   
   if (currentQualities.length === 0) {
@@ -877,25 +885,21 @@ function renderQualityList(): void {
     qualityOptions.appendChild(option);
   });
   
-  // Select quality based on defaultQuality setting
-  loadSettings().then(settings => {
-    if (settings.defaultQuality === 'worst') {
-      selectQuality(currentQualities.length - 1);
-    } else {
-      selectQuality(0);
-    }
-  }).catch(() => selectQuality(0));
+  // The chosen index survives re-renders, so re-apply it rather than reset.
+  selectQuality(selectedQualityIndex, container);
 }
 
 /**
  * Select a quality option
  */
-function selectQuality(index: number): void {
+function selectQuality(index: number, root?: ParentNode): void {
   if (index < 0 || index >= currentQualities.length) return;
   selectedQualityIndex = index;
-  
-  // Update visual selection
-  document.querySelectorAll('.quality-option').forEach((el, i) => {
+
+  // While a panel is being built its options are not in the document yet, so
+  // the caller passes the container it is filling.
+  const scope = root || document;
+  scope.querySelectorAll('.quality-option').forEach((el, i) => {
     el.classList.toggle('selected', i === index);
     const radio = el.querySelector('input[type="radio"]') as HTMLInputElement;
     if (radio) {
@@ -905,14 +909,6 @@ function selectQuality(index: number): void {
     }
   });
   
-  // Update filename with selected quality
-  if (selectedVideo) {
-    const quality = currentQualities[index];
-    const filenameInput = document.getElementById('filename') as HTMLInputElement;
-    if (filenameInput) {
-      filenameInput.value = `${selectedVideo.title || 'video'}_${quality.label}`;
-    }
-  }
 }
 
 /**
@@ -920,8 +916,11 @@ function selectQuality(index: number): void {
  */
 function startDownload(video: VideoInfo, quality: QualityOption): void {
   const filename = video.title || 'video';
-  
-  // Show progress UI
+
+  // The row shows a spinner and locks its actions until this finishes.
+  manualDownloadKey = videoKey(video.url);
+  expandedKey = null;
+  renderHistory();
   showDownloadingUI();
   
   if (port) {
@@ -960,6 +959,7 @@ function startDownload(video: VideoInfo, quality: QualityOption): void {
 
 function enterSelectionMode(key: string): void {
   selectionMode = true;
+  expandedKey = null;
   selectedForDeletion.clear();
   selectedForDeletion.add(key);
   renderHistory();
@@ -990,7 +990,7 @@ function toggleSelection(key: string, element: HTMLElement): void {
 function updateClearButton(): void {
   const button = document.getElementById('clear-history-btn');
   if (!button) return;
-  button.textContent = selectionMode ? `Clear (${selectedForDeletion.size})` : 'Clear';
+  button.textContent = selectionMode ? `Clear (${selectedForDeletion.size})` : 'Clear All';
   button.classList.toggle('danger', selectionMode);
 }
 
@@ -1001,28 +1001,10 @@ function createSelectDot(checked: boolean): HTMLElement {
   return dot;
 }
 
-// Collapses the detail panel back to just the list.
-function closeDetails(): void {
-  selectedVideo = null;
-  currentQualities = [];
-  document.getElementById('media-details')?.classList.add('hidden');
-  document.getElementById('download-section')?.classList.add('hidden');
-  document.querySelectorAll('.media-item.selected').forEach((element) => {
-    element.classList.remove('selected');
-    element.setAttribute('aria-selected', 'false');
-  });
-}
-
 function showDownloadingUI(): void {
-  const emptyState = document.getElementById('empty-state')!;
-  const mediaDetails = document.getElementById('media-details')!;
-  const downloadSection = document.getElementById('download-section')!;
   const downloadProgress = document.getElementById('download-progress')!;
   const error = document.getElementById('error')!;
-  
-  emptyState.classList.add('hidden');
-  mediaDetails.classList.add('hidden');
-  downloadSection.classList.add('hidden');
+
   error.classList.add('hidden');
   downloadProgress.classList.remove('hidden');
   updateStatus('Downloading…', 'info');
@@ -1035,15 +1017,9 @@ function showDownloadingUI(): void {
 function restoreDownloadUI(downloadId: string, filename: string, progress: any): void {
   currentDownloadId = downloadId;
 
-  const emptyState = document.getElementById('empty-state')!;
-  const mediaDetails = document.getElementById('media-details')!;
-  const downloadSection = document.getElementById('download-section')!;
   const downloadProgress = document.getElementById('download-progress')!;
   const error = document.getElementById('error')!;
 
-  emptyState.classList.add('hidden');
-  mediaDetails.classList.add('hidden');
-  downloadSection.classList.add('hidden');
   error.classList.add('hidden');
   downloadProgress.classList.remove('hidden');
 
@@ -1148,17 +1124,15 @@ function cancelDownload(): void {
 
 function resetUI(): void {
   currentDownloadId = null;
-  const emptyState = document.getElementById('empty-state')!;
-  const mediaDetails = document.getElementById('media-details')!;
-  const downloadSection = document.getElementById('download-section')!;
+  // Whatever happened to the download, the row goes back to being editable.
+  manualDownloadKey = null;
   const downloadProgress = document.getElementById('download-progress')!;
   const error = document.getElementById('error')!;
   const fill = document.getElementById('progress-fill');
-  
-  mediaDetails.classList.add('hidden');
-  downloadSection.classList.add('hidden');
+
   downloadProgress.classList.add('hidden');
   error.classList.add('hidden');
+  renderHistory();
   
   if (fill) {
     fill.classList.remove('indeterminate');

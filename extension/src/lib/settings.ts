@@ -5,6 +5,10 @@ export type ThemeMode = 'dark' | 'light' | 'system';
 
 export interface Settings {
   defaultQuality: 'best' | 'worst' | 'ask';
+  /** Which rendition "Download all" picks for every video in the run. */
+  batchQuality: 'best' | 'worst';
+  /** Off means the list only ever shows what the open tabs are playing. */
+  keepHistory: boolean;
   showNotifications: boolean;
   theme: ThemeMode;
   coappPath?: string;
@@ -12,6 +16,8 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = {
   defaultQuality: 'ask',
+  batchQuality: 'best',
+  keepHistory: true,
   showNotifications: true,
   theme: 'system'
 };
