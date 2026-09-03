@@ -7,49 +7,16 @@ import { M3U8ParserWrapper } from './lib/m3u8-parser';
 import { DashParserWrapper } from './lib/dash-parser';
 import { loadSettings, Settings, DEFAULT_SETTINGS } from './lib/settings';
 import { videoKey } from './lib/video-key';
-
-interface PageMetadata {
-  title?: string;
-  thumbnail?: string;
-  duration?: number;
-  pageUrl?: string;
-  generation?: number;
-}
+import { PageMetadata, RelayCodec, TabStateStore } from './lib/tab-state';
 
 const nativeClient = new NativeClient();
 
-// Media storage by tabId
-const mediaByTab = new Map<number, VideoInfo[]>();
-const interceptedMediaByTab = new Map<number, Set<string>>();
-const pageMetadataByTab = new Map<number, PageMetadata>();
-const ytdlpFormatUrlByTab = new Map<number, string>();
-const pageGenerationByTab = new Map<number, number>();
-const navigationGenerationByTab = new Map<number, number>();
-const currentPageUrlByTab = new Map<number, string | null>();
-const relayMappingsByTab = new Map<number, Map<string, string>>();
-const relayCodecsByTab = new Map<number, Map<string, RelayCodec>>();
-
-interface RelayCodec {
-  hour: number;
-  prefix: string;
-  relayOrigin: string;
-  mapping: Record<string, string>;
-}
+const tabStates = new TabStateStore();
 
 const relayAlphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
 
-function getPageGeneration(tabId: number): number {
-  return pageGenerationByTab.get(tabId) || 0;
-}
-
 function resetTabState(tabId: number): void {
-  pageGenerationByTab.set(tabId, getPageGeneration(tabId) + 1);
-  mediaByTab.delete(tabId);
-  interceptedMediaByTab.delete(tabId);
-  pageMetadataByTab.delete(tabId);
-  ytdlpFormatUrlByTab.delete(tabId);
-  relayMappingsByTab.delete(tabId);
-  relayCodecsByTab.delete(tabId);
+  tabStates.resetPage(tabId);
   chrome.action.setBadgeText({ tabId, text: '' }, () => { void chrome.runtime.lastError; });
 }
 
@@ -109,11 +76,12 @@ function learnRelayCodec(tabId: number, originalUrl: string, relayUrl: string): 
   }
   if (!best) return;
 
-  const mappings = relayMappingsByTab.get(tabId) || new Map<string, string>();
+  const state = tabStates.ensure(tabId);
+  const mappings = state.relayMappings || new Map<string, string>();
   mappings.set(original.href, relay.href);
-  relayMappingsByTab.set(tabId, mappings);
+  state.relayMappings = mappings;
 
-  const codecs = relayCodecsByTab.get(tabId) || new Map<string, RelayCodec>();
+  const codecs = state.relayCodecs || new Map<string, RelayCodec>();
   const existing = codecs.get(original.origin);
   if (existing && (existing.hour !== best.hour || existing.prefix !== relay.pathname.slice(0, separator + 1))) return;
 
@@ -127,16 +95,17 @@ function learnRelayCodec(tabId: number, originalUrl: string, relayUrl: string): 
     relayOrigin: relay.origin,
     mapping
   });
-  relayCodecsByTab.set(tabId, codecs);
+  state.relayCodecs = codecs;
 }
 
 function getRelayUrl(tabId: number, originalUrl: string): string | undefined {
-  const mappings = relayMappingsByTab.get(tabId);
+  const state = tabStates.get(tabId);
+  const mappings = state?.relayMappings;
   if (mappings?.has(originalUrl)) return mappings.get(originalUrl);
 
   let original: URL;
   try { original = new URL(originalUrl); } catch { return undefined; }
-  const codec = relayCodecsByTab.get(tabId)?.get(original.origin);
+  const codec = state?.relayCodecs?.get(original.origin);
   if (!codec) return undefined;
 
   let encoded: string;
@@ -152,10 +121,10 @@ function getRelayUrl(tabId: number, originalUrl: string): string | undefined {
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.url !== undefined) {
-    currentPageUrlByTab.set(tabId, changeInfo.url);
+    tabStates.ensure(tabId).currentPageUrl = changeInfo.url;
   }
   if (changeInfo.status === 'loading' || changeInfo.url !== undefined) {
-    navigationGenerationByTab.delete(tabId);
+    tabStates.ensure(tabId).navigationGeneration = undefined;
     resetTabState(tabId);
     // An open popup should stop showing that tab's videos as current.
     notifyPopups();
@@ -163,9 +132,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  currentPageUrlByTab.delete(tabId);
-  navigationGenerationByTab.delete(tabId);
-  resetTabState(tabId);
+  tabStates.delete(tabId);
   notifyPopups();
 });
 
@@ -462,7 +429,7 @@ function mergeChildUrls(a?: string[], b?: string[]): string[] | undefined {
 }
 
 function commitVideos(tabId: number, videos: VideoInfo[]): void {
-  mediaByTab.set(tabId, videos);
+  tabStates.ensure(tabId).media = videos;
   const visible = getVisibleVideosForTab(tabId);
   const visibleCount = visible.length;
   chrome.action.setBadgeText({ tabId, text: visibleCount > 0 ? String(visibleCount) : '' });
@@ -505,7 +472,7 @@ function historySignature(entries: HistoryEntry[]): string {
 
 function recordHistory(tabId: number, videos: VideoInfo[]): void {
   if (videos.length === 0) return;
-  const metadata = pageMetadataByTab.get(tabId);
+  const metadata = tabStates.get(tabId)?.pageMetadata;
   const snapshot = videos.map((video) => ({ ...video }));
   historyWrites = historyWrites
     .then(() => mergeIntoHistory(snapshot, metadata?.pageUrl, metadata?.title))
@@ -615,7 +582,7 @@ async function reorderHistory(keys: string[]): Promise<void> {
 function renameDetectedVideo(tabId: number | undefined, key: string, title: string): void {
   const trimmed = title.trim();
   if (typeof tabId !== 'number' || !trimmed) return;
-  const videos = mediaByTab.get(tabId);
+  const videos = tabStates.get(tabId)?.media;
   if (!videos?.length) return;
 
   let changed = false;
@@ -831,8 +798,9 @@ async function cancelBatchDownload(): Promise<void> {
 }
 
 function getVisibleVideosForTab(tabId: number): VideoInfo[] {
-  const videos = mediaByTab.get(tabId) || [];
-  const metadata = pageMetadataByTab.get(tabId);
+  const state = tabStates.get(tabId);
+  const videos = state?.media || [];
+  const metadata = state?.pageMetadata;
   if (metadata?.pageUrl && isYouTubeUrl(metadata.pageUrl)) {
     return videos.filter(video => video.type === 'ytdlp');
   }
@@ -843,7 +811,7 @@ function getVisibleVideosForTab(tabId: number): VideoInfo[] {
 }
 
 function upsertVideo(tabId: number, video: VideoInfo): void {
-  let videos = mediaByTab.get(tabId) || [];
+  let videos = tabStates.get(tabId)?.media || [];
 
   if (video.type === 'hls') {
     const childUrls = new Set([
@@ -909,15 +877,16 @@ async function handleInterceptedMedia(
   forcedType?: VideoInfo['type'],
   requestReferer?: string
 ): Promise<void> {
-  const generation = getPageGeneration(tabId);
-  const seen = interceptedMediaByTab.get(tabId) || new Set<string>();
+  const state = tabStates.ensure(tabId);
+  const generation = state.pageGeneration;
+  const seen = state.interceptedMedia || new Set<string>();
   if (seen.has(url)) return;
   seen.add(url);
-  interceptedMediaByTab.set(tabId, seen);
+  state.interceptedMedia = seen;
 
-  const metadata = pageMetadataByTab.get(tabId);
+  const metadata = state.pageMetadata;
   const title = metadata?.title || await getTabTitle(tabId);
-  if (generation !== getPageGeneration(tabId)) return;
+  if (!tabStates.isCurrentPageGeneration(tabId, generation)) return;
   const type = forcedType || getMediaType(url);
   const referer = requestReferer || metadata?.pageUrl;
 
@@ -925,7 +894,7 @@ async function handleInterceptedMedia(
   if (type === 'hls' || type === 'dash') {
     let urlPath: string;
     try { urlPath = new URL(url).pathname; } catch { urlPath = url; }
-    const existing = (mediaByTab.get(tabId) || []).find(v =>
+    const existing = (tabStates.get(tabId)?.media || []).find(v =>
       v.type === type && (() => { try { return new URL(v.url).pathname === urlPath; } catch { return false; } })()
     );
     if (existing) return;
@@ -1089,7 +1058,7 @@ async function handleInterceptedMedia(
     }
   }
 
-  if (generation !== getPageGeneration(tabId)) return;
+  if (!tabStates.isCurrentPageGeneration(tabId, generation)) return;
   upsertVideo(tabId, {
     id: generateVideoId(url),
     title,
@@ -1128,7 +1097,7 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: any): void {
       port.postMessage({ type: 'MEDIA_LIST', ...currentMediaPayload() });
       // Nothing known usually means this worker was restarted and lost the
       // map, not that the tabs are empty — ask them to say again.
-      if (mediaByTab.size === 0) void rescanAllTabs();
+      if (!tabStates.hasMediaState()) void rescanAllTabs();
       break;
 
     case 'RESCAN':
@@ -1256,7 +1225,7 @@ async function rescanAllTabs(): Promise<void> {
 function currentMediaPayload(): { videos: VideoInfo[]; currentKeys: string[] } {
   const videos: VideoInfo[] = [];
   const seen = new Set<string>();
-  for (const tabId of mediaByTab.keys()) {
+  for (const [tabId] of tabStates.mediaEntries()) {
     for (const video of getVisibleVideosForTab(tabId)) {
       const key = videoKey(video.url);
       if (seen.has(key)) continue;
@@ -1322,7 +1291,7 @@ interface ManifestFile {
 async function rewriteHlsInput(tabId: number, inputUrl: string, referer: string | undefined, manifestFiles: ManifestFile[]): Promise<string> {
   let origin: string;
   try { origin = new URL(inputUrl).origin; } catch { return inputUrl; }
-  if (!relayCodecsByTab.get(tabId)?.has(origin)) return inputUrl;
+  if (!tabStates.get(tabId)?.relayCodecs?.has(origin)) return inputUrl;
 
   const parsed = await M3U8ParserWrapper.fetchAndParse(inputUrl, referer);
   if (parsed.type !== 'media' || !parsed.manifest) return inputUrl;
@@ -1683,12 +1652,13 @@ async function handleMessage(message: any, sender: chrome.runtime.MessageSender)
 }
 
 function currentTopPageUrl(tabId: number, senderTabUrl?: string): string | undefined {
-  const trackedUrl = currentPageUrlByTab.get(tabId);
+  const state = tabStates.get(tabId);
+  const trackedUrl = state?.currentPageUrl;
   if (trackedUrl === null) return undefined;
   if (trackedUrl && senderTabUrl && trackedUrl !== senderTabUrl) return undefined;
   if (trackedUrl) return trackedUrl;
   if (senderTabUrl) {
-    currentPageUrlByTab.set(tabId, senderTabUrl);
+    tabStates.ensure(tabId).currentPageUrl = senderTabUrl;
     return senderTabUrl;
   }
   return undefined;
@@ -1697,10 +1667,11 @@ function currentTopPageUrl(tabId: number, senderTabUrl?: string): string | undef
 function isCurrentContentGeneration(tabId: number, generation: unknown, isTopFrame: boolean): boolean {
   if (typeof generation !== 'number' || !Number.isInteger(generation)) return false;
 
-  const knownGeneration = navigationGenerationByTab.get(tabId);
+  const state = tabStates.ensure(tabId);
+  const knownGeneration = state.navigationGeneration;
   if (knownGeneration === undefined) {
     if (!isTopFrame) return false;
-    navigationGenerationByTab.set(tabId, generation);
+    state.navigationGeneration = generation;
     return true;
   }
 
@@ -1723,7 +1694,7 @@ function handleVideoDetected(tabId: number | undefined, video: VideoInfo, frameI
   }
   upsertVideo(tabId, video);
   console.log(`[MediaGrabber] Detected video on tab ${tabId}:`, video.title);
-  return { success: true, count: (mediaByTab.get(tabId) || []).length };
+  return { success: true, count: (tabStates.get(tabId)?.media || []).length };
 }
 
 function handleMediaUrlMap(tabId: number | undefined, mapping: any, frameId?: number, frameUrl?: string, senderTabUrl?: string): any {
@@ -1753,12 +1724,13 @@ function handlePageNavigation(tabId: number | undefined, pageUrl: string, genera
     return { success: true, stale: true };
   }
 
-  const previousGeneration = navigationGenerationByTab.get(tabId);
+  const state = tabStates.ensure(tabId);
+  const previousGeneration = state.navigationGeneration;
   if (typeof generation !== 'number' || !Number.isInteger(generation) || (previousGeneration !== undefined && generation <= previousGeneration)) {
     return { success: true, stale: true };
   }
 
-  navigationGenerationByTab.set(tabId, generation);
+  state.navigationGeneration = generation;
   resetTabState(tabId);
   return { success: true };
 }
@@ -1786,8 +1758,8 @@ async function loadYouTubeFormats(tabId: number, url: string, videoId: string, m
   try {
     await ensureCoAppConnected();
     const info = await nativeClient.ytdlpFormats(url);
-    const currentMetadata = pageMetadataByTab.get(tabId) || metadata;
-    if (generation !== getPageGeneration(tabId) || currentMetadata.pageUrl !== url) return;
+    const currentMetadata = tabStates.get(tabId)?.pageMetadata || metadata;
+    if (!tabStates.isCurrentPageGeneration(tabId, generation) || currentMetadata.pageUrl !== url) return;
 
     const qualities = normalizeYtdlpQualities(url, info.qualities);
     upsertVideo(tabId, {
@@ -1801,8 +1773,8 @@ async function loadYouTubeFormats(tabId: number, url: string, videoId: string, m
     });
   } catch (error) {
     console.warn('[MediaGrabber] Failed to load yt-dlp formats:', error);
-    const currentMetadata = pageMetadataByTab.get(tabId) || metadata;
-    if (generation !== getPageGeneration(tabId) || currentMetadata.pageUrl !== url) return;
+    const currentMetadata = tabStates.get(tabId)?.pageMetadata || metadata;
+    if (!tabStates.isCurrentPageGeneration(tabId, generation) || currentMetadata.pageUrl !== url) return;
     upsertVideo(tabId, {
       id: videoId,
       title: currentMetadata.title || 'YouTube Video',
@@ -1818,11 +1790,12 @@ async function loadYouTubeFormats(tabId: number, url: string, videoId: string, m
 function addYouTubeVideo(tabId: number, metadata: PageMetadata): void {
   const url = metadata.pageUrl!;
   const videoId = `ytdlp_${tabId}`;
+  const state = tabStates.ensure(tabId);
 
-  const existing = (mediaByTab.get(tabId) || []).find(v => v.id === videoId);
+  const existing = (state.media || []).find(v => v.id === videoId);
   if (existing) {
     const urlChanged = existing.url !== url;
-    const videos = (mediaByTab.get(tabId) || []).map(v =>
+    const videos = (state.media || []).map(v =>
       v.id === videoId
         ? {
             ...v,
@@ -1837,9 +1810,9 @@ function addYouTubeVideo(tabId: number, metadata: PageMetadata): void {
     commitVideos(tabId, videos);
   }
 
-  if (ytdlpFormatUrlByTab.get(tabId) === url) return;
-  ytdlpFormatUrlByTab.set(tabId, url);
-  void loadYouTubeFormats(tabId, url, videoId, metadata, getPageGeneration(tabId));
+  if (state.ytdlpFormatUrl === url) return;
+  state.ytdlpFormatUrl = url;
+  void loadYouTubeFormats(tabId, url, videoId, metadata, state.pageGeneration);
 }
 
 function handlePageMetadata(tabId: number | undefined, metadata: PageMetadata, frameId?: number, frameUrl?: string, senderTabUrl?: string): any {
@@ -1855,13 +1828,14 @@ function handlePageMetadata(tabId: number | undefined, metadata: PageMetadata, f
       return { success: true, stale: true };
     }
 
-    const trackedUrl = currentPageUrlByTab.get(tabId);
+    const state = tabStates.ensure(tabId);
+    const trackedUrl = state.currentPageUrl;
     if (trackedUrl === null) {
       return { success: true, stale: true };
     }
-    currentPageUrlByTab.set(tabId, metadata.pageUrl);
+    state.currentPageUrl = metadata.pageUrl;
     if (trackedUrl && trackedUrl !== metadata.pageUrl) {
-      navigationGenerationByTab.delete(tabId);
+      state.navigationGeneration = undefined;
       resetTabState(tabId);
     }
 
@@ -1879,7 +1853,7 @@ function handlePageMetadata(tabId: number | undefined, metadata: PageMetadata, f
     return { success: true, stale: true };
   }
 
-  let previous = pageMetadataByTab.get(tabId) || {};
+  let previous = tabStates.get(tabId)?.pageMetadata || {};
   if (!isTopFrame && !previous.pageUrl) {
     return { success: true, stale: true };
   }
@@ -1896,13 +1870,13 @@ function handlePageMetadata(tabId: number | undefined, metadata: PageMetadata, f
     generation: isTopFrame ? metadata.generation : previous.generation
   };
 
-  pageMetadataByTab.set(tabId, merged);
+  tabStates.ensure(tabId).pageMetadata = merged;
 
   if (merged.pageUrl && isYouTubeUrl(merged.pageUrl)) {
     addYouTubeVideo(tabId, merged);
   }
 
-  const videos = mediaByTab.get(tabId);
+  const videos = tabStates.get(tabId)?.media;
   if (videos?.length) {
     let changed = false;
     const updated = videos.map((video) => {
@@ -1924,5 +1898,5 @@ function handlePageMetadata(tabId: number | undefined, metadata: PageMetadata, f
 }
 
 function getVideosForTab(tabId: number): any {
-  return { videos: mediaByTab.get(tabId) || [] };
+  return { videos: tabStates.get(tabId)?.media || [] };
 }
