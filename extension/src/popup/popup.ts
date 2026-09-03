@@ -66,6 +66,9 @@ let currentVideos: VideoInfo[] = [];
 let historyEntries: HistoryEntry[] = [];
 let historySearch = '';
 let draggingKey: string | null = null;
+let draggingKind: 'history' | 'current' | null = null;
+let movedFromCurrentKeys = new Set<string>();
+let batchQuality: 'best' | 'worst' = 'best';
 
 // Connect to background script
 function initPopup(): void {
@@ -77,6 +80,7 @@ function initPopup(): void {
   port.onMessage.addListener((msg) => {
     switch (msg.type) {
       case 'MEDIA_LIST':
+        movedFromCurrentKeys = new Set(msg.movedKeys || []);
         renderMediaList(msg.videos);
         break;
       case 'HISTORY_LIST':
@@ -124,11 +128,29 @@ document.addEventListener('DOMContentLoaded', () => {
   initTheme();
   initPopup();
   setupEventListeners();
+  setupDropZones();
   initializePopupState();
 });
 
+function renderBatchQuality(): void {
+  document.querySelectorAll<HTMLButtonElement>('.quality-badge').forEach((badge) => {
+    const selected = badge.dataset.quality === batchQuality;
+    badge.classList.toggle('selected', selected);
+    badge.setAttribute('aria-checked', String(selected));
+  });
+}
+
 async function initializePopupState(): Promise<void> {
   activeTabId = await getActiveTabId();
+  try {
+    const stored = await chrome.storage.local.get('batchQuality');
+    if (stored.batchQuality === 'worst' || stored.batchQuality === 'best') {
+      batchQuality = stored.batchQuality;
+    }
+  } catch {
+    // Preference is optional — fall back to "best".
+  }
+  renderBatchQuality();
   port?.postMessage({ type: 'GET_HISTORY' });
   port?.postMessage({ type: 'GET_BATCH_STATUS' });
   if (port && activeTabId != null) {
@@ -185,11 +207,19 @@ function setupEventListeners(): void {
   document.getElementById('download-all-btn')?.addEventListener('click', () => {
     const pending = visibleHistoryEntries();
     if (pending.length === 0) return;
-    port?.postMessage({ type: 'DOWNLOAD_ALL', videos: pending, tabId: activeTabId });
+    port?.postMessage({ type: 'DOWNLOAD_ALL', videos: pending, tabId: activeTabId, quality: batchQuality });
   });
 
   document.getElementById('batch-stop-btn')?.addEventListener('click', () => {
     port?.postMessage({ type: 'CANCEL_BATCH' });
+  });
+
+  document.querySelectorAll<HTMLButtonElement>('.quality-badge').forEach((badge) => {
+    badge.addEventListener('click', () => {
+      batchQuality = (badge.dataset.quality as 'best' | 'worst') || 'best';
+      renderBatchQuality();
+      chrome.storage.local.set({ batchQuality }).catch(() => { /* preference is optional */ });
+    });
   });
 
   document.getElementById('history-search')?.addEventListener('input', (event) => {
@@ -349,13 +379,14 @@ function renderHistory(): void {
   });
 }
 
-// --- Drag to reorder ---
+// --- Drag: reorder within history, and move current-page rows down into it ---
 
-function attachDragBehaviour(element: HTMLElement, entry: HistoryEntry): void {
-  element.dataset.key = videoKey(entry.url);
+function attachDragBehaviour(element: HTMLElement, kind: 'history' | 'current'): void {
+  element.dataset.kind = kind;
 
   element.addEventListener('dragstart', (event) => {
     draggingKey = element.dataset.key || null;
+    draggingKind = kind;
     element.classList.add('dragging');
     event.dataTransfer?.setData('text/plain', draggingKey || '');
     if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
@@ -364,34 +395,75 @@ function attachDragBehaviour(element: HTMLElement, entry: HistoryEntry): void {
   element.addEventListener('dragend', () => {
     element.classList.remove('dragging');
     draggingKey = null;
-    persistHistoryOrder();
-  });
-
-  element.addEventListener('dragover', (event) => {
-    if (!draggingKey || element.dataset.key === draggingKey) return;
-    event.preventDefault();
-    const container = element.parentElement;
-    const dragged = container?.querySelector('.dragging') as HTMLElement | null;
-    if (!container || !dragged) return;
-    const box = element.getBoundingClientRect();
-    const after = event.clientY > box.top + box.height / 2;
-    container.insertBefore(dragged, after ? element.nextSibling : element);
+    draggingKind = null;
+    document.getElementById('history-list')?.classList.remove('drop-target');
   });
 }
 
-// Reordering only ever touches the visible rows; the background keeps the rest.
-function persistHistoryOrder(): void {
-  const container = document.getElementById('history-list');
-  if (!container || !port) return;
-  const keys = [...container.children]
-    .map((child) => (child as HTMLElement).dataset.key)
-    .filter((key): key is string => Boolean(key));
-  port.postMessage({ type: 'REORDER_HISTORY', keys });
+function setupDropZones(): void {
+  const historyList = document.getElementById('history-list');
+  if (!historyList) return;
+
+  // Accepting the drop is what suppresses the browser's "fly back" animation.
+  const accept = (event: DragEvent): void => {
+    if (!draggingKind) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+  };
+
+  historyList.addEventListener('dragover', (event) => {
+    accept(event);
+    if (!draggingKind) return;
+    historyList.classList.add('drop-target');
+    const dragged = document.querySelector('.dragging') as HTMLElement | null;
+    if (!dragged) return;
+    const after = rowAfterPointer(historyList, event.clientY);
+    if (after !== dragged) historyList.insertBefore(dragged, after);
+  });
+
+  historyList.addEventListener('dragleave', (event) => {
+    if (!historyList.contains(event.relatedTarget as Node)) {
+      historyList.classList.remove('drop-target');
+    }
+  });
+
+  historyList.addEventListener('drop', (event) => {
+    accept(event);
+    historyList.classList.remove('drop-target');
+    const kind = draggingKind;
+    const key = draggingKey;
+    if (!kind || !key || !port) return;
+
+    const keys = [...historyList.children]
+      .map((child) => (child as HTMLElement).dataset.key)
+      .filter((value): value is string => Boolean(value));
+
+    if (kind === 'history') {
+      port.postMessage({ type: 'REORDER_HISTORY', keys });
+      return;
+    }
+
+    const video = currentVideos.find((candidate) => videoKey(candidate.url) === key);
+    if (!video) return;
+    movedFromCurrentKeys.add(key);
+    port.postMessage({ type: 'MOVE_TO_HISTORY', tabId: activeTabId, video, keys });
+  });
+}
+
+// Where the dragged row should sit: the first row whose midpoint is below the
+// pointer, or null to append at the end.
+function rowAfterPointer(container: HTMLElement, clientY: number): HTMLElement | null {
+  const rows = [...container.querySelectorAll('.media-item:not(.dragging)')] as HTMLElement[];
+  for (const row of rows) {
+    const box = row.getBoundingClientRect();
+    if (clientY < box.top + box.height / 2) return row;
+  }
+  return null;
 }
 
 // --- Inline rename ---
 
-function startRename(element: HTMLElement, entry: HistoryEntry): void {
+function startRename(element: HTMLElement, video: VideoInfo, isHistory: boolean): void {
   const info = element.querySelector('.media-info') as HTMLElement | null;
   if (!info || element.classList.contains('editing')) return;
   element.classList.add('editing');
@@ -404,7 +476,7 @@ function startRename(element: HTMLElement, entry: HistoryEntry): void {
   const input = document.createElement('input');
   input.type = 'text';
   input.className = 'rename-input';
-  input.value = entry.title || '';
+  input.value = video.title || '';
   input.setAttribute('aria-label', 'New title');
 
   const confirm = createIconButton('confirm', 'Save title', 'M20 6 9 17l-5-5');
@@ -424,8 +496,10 @@ function startRename(element: HTMLElement, entry: HistoryEntry): void {
   const commit = (): void => {
     const title = input.value.trim();
     close();
-    if (!title || title === entry.title) return;
-    port?.postMessage({ type: 'RENAME_HISTORY_ITEM', key: videoKey(entry.url), title });
+    if (!title || title === video.title) return;
+    port?.postMessage(isHistory
+      ? { type: 'RENAME_HISTORY_ITEM', key: videoKey(video.url), title }
+      : { type: 'RENAME_VIDEO', tabId: activeTabId, key: videoKey(video.url), title });
   };
 
   confirm.addEventListener('click', (event) => { event.stopPropagation(); commit(); });
@@ -486,18 +560,22 @@ function createDragHandle(): HTMLElement {
 }
 
 /**
- * Create a media item element
+ * Create a media item row. Current-page and history rows share one compact
+ * layout; only the meta line and what dragging means differ.
  */
 function createMediaItem(video: VideoInfo, index: number, historyEntry?: HistoryEntry): HTMLElement {
   const div = document.createElement('div');
-  div.className = 'media-item';
+  div.className = historyEntry ? 'media-item media-item-history' : 'media-item media-item-current';
   div.dataset.index = String(index);
+  div.dataset.key = videoKey(video.url);
   div.setAttribute('role', 'option');
   div.setAttribute('aria-selected', 'false');
   div.tabIndex = 0;
-  
-  // Calculate duration if available
+  div.draggable = true;
+
   const durationStr = video.duration ? formatDuration(video.duration) : '';
+
+  div.appendChild(createDragHandle());
 
   if (video.thumbnail) {
     const wrapper = document.createElement('div');
@@ -505,8 +583,6 @@ function createMediaItem(video: VideoInfo, index: number, historyEntry?: History
     const thumbnail = document.createElement('img');
     thumbnail.className = 'media-thumbnail';
     thumbnail.alt = video.title || 'Video thumbnail';
-    thumbnail.width = 64;
-    thumbnail.height = 40;
     thumbnail.src = video.thumbnail;
     wrapper.appendChild(thumbnail);
     div.appendChild(wrapper);
@@ -524,74 +600,41 @@ function createMediaItem(video: VideoInfo, index: number, historyEntry?: History
   const info = document.createElement('div');
   info.className = 'media-info';
 
-  const type = document.createElement('div');
-  type.className = 'media-type';
-  type.textContent = getTypeLabel(video.type);
-  info.appendChild(type);
-
   const title = document.createElement('div');
-  title.className = 'media-title';
-  title.textContent = video.title || 'Unknown Video';
+  title.className = 'media-title media-title-row';
+  const titleText = document.createElement('span');
+  titleText.className = 'media-title-text';
+  titleText.textContent = video.title || 'Unknown Video';
+  title.appendChild(titleText);
+
+  if (historyEntry?.downloaded) {
+    title.appendChild(createBadge('downloaded-badge', '✓', 'Already downloaded'));
+  }
+  if (historyEntry && movedFromCurrentKeys.has(videoKey(video.url))) {
+    title.appendChild(createBadge('current-badge', 'current', "This page's video"));
+  }
   info.appendChild(title);
 
-  if (durationStr) {
-    const duration = document.createElement('div');
-    duration.className = 'media-duration';
-    duration.textContent = durationStr;
-    info.appendChild(duration);
-  }
-
-  if (historyEntry) {
-    // History rows are denser: one meta line instead of separate type/duration
-    // blocks, so the extra controls fit without growing the popup.
-    div.classList.add('media-item-history');
-    div.draggable = true;
-    type.classList.add('hidden');
-    if (durationStr) info.querySelector('.media-duration')?.classList.add('hidden');
-
-    // The badge must sit outside the ellipsised text, not inside it.
-    const titleText = document.createElement('span');
-    titleText.className = 'media-title-text';
-    titleText.textContent = video.title || 'Unknown Video';
-    title.textContent = '';
-    title.classList.add('media-title-row');
-    title.appendChild(titleText);
-
-    if (historyEntry.downloaded) {
-      const badge = document.createElement('span');
-      badge.className = 'downloaded-badge';
-      badge.textContent = '✓';
-      badge.title = 'Already downloaded';
-      badge.setAttribute('aria-label', 'Already downloaded');
-      title.appendChild(badge);
-    }
-
-    const meta = document.createElement('div');
-    meta.className = 'media-meta';
-    meta.textContent = [
-      getTypeLabel(video.type),
-      durationStr,
-      getSiteLabel(historyEntry.pageUrl),
-      formatRelativeTime(historyEntry.detectedAt)
-    ].filter(Boolean).join(' · ');
-    if (historyEntry.pageUrl) div.title = historyEntry.pageUrl;
-    info.appendChild(meta);
-
-    div.prepend(createDragHandle());
-    attachDragBehaviour(div, historyEntry);
-  }
+  const meta = document.createElement('div');
+  meta.className = 'media-meta';
+  meta.textContent = (historyEntry
+    ? [getTypeLabel(video.type), durationStr, getSiteLabel(historyEntry.pageUrl), formatRelativeTime(historyEntry.detectedAt)]
+    : [getTypeLabel(video.type), durationStr]
+  ).filter(Boolean).join(' · ');
+  if (historyEntry?.pageUrl) div.title = historyEntry.pageUrl;
+  info.appendChild(meta);
 
   div.appendChild(info);
 
-  if (historyEntry) {
-    const rename = createIconButton('rename', 'Rename', 'M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z');
-    rename.classList.add('rename-btn');
-    rename.addEventListener('click', (event) => {
-      event.stopPropagation();
-      startRename(div, historyEntry);
-    });
-    div.appendChild(rename);
-  }
+  const rename = createIconButton('rename', 'Rename', 'M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z');
+  rename.classList.add('rename-btn');
+  rename.addEventListener('click', (event) => {
+    event.stopPropagation();
+    startRename(div, video, Boolean(historyEntry));
+  });
+  div.appendChild(rename);
+
+  attachDragBehaviour(div, historyEntry ? 'history' : 'current');
 
   div.addEventListener('click', () => selectMedia(video, div));
   div.addEventListener('keydown', (event) => {
@@ -600,8 +643,17 @@ function createMediaItem(video: VideoInfo, index: number, historyEntry?: History
       selectMedia(video, div);
     }
   });
-  
+
   return div;
+}
+
+function createBadge(className: string, text: string, label: string): HTMLElement {
+  const badge = document.createElement('span');
+  badge.className = className;
+  badge.textContent = text;
+  badge.title = label;
+  badge.setAttribute('aria-label', label);
+  return badge;
 }
 
 function createMediaIcon(className: string): HTMLElement {
@@ -862,8 +914,7 @@ function selectQuality(index: number): void {
  * Start a download
  */
 function startDownload(video: VideoInfo, quality: QualityOption): void {
-  const filenameInput = document.getElementById('filename') as HTMLInputElement;
-  const filename = filenameInput?.value || `${video.title || 'video'}`;
+  const filename = video.title || 'video';
   
   // Show progress UI
   showDownloadingUI();

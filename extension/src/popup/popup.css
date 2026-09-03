@@ -499,11 +499,14 @@ body {
 }
 
 /* Denser rows so the drag handle and rename button fit */
-.media-item-history {
-  opacity: 0.82;
+.media-item {
   padding: 6px 8px;
   margin-bottom: 4px;
   gap: 6px;
+}
+
+.media-item-history {
+  opacity: 0.82;
 }
 
 .media-item-history:hover,
@@ -511,24 +514,76 @@ body {
   opacity: 1;
 }
 
-.media-item-history.dragging {
+.media-item.dragging {
   opacity: 0.45;
   border-color: var(--accent);
 }
 
-.media-item-history .media-icon,
-.media-item-history .media-thumbnail-wrapper {
+#history-list.drop-target {
+  outline: 1px dashed var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius);
+}
+
+.current-badge {
+  flex-shrink: 0;
+  padding: 1px 5px;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  border-radius: 999px;
+}
+
+.quality-toggle {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg-active);
+  border-radius: 999px;
+}
+
+.quality-badge {
+  padding: 2px 8px;
+  font-size: 10px;
+  font-family: inherit;
+  font-weight: 600;
+  color: var(--text-dim);
+  background: none;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.quality-badge:hover {
+  color: var(--text);
+}
+
+.quality-badge.selected {
+  color: #fff;
+  background: var(--accent);
+}
+
+.quality-badge:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.media-item .media-icon,
+.media-item .media-thumbnail-wrapper {
   width: 44px;
   height: 26px;
   margin-right: 0;
 }
 
-.media-item-history .media-icon svg {
+.media-item .media-icon svg {
   width: 14px;
   height: 14px;
 }
 
-.media-item-history .media-title {
+.media-item .media-title {
   font-size: 12px;
   margin: 0;
 }
@@ -614,14 +669,19 @@ body {
   color: var(--error);
 }
 
-.media-item-history .rename-btn {
+.media-item .rename-btn {
   opacity: 0;
 }
 
-.media-item-history:hover .rename-btn,
-.media-item-history .rename-btn:focus-visible,
-.media-item-history.editing .rename-btn {
+.media-item:hover .rename-btn,
+.media-item .rename-btn:focus-visible {
   opacity: 1;
+}
+
+/* While renaming, only the confirm/cancel controls stay reachable. */
+.media-item.editing .rename-btn,
+.media-item.editing .drag-handle {
+  display: none;
 }
 
 .rename-form {

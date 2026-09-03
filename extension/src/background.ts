@@ -27,6 +27,9 @@ const navigationGenerationByTab = new Map<number, number>();
 const currentPageUrlByTab = new Map<number, string | null>();
 const relayMappingsByTab = new Map<number, Map<string, string>>();
 const relayCodecsByTab = new Map<number, Map<string, RelayCodec>>();
+// Videos the user dragged out of the current list and into history. Cleared on
+// navigation, so a reload surfaces them at the top again.
+const movedToHistoryByTab = new Map<number, Set<string>>();
 
 interface RelayCodec {
   hour: number;
@@ -49,6 +52,7 @@ function resetTabState(tabId: number): void {
   ytdlpFormatUrlByTab.delete(tabId);
   relayMappingsByTab.delete(tabId);
   relayCodecsByTab.delete(tabId);
+  movedToHistoryByTab.delete(tabId);
   chrome.action.setBadgeText({ tabId, text: '' }, () => { void chrome.runtime.lastError; });
 }
 
@@ -573,6 +577,57 @@ async function reorderHistory(keys: string[]): Promise<void> {
   await broadcastHistory(next);
 }
 
+// Dragging a current-page row into history: the dragged copy wins, so any
+// older entry for the same video is dropped rather than left as a duplicate.
+async function moveVideoToHistory(tabId: number | undefined, video: VideoInfo, keys: string[]): Promise<void> {
+  if (typeof tabId !== 'number' || !video?.url) return;
+  const key = videoKey(video.url);
+  const metadata = pageMetadataByTab.get(tabId);
+  const history = await readHistory();
+
+  const entry: HistoryEntry = {
+    ...video,
+    pageUrl: metadata?.pageUrl,
+    pageTitle: metadata?.title,
+    detectedAt: Date.now()
+  };
+
+  const withoutOld = history.filter((existing) => videoKey(existing.url) !== key);
+  const byKey = new Map([...withoutOld, entry].map((item) => [videoKey(item.url), item]));
+  const ordered: HistoryEntry[] = [];
+  for (const wanted of keys) {
+    const match = byKey.get(wanted);
+    if (match) {
+      ordered.push(match);
+      byKey.delete(wanted);
+    }
+  }
+  const next = [...ordered, ...[...byKey.values()]].slice(0, HISTORY_LIMIT);
+
+  const moved = movedToHistoryByTab.get(tabId) || new Set<string>();
+  moved.add(key);
+  movedToHistoryByTab.set(tabId, moved);
+
+  await chrome.storage.local.set({ [HISTORY_KEY]: next });
+  await broadcastHistory(next);
+  notifyPopups(tabId);
+}
+
+function renameDetectedVideo(tabId: number | undefined, key: string, title: string): void {
+  const trimmed = title.trim();
+  if (typeof tabId !== 'number' || !trimmed) return;
+  const videos = mediaByTab.get(tabId);
+  if (!videos?.length) return;
+
+  let changed = false;
+  const next = videos.map((video) => {
+    if (videoKey(video.url) !== key || video.title === trimmed) return video;
+    changed = true;
+    return { ...video, title: trimmed };
+  });
+  if (changed) commitVideos(tabId, next);
+}
+
 async function broadcastHistory(entries: HistoryEntry[]): Promise<void> {
   const decorated = await decorateHistory(entries);
   popupPorts.forEach((port) => {
@@ -653,17 +708,18 @@ function pickBatchQuality(video: VideoInfo, preference: Settings['defaultQuality
 
 // Downloads run one at a time: ffmpeg is network-bound and parallel pulls from
 // the same CDN tend to get throttled.
-async function runBatchDownload(videos: VideoInfo[], tabId?: number): Promise<void> {
+async function runBatchDownload(videos: VideoInfo[], tabId?: number, quality?: 'best' | 'worst'): Promise<void> {
   if (batch) return;
   const settings = await getSettings();
+  const preference = quality || settings.defaultQuality;
   const state: BatchState = { total: videos.length, completed: 0, failed: 0, cancelled: false };
   batch = state;
   broadcastBatch();
 
   for (const video of videos) {
     if (state.cancelled) break;
-    const quality = pickBatchQuality(video, settings.defaultQuality);
-    if (!quality) {
+    const chosen = pickBatchQuality(video, preference);
+    if (!chosen) {
       state.failed += 1;
       broadcastBatch();
       continue;
@@ -674,7 +730,7 @@ async function runBatchDownload(videos: VideoInfo[], tabId?: number): Promise<vo
 
     try {
       const started = await startDownload(
-        { ...video, url: quality.url, qualities: [quality] },
+        { ...video, url: chosen.url, qualities: [chosen] },
         video.title,
         tabId,
         video.url,
@@ -712,7 +768,9 @@ async function cancelBatchDownload(): Promise<void> {
 }
 
 function getVisibleVideosForTab(tabId: number): VideoInfo[] {
-  const videos = mediaByTab.get(tabId) || [];
+  const moved = movedToHistoryByTab.get(tabId);
+  const stored = mediaByTab.get(tabId) || [];
+  const videos = moved ? stored.filter((video) => !moved.has(videoKey(video.url))) : stored;
   const metadata = pageMetadataByTab.get(tabId);
   if (metadata?.pageUrl && isYouTubeUrl(metadata.pageUrl)) {
     return videos.filter(video => video.type === 'ytdlp');
@@ -1007,12 +1065,15 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: any): void {
   switch (msg.type) {
     case 'GET_MEDIA':
       if (typeof msg.tabId === 'number') {
-        const videos = getVisibleVideosForTab(msg.tabId);
-        port.postMessage({ type: 'MEDIA_LIST', videos });
+        port.postMessage({ type: 'MEDIA_LIST', videos: getVisibleVideosForTab(msg.tabId), movedKeys: movedKeysForTab(msg.tabId) });
       } else {
         chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
-          const videos = tabs[0]?.id ? getVisibleVideosForTab(tabs[0].id) : [];
-          port.postMessage({ type: 'MEDIA_LIST', videos });
+          const tabId = tabs[0]?.id;
+          port.postMessage({
+            type: 'MEDIA_LIST',
+            videos: tabId ? getVisibleVideosForTab(tabId) : [],
+            movedKeys: tabId ? movedKeysForTab(tabId) : []
+          });
         });
       }
       break;
@@ -1048,6 +1109,16 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: any): void {
         .catch((error) => console.warn('[MediaGrabber] Failed to reorder history:', error));
       break;
 
+    case 'MOVE_TO_HISTORY':
+      historyWrites = historyWrites
+        .then(() => moveVideoToHistory(msg.tabId, msg.video, msg.keys || []))
+        .catch((error) => console.warn('[MediaGrabber] Failed to move video to history:', error));
+      break;
+
+    case 'RENAME_VIDEO':
+      renameDetectedVideo(msg.tabId, msg.key, msg.title || '');
+      break;
+
     case 'CLEAR_HISTORY':
       historyWrites = historyWrites
         .then(() => clearHistory())
@@ -1055,7 +1126,7 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: any): void {
       break;
 
     case 'DOWNLOAD_ALL':
-      runBatchDownload(msg.videos || [], msg.tabId)
+      runBatchDownload(msg.videos || [], msg.tabId, msg.quality)
         .catch((err) => port.postMessage({ type: 'ERROR', message: err.message }));
       break;
 
@@ -1090,10 +1161,15 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: any): void {
 function notifyPopups(tabId: number): void {
   const videos = getVisibleVideosForTab(tabId);
   if (videos) {
+    const movedKeys = movedKeysForTab(tabId);
     popupPorts.forEach(port => {
-      port.postMessage({ type: 'MEDIA_LIST', videos });
+      port.postMessage({ type: 'MEDIA_LIST', videos, movedKeys });
     });
   }
+}
+
+function movedKeysForTab(tabId: number): string[] {
+  return [...(movedToHistoryByTab.get(tabId) || [])];
 }
 
 // --- Download orchestration ---

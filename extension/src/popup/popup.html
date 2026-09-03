@@ -58,10 +58,6 @@
     
     <!-- Download Section -->
     <div id="download-section" class="download-section hidden">
-      <div class="filename-input">
-        <label for="filename">File name</label>
-        <input type="text" id="filename" name="filename" placeholder="video" autocomplete="off" spellcheck="false">
-      </div>
       <button id="download-btn" class="btn btn-primary">
         <span class="btn-text">Download</span>
         <span class="btn-progress hidden">Downloading…</span>
@@ -82,6 +78,10 @@
       <div class="history-header">
         <span class="history-label">History</span>
         <div class="history-actions">
+          <div class="quality-toggle" role="radiogroup" aria-label="Quality for Download all">
+            <button id="batch-best-btn" class="quality-badge selected" role="radio" aria-checked="true" data-quality="best">Best</button>
+            <button id="batch-worst-btn" class="quality-badge" role="radio" aria-checked="false" data-quality="worst">Lowest</button>
+          </div>
           <button id="download-all-btn" class="btn-link">Download all</button>
           <button id="clear-history-btn" class="btn-link">Clear</button>
         </div>
