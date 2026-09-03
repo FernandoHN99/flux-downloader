@@ -351,6 +351,135 @@ body {
   .row-spinner { animation-duration: 2.4s; }
 }
 
+.media-group {
+  margin-bottom: 6px;
+}
+
+.group-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: background-color 0.15s;
+}
+
+.group-head:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.group-head:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* The site's icon, which becomes a download button while the row is pointed
+   at — one click takes everything the site has. */
+.group-icon {
+  position: relative;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.group-icon:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.group-favicon {
+  width: 15px;
+  height: 15px;
+  border-radius: 3px;
+  transition: opacity 0.12s;
+}
+
+/* Sits behind the favicon and shows through when the site has none. */
+.group-folder {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 13px;
+  height: 10px;
+  border: 1.5px solid currentColor;
+  border-radius: 2px;
+  opacity: 0.55;
+  z-index: -1;
+  transition: opacity 0.12s;
+}
+
+.group-download {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 15px;
+  height: 15px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.group-head:hover .group-icon:not(:disabled) .group-favicon,
+.group-head:hover .group-icon:not(:disabled) .group-folder {
+  opacity: 0;
+}
+
+.group-head:hover .group-icon:not(:disabled) .group-download,
+.group-icon:focus-visible .group-download {
+  opacity: 1;
+}
+
+.group-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-count {
+  flex-shrink: 0;
+  padding: 0 5px;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 14px;
+  color: var(--text-dim);
+  background: var(--bg-active);
+  border-radius: 999px;
+}
+
+.group-chevron {
+  flex-shrink: 0;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid currentColor;
+  opacity: 0.6;
+  transform: rotate(-90deg);
+  transition: transform 0.15s;
+}
+
+.group-chevron.open {
+  transform: rotate(0deg);
+}
+
+.group-body {
+  padding: 4px 0 0 10px;
+}
+
 .media-item:last-child {
   margin-bottom: 0;
 }
@@ -653,7 +782,9 @@ body {
   border-color: var(--accent);
 }
 
-#history-list.drop-target {
+/* Only the reorderable rows live in here, so the drop outline never wraps a
+   pinned current row. */
+.reorder-zone.drop-target {
   outline: 1px dashed var(--accent);
   outline-offset: 2px;
   border-radius: var(--radius);
@@ -915,6 +1046,13 @@ body {
   cursor: pointer;
   transition: background-color 0.15s, color 0.15s, border-color 0.15s;
   font-family: inherit;
+}
+
+.quick-btn.selected {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
 }
 
 .quick-btn:hover {

@@ -8,6 +8,8 @@ export interface Settings {
   batchQuality: 'best' | 'worst';
   /** Off means the list only ever shows what the open tabs are playing. */
   keepHistory: boolean;
+  /** Collect videos under the site they came from instead of one flat list. */
+  groupByDomain: boolean;
   theme: ThemeMode;
   coappPath?: string;
 }
@@ -15,6 +17,7 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = {
   batchQuality: 'best',
   keepHistory: true,
+  groupByDomain: false,
   theme: 'system'
 };
 

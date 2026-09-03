@@ -8,6 +8,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   await initializeSettings();
   setupThemeSelector();
   setupHistoryMode();
+  setupGroupMode();
   checkCoAppConnection();
 });
 
@@ -23,6 +24,7 @@ async function initializeSettings(): Promise<void> {
 function render(): void {
   updateThemeButtons(currentSettings.theme);
   updateHistoryButtons(currentSettings.keepHistory);
+  updateGroupButtons(currentSettings.groupByDomain);
 }
 
 /**
@@ -100,6 +102,22 @@ function updateHistoryButtons(keepHistory: boolean): void {
       ? 'Keeps everything Flux has detected, newest first'
       : 'Holds only what your open tabs are playing';
   }
+}
+
+function setupGroupMode(): void {
+  document.querySelectorAll<HTMLButtonElement>('#group-mode .segmented-option').forEach((button) => {
+    button.addEventListener('click', () => {
+      commit({ groupByDomain: button.dataset.group === 'domain' });
+    });
+  });
+}
+
+function updateGroupButtons(groupByDomain: boolean): void {
+  document.querySelectorAll<HTMLButtonElement>('#group-mode .segmented-option').forEach((button) => {
+    const selected = (button.dataset.group === 'domain') === groupByDomain;
+    button.classList.toggle('active', selected);
+    button.setAttribute('aria-checked', String(selected));
+  });
 }
 
 async function checkCoAppConnection(): Promise<void> {

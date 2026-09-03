@@ -77,6 +77,8 @@ let expandedKey: string | null = null;
 let manualDownloadKey: string | null = null;
 let batchBusyKeys = new Set<string>();
 let batchQuality: 'best' | 'worst' = 'best';
+let groupByDomain = false;
+const collapsedGroups = new Set<string>();
 
 /** What the single progress bar shows, whichever kind of run filled it. */
 interface ProgressView {
@@ -147,14 +149,16 @@ document.addEventListener('DOMContentLoaded', () => {
   initTheme();
   initPopup();
   setupEventListeners();
-  setupDropZones();
   initializePopupState();
 });
 
 async function initializePopupState(): Promise<void> {
   activeTabId = await getActiveTabId();
   const settings = await loadSettings().catch(() => null);
-  if (settings) batchQuality = settings.batchQuality;
+  if (settings) {
+    batchQuality = settings.batchQuality;
+    groupByDomain = settings.groupByDomain;
+  }
   renderBatchQuality();
   port?.postMessage({ type: 'GET_HISTORY' });
   port?.postMessage({ type: 'GET_BATCH_STATUS' });
@@ -386,11 +390,169 @@ function renderHistory(): void {
   section.classList.remove('hidden');
   emptyNote.classList.toggle('hidden', entries.length > 0);
 
-  entries.forEach((entry, index) => {
-    container.appendChild(createMediaItem(entry, index, entry));
-  });
+  if (groupByDomain) renderGrouped(container, entries);
+  else appendRows(container, entries, 0);
 
   updateClearButton();
+}
+
+/** One folder per site, in the order the sites appear in the list. */
+function renderGrouped(container: HTMLElement, entries: HistoryEntry[]): void {
+  const groups = new Map<string, HistoryEntry[]>();
+  for (const entry of entries) {
+    const domain = groupDomain(entry);
+    const bucket = groups.get(domain);
+    if (bucket) bucket.push(entry);
+    else groups.set(domain, [entry]);
+  }
+
+  let index = 0;
+  for (const [domain, items] of groups) {
+    const group = document.createElement('div');
+    group.className = 'media-group';
+    group.dataset.domain = domain;
+
+    const collapsed = collapsedGroups.has(domain);
+    group.appendChild(createGroupHead(domain, items, collapsed));
+
+    if (!collapsed) {
+      const body = document.createElement('div');
+      body.className = 'group-body';
+      appendRows(body, items, index);
+      group.appendChild(body);
+    }
+
+    container.appendChild(group);
+    index += items.length;
+  }
+}
+
+function createGroupHead(domain: string, items: HistoryEntry[], collapsed: boolean): HTMLElement {
+  const head = document.createElement('div');
+  head.className = 'group-head';
+  head.setAttribute('role', 'button');
+  head.tabIndex = 0;
+  head.setAttribute('aria-expanded', String(!collapsed));
+
+  // The icon is the site's favicon until pointed at, when it offers to
+  // download everything the site has.
+  const icon = document.createElement('button');
+  icon.className = 'group-icon';
+  icon.title = `Download all ${items.length} from ${domain}`;
+  icon.setAttribute('aria-label', icon.title);
+
+  const favicon = document.createElement('img');
+  favicon.className = 'group-favicon';
+  favicon.alt = '';
+  favicon.src = faviconUrl(items[0]?.pageUrl || `https://${domain}/`);
+  icon.appendChild(favicon);
+
+  const fallback = document.createElement('span');
+  fallback.className = 'group-folder';
+  fallback.setAttribute('aria-hidden', 'true');
+  icon.appendChild(fallback);
+  favicon.addEventListener('error', () => favicon.classList.add('hidden'));
+
+  const download = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  download.setAttribute('class', 'group-download');
+  download.setAttribute('viewBox', '0 0 24 24');
+  download.setAttribute('fill', 'none');
+  download.setAttribute('stroke', 'currentColor');
+  download.setAttribute('stroke-width', '2.2');
+  download.setAttribute('stroke-linecap', 'round');
+  download.setAttribute('stroke-linejoin', 'round');
+  download.setAttribute('aria-hidden', 'true');
+  for (const d of ['M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4', 'M7 10l5 5 5-5', 'M12 15V3']) {
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', d);
+    download.appendChild(path);
+  }
+  icon.appendChild(download);
+
+  icon.disabled = batchBusyKeys.size > 0;
+  icon.addEventListener('click', (event) => {
+    event.stopPropagation();
+    downloadGroup(items);
+  });
+  head.appendChild(icon);
+
+  const name = document.createElement('span');
+  name.className = 'group-name';
+  name.textContent = domain;
+  head.appendChild(name);
+
+  const count = document.createElement('span');
+  count.className = 'group-count';
+  count.textContent = String(items.length);
+  head.appendChild(count);
+
+  const chevron = document.createElement('span');
+  chevron.className = collapsed ? 'group-chevron' : 'group-chevron open';
+  chevron.setAttribute('aria-hidden', 'true');
+  head.appendChild(chevron);
+
+  const toggle = (): void => {
+    if (collapsedGroups.has(domain)) collapsedGroups.delete(domain);
+    else collapsedGroups.add(domain);
+    renderHistory();
+  };
+  head.addEventListener('click', toggle);
+  head.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      toggle();
+    }
+  });
+
+  return head;
+}
+
+function downloadGroup(items: HistoryEntry[]): void {
+  if (items.length === 0 || batchBusyKeys.size > 0) return;
+  port?.postMessage({ type: 'DOWNLOAD_ALL', videos: items, tabId: activeTabId, quality: batchQuality });
+}
+
+// chrome's own favicon store — no request leaves the browser to fetch it.
+function faviconUrl(pageUrl: string): string {
+  const url = new URL(chrome.runtime.getURL('/_favicon/'));
+  url.searchParams.set('pageUrl', pageUrl);
+  url.searchParams.set('size', '32');
+  return url.toString();
+}
+
+function groupDomain(entry: HistoryEntry): string {
+  try {
+    return new URL(entry.pageUrl || entry.url).hostname.replace(/^www\./, '');
+  } catch {
+    return 'Other';
+  }
+}
+
+/**
+ * Current rows sit loose at the top; everything below them goes in a reorder
+ * zone, which is both the drop target and the only part of the list that
+ * shows the dashed outline while dragging.
+ */
+function appendRows(parent: HTMLElement, entries: HistoryEntry[], startIndex: number): void {
+  const current: HistoryEntry[] = [];
+  const rest: HistoryEntry[] = [];
+  for (const entry of entries) {
+    (isCurrentKey(videoKey(entry.url)) ? current : rest).push(entry);
+  }
+
+  current.forEach((entry, offset) => {
+    parent.appendChild(createMediaItem(entry, startIndex + offset, entry));
+  });
+
+  if (rest.length === 0) return;
+
+  const zone = document.createElement('div');
+  zone.className = 'reorder-zone';
+  rest.forEach((entry, offset) => {
+    zone.appendChild(createMediaItem(entry, startIndex + current.length + offset, entry));
+  });
+  attachDropZone(zone);
+  parent.appendChild(zone);
 }
 
 function attachDragBehaviour(element: HTMLElement): void {
@@ -404,55 +566,52 @@ function attachDragBehaviour(element: HTMLElement): void {
   element.addEventListener('dragend', () => {
     element.classList.remove('dragging');
     draggingKey = null;
-    document.getElementById('history-list')?.classList.remove('drop-target');
+    document.querySelectorAll('.reorder-zone.drop-target')
+      .forEach((zone) => zone.classList.remove('drop-target'));
   });
 }
 
-function setupDropZones(): void {
-  const historyList = document.getElementById('history-list');
-  if (!historyList) return;
-
-  // Accepting the drop is what suppresses the browser's "fly back" animation.
-  const accept = (event: DragEvent): void => {
-    if (!draggingKey) return;
+/**
+ * Each zone accepts only its own rows: in grouped mode that keeps a video
+ * from being dragged into another site's folder.
+ */
+function attachDropZone(zone: HTMLElement): void {
+  const accept = (event: DragEvent): boolean => {
+    const dragged = document.querySelector('.dragging') as HTMLElement | null;
+    if (!draggingKey || !dragged || dragged.parentElement !== zone) return false;
     event.preventDefault();
     if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+    return true;
   };
 
-  historyList.addEventListener('dragover', (event) => {
-    accept(event);
-    if (!draggingKey) return;
-    historyList.classList.add('drop-target');
-    const dragged = document.querySelector('.dragging') as HTMLElement | null;
-    if (!dragged) return;
-    const after = rowAfterPointer(historyList, event.clientY);
-    if (after !== dragged) historyList.insertBefore(dragged, after);
+  zone.addEventListener('dragover', (event) => {
+    if (!accept(event)) return;
+    zone.classList.add('drop-target');
+    const dragged = document.querySelector('.dragging') as HTMLElement;
+    const after = rowAfterPointer(zone, event.clientY);
+    if (after !== dragged) zone.insertBefore(dragged, after);
   });
 
-  historyList.addEventListener('dragleave', (event) => {
-    if (!historyList.contains(event.relatedTarget as Node)) {
-      historyList.classList.remove('drop-target');
-    }
+  zone.addEventListener('dragleave', (event) => {
+    if (!zone.contains(event.relatedTarget as Node)) zone.classList.remove('drop-target');
   });
 
-  historyList.addEventListener('drop', (event) => {
-    accept(event);
-    historyList.classList.remove('drop-target');
-    if (!draggingKey || !port) return;
-    const keys = [...historyList.children]
-      .map((child) => (child as HTMLElement).dataset.key)
+  zone.addEventListener('drop', (event) => {
+    if (!accept(event)) return;
+    zone.classList.remove('drop-target');
+    if (!port) return;
+    // The stored order is flat, so send every row the list is showing.
+    const keys = [...document.querySelectorAll('#history-list .media-item')]
+      .map((row) => (row as HTMLElement).dataset.key)
       .filter((value): value is string => Boolean(value));
     port.postMessage({ type: 'REORDER_HISTORY', keys });
   });
 }
 
-// Where the dragged row should sit. Only the non-current rows are candidates,
-// which is what keeps a dragged row from landing above the pinned block: the
-// highest it can go is immediately before the first reorderable row.
+// Where the dragged row should sit inside its own zone. Current rows live
+// outside every zone, so they cannot be displaced.
 function rowAfterPointer(container: HTMLElement, clientY: number): HTMLElement | null {
-  const rows = [...container.querySelectorAll(
-    '.media-item:not(.dragging):not(.media-item-current-page)'
-  )] as HTMLElement[];
+  const rows = [...container.querySelectorAll(':scope > .media-item:not(.dragging)')] as HTMLElement[];
   for (const row of rows) {
     const box = row.getBoundingClientRect();
     if (clientY < box.top + box.height / 2) return row;
@@ -564,8 +723,6 @@ function createMediaItem(video: VideoInfo, index: number, historyEntry?: History
     div.classList.toggle('picked', selectedForDeletion.has(key));
   } else if (!isCurrent && !busy) {
     head.appendChild(createDragHandle());
-  } else {
-    head.appendChild(createHandlePlaceholder());
   }
 
   if (video.thumbnail) {
@@ -698,15 +855,6 @@ function createDragHandle(): HTMLElement {
   }
   handle.appendChild(svg);
   return handle;
-}
-
-// Current rows never reorder, so they get an invisible stand-in that keeps
-// every title on the same left edge.
-function createHandlePlaceholder(): HTMLElement {
-  const spacer = createDragHandle();
-  spacer.classList.add('placeholder');
-  spacer.removeAttribute('title');
-  return spacer;
 }
 
 function createSpinner(): HTMLElement {
@@ -860,17 +1008,10 @@ function renderQualityList(container: HTMLElement, downloadBtn: HTMLButtonElemen
   quickOptions.append(bestButton, lowestButton);
   container.appendChild(quickOptions);
   
-  quickOptions.querySelectorAll('.quick-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      const target = e.target as HTMLButtonElement;
-      const quality = target.dataset.quality;
-      
-      if (quality === 'best') {
-        selectQuality(0);
-      } else if (quality === 'worst') {
-        const index = findLowestVideoQualityIndex();
-        selectQuality(index >= 0 ? index : currentQualities.length - 1);
-      }
+  quickOptions.querySelectorAll('.quick-btn').forEach((btn) => {
+    btn.addEventListener('click', (event) => {
+      const quality = (event.currentTarget as HTMLButtonElement).dataset.quality;
+      selectQuality(quality === 'worst' ? lowestQualityIndex() : 0);
     });
   });
   
@@ -970,6 +1111,27 @@ function renderQualityList(container: HTMLElement, downloadBtn: HTMLButtonElemen
 /**
  * Select a quality option
  */
+function lowestQualityIndex(): number {
+  const index = findLowestVideoQualityIndex();
+  return index >= 0 ? index : currentQualities.length - 1;
+}
+
+/**
+ * Best and Lowest are shortcuts to an option in the list, so each lights up
+ * only while that option is the selected one — picking 720p by hand leaves
+ * both unlit, which is the honest state.
+ */
+function updateQuickButtons(scope: ParentNode): void {
+  const lowest = lowestQualityIndex();
+  scope.querySelectorAll<HTMLButtonElement>('.quick-btn').forEach((button) => {
+    const active = button.dataset.quality === 'worst'
+      ? selectedQualityIndex === lowest
+      : selectedQualityIndex === 0;
+    button.classList.toggle('selected', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+}
+
 function selectQuality(index: number, root?: ParentNode): void {
   if (index < 0 || index >= currentQualities.length) return;
   selectedQualityIndex = index;
@@ -977,6 +1139,7 @@ function selectQuality(index: number, root?: ParentNode): void {
   // While a panel is being built its options are not in the document yet, so
   // the caller passes the container it is filling.
   const scope = root || document;
+  updateQuickButtons(scope);
   scope.querySelectorAll('.quality-option').forEach((el, i) => {
     el.classList.toggle('selected', i === index);
     const radio = el.querySelector('input[type="radio"]') as HTMLInputElement;

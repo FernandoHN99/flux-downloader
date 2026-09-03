@@ -1,6 +1,7 @@
 // MediaGrabber Content Script
 // Runs on every page to detect video streams
 
+import { titleFromMediaUrl } from './lib/media-title';
 import { VideoInfo, VideoQuality } from './lib/types';
 
 interface DetectedMedia {
@@ -370,7 +371,7 @@ class MediaDetector {
         type: 'VIDEO_DETECTED',
         video: {
           id: this.generateVideoId(media),
-          title: this.extractTitle(),
+          title: this.extractTitle(media.url),
           url: media.url,
           type: media.type,
           qualities: media.qualities || [],
@@ -399,9 +400,16 @@ class MediaDetector {
   }
 
   /**
-   * Extract page title for video
+   * The video's own filename is the better name when it has one — a page can
+   * hold several videos and they would otherwise all take the tab's title.
+   * Streaming manifests are usually called things like playlist.m3u8 though,
+   * so anything that carries no information falls back to the page.
    */
-  private extractTitle(): string {
+  private extractTitle(mediaUrl?: string): string {
+    return (mediaUrl && titleFromMediaUrl(mediaUrl)) || this.extractPageTitle();
+  }
+
+  private extractPageTitle(): string {
     const ogTitle = document.querySelector('meta[property="og:title"]')?.getAttribute('content');
     if (ogTitle) return ogTitle;
 
@@ -484,7 +492,7 @@ class MediaDetector {
       if (variants.length > 0) {
         const media: VideoInfo = {
           id: this.generateVideoId({ type: 'hls', url, pageUrl, generation }),
-          title: this.extractTitle(),
+          title: this.extractTitle(url),
           url,
           type: 'hls',
           qualities: variants
