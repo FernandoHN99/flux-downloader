@@ -171,6 +171,8 @@ const activeDownloads = new Map<string, {
   downloadId?: number;
   type: 'convert' | 'direct' | 'ytdlp';
   video?: VideoInfo;
+  /** The detected video's own URL — video.url holds the chosen quality's. */
+  sourceUrl?: string;
   directory: string;
   filename: string;
   tabId?: number;
@@ -183,7 +185,12 @@ const downloadWaiters = new Map<string, (succeeded: boolean) => void>();
 const recentOutcomes = new Map<string, boolean>();
 
 function finishDownload(key: string, succeeded: boolean): void {
+  const tracked = activeDownloads.get(key);
+  const sourceUrl = tracked?.sourceUrl || tracked?.video?.url;
   activeDownloads.delete(key);
+  if (succeeded && sourceUrl) {
+    markDownloaded(sourceUrl).catch(() => { /* marker is best-effort */ });
+  }
   const waiter = downloadWaiters.get(key);
   if (waiter) {
     downloadWaiters.delete(key);
@@ -525,18 +532,91 @@ async function mergeIntoHistory(videos: VideoInfo[], pageUrl?: string, pageTitle
   if (historySignature(next) === historySignature(history)) return;
 
   await chrome.storage.local.set({ [HISTORY_KEY]: next });
-  broadcastHistory(next);
+  await broadcastHistory(next);
 }
 
 async function clearHistory(): Promise<void> {
   await chrome.storage.local.remove(HISTORY_KEY);
-  broadcastHistory([]);
+  await broadcastHistory([]);
 }
 
-function broadcastHistory(entries: HistoryEntry[]): void {
-  popupPorts.forEach((port) => {
-    port.postMessage({ type: 'HISTORY_LIST', entries });
+async function renameHistoryEntry(key: string, title: string): Promise<void> {
+  const trimmed = title.trim();
+  if (!trimmed) return;
+  const history = await readHistory();
+  let changed = false;
+  const next = history.map((entry) => {
+    if (videoKey(entry.url) !== key || entry.title === trimmed) return entry;
+    changed = true;
+    return { ...entry, title: trimmed };
   });
+  if (!changed) return;
+  await chrome.storage.local.set({ [HISTORY_KEY]: next });
+  await broadcastHistory(next);
+}
+
+// `keys` is the order the popup shows; entries it filtered out (the current
+// page's videos) keep their data and land after them.
+async function reorderHistory(keys: string[]): Promise<void> {
+  const history = await readHistory();
+  const byKey = new Map(history.map((entry) => [videoKey(entry.url), entry]));
+  const reordered: HistoryEntry[] = [];
+  for (const key of keys) {
+    const entry = byKey.get(key);
+    if (entry) {
+      reordered.push(entry);
+      byKey.delete(key);
+    }
+  }
+  const next = [...reordered, ...history.filter((entry) => byKey.has(videoKey(entry.url)))];
+  await chrome.storage.local.set({ [HISTORY_KEY]: next });
+  await broadcastHistory(next);
+}
+
+async function broadcastHistory(entries: HistoryEntry[]): Promise<void> {
+  const decorated = await decorateHistory(entries);
+  popupPorts.forEach((port) => {
+    port.postMessage({ type: 'HISTORY_LIST', entries: decorated });
+  });
+}
+
+// --- Downloaded videos (drives the "already downloaded" marker) ---
+
+const DOWNLOADED_KEY = 'downloadedVideos';
+const DOWNLOADED_LIMIT = 500;
+
+async function readDownloadedKeys(): Promise<string[]> {
+  const stored = await chrome.storage.local.get(DOWNLOADED_KEY);
+  const keys = stored[DOWNLOADED_KEY];
+  return Array.isArray(keys) ? keys : [];
+}
+
+async function markDownloaded(url: string): Promise<void> {
+  const key = videoKey(url);
+  const keys = await readDownloadedKeys();
+  if (keys.includes(key)) return;
+  const next = [key, ...keys].slice(0, DOWNLOADED_LIMIT);
+  await chrome.storage.local.set({ [DOWNLOADED_KEY]: next });
+  await broadcastHistory(await readHistory());
+}
+
+async function decorateHistory(entries: HistoryEntry[]): Promise<HistoryEntry[]> {
+  const downloaded = new Set(await readDownloadedKeys());
+  return entries.map((entry) => ({ ...entry, downloaded: downloaded.has(videoKey(entry.url)) }));
+}
+
+// Statuses a signed CDN returns once a link's token has expired.
+const EXPIRED_LINK_STATUSES = new Set([401, 403, 404, 410]);
+
+// Returns undefined when the check itself couldn't run — never block a
+// download because the probe failed.
+async function probeLinkStatus(url: string, referer?: string): Promise<number | undefined> {
+  try {
+    const result = await nativeClient.probeStatus(url, referer);
+    return typeof result?.status === 'number' ? result.status : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 // --- Batch download ("Download all" from history) ---
@@ -596,14 +676,20 @@ async function runBatchDownload(videos: VideoInfo[], tabId?: number): Promise<vo
       const started = await startDownload(
         { ...video, url: quality.url, qualities: [quality] },
         video.title,
-        tabId
+        tabId,
+        video.url,
+        true
       );
       state.currentKey = started?.downloadId;
       const succeeded = state.currentKey ? await waitForDownload(state.currentKey) : false;
       if (succeeded) state.completed += 1;
       else state.failed += 1;
-    } catch {
+    } catch (error: any) {
       state.failed += 1;
+      const message = error?.message || String(error);
+      popupPorts.forEach((port) => {
+        port.postMessage({ type: 'ERROR', message: `${video.title}: ${message}` });
+      });
     }
     state.currentKey = undefined;
     broadcastBatch();
@@ -932,7 +1018,7 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: any): void {
       break;
 
     case 'DOWNLOAD':
-      startDownload(msg.video, msg.filename, msg.tabId)
+      startDownload(msg.video, msg.filename, msg.tabId, msg.sourceUrl, msg.checkFreshness)
         .then(result => port.postMessage({ type: 'DOWNLOAD_STARTED', ...result }))
         .catch(err => port.postMessage({ type: 'ERROR', message: err.message }));
       break;
@@ -945,8 +1031,21 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: any): void {
 
     case 'GET_HISTORY':
       readHistory()
+        .then((entries) => decorateHistory(entries))
         .then((entries) => port.postMessage({ type: 'HISTORY_LIST', entries }))
         .catch(() => port.postMessage({ type: 'HISTORY_LIST', entries: [] }));
+      break;
+
+    case 'RENAME_HISTORY_ITEM':
+      historyWrites = historyWrites
+        .then(() => renameHistoryEntry(msg.key, msg.title || ''))
+        .catch((error) => console.warn('[MediaGrabber] Failed to rename history entry:', error));
+      break;
+
+    case 'REORDER_HISTORY':
+      historyWrites = historyWrites
+        .then(() => reorderHistory(msg.keys || []))
+        .catch((error) => console.warn('[MediaGrabber] Failed to reorder history:', error));
       break;
 
     case 'CLEAR_HISTORY':
@@ -1112,8 +1211,23 @@ function joinOutputPath(directory: string, filename: string): string {
   return `${directory.replace(/[\\/]$/, '')}${separator}${filename}`;
 }
 
-async function startDownload(video: VideoInfo, filename?: string, tabId?: number): Promise<any> {
+async function startDownload(
+  video: VideoInfo,
+  filename?: string,
+  tabId?: number,
+  sourceUrl?: string,
+  checkFreshness = false
+): Promise<any> {
   await ensureCoAppConnected();
+
+  // History links are often hours old; a dead one fails deep inside ffmpeg
+  // with an opaque error, so check before starting.
+  if (checkFreshness) {
+    const status = await probeLinkStatus(video.url, video.referer);
+    if (status !== undefined && EXPIRED_LINK_STATUSES.has(status)) {
+      throw new Error(`Link expired (HTTP ${status}) — reopen the page to refresh it.`);
+    }
+  }
 
   const type = video.type === 'm3u8' ? 'hls' : video.type === 'mpd' ? 'dash' : video.type;
   const directory = defaultDownloadDir;
@@ -1144,6 +1258,7 @@ async function startDownload(video: VideoInfo, filename?: string, tabId?: number
       : { args: baseArgs, manifestFiles: [] };
 
     activeDownloads.set(downloadKey, {
+      sourceUrl,
       type: 'convert',
       video,
       directory,
@@ -1184,6 +1299,7 @@ async function startDownload(video: VideoInfo, filename?: string, tabId?: number
     const formatArgs = video.qualities[0]?.formatArgs;
 
     activeDownloads.set(downloadKey, {
+      sourceUrl,
       type: 'convert',
       video,
       directory,
@@ -1226,6 +1342,7 @@ async function startDownload(video: VideoInfo, filename?: string, tabId?: number
     const formatArgs = video.qualities[0]?.formatArgs || fallbackYtdlpQualities(video.url)[0].formatArgs;
 
     activeDownloads.set(downloadKey, {
+      sourceUrl,
       type: 'ytdlp',
       video,
       directory,
@@ -1269,6 +1386,7 @@ async function startDownload(video: VideoInfo, filename?: string, tabId?: number
 
     const downloadKey = `direct_${downloadId}`;
     activeDownloads.set(downloadKey, {
+      sourceUrl,
       type: 'direct',
       downloadId,
       video,

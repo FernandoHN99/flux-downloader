@@ -235,4 +235,8 @@ export class NativeClient {
   async probe(input: string, json?: boolean, headers?: any[]): Promise<any> { return this.call('probe', input, json, headers); }
 
   async uniquePath(directory: string, filename: string): Promise<string> { return this.call('file.uniquePath', directory, filename); }
+
+  async probeStatus(url: string, referer?: string): Promise<{ status?: number; error?: string }> {
+    return this.call('downloads.probeStatus', url, referer);
+  }
 }

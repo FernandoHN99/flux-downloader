@@ -35,6 +35,7 @@ interface HistoryEntry extends VideoInfo {
   pageUrl?: string;
   pageTitle?: string;
   detectedAt: number;
+  downloaded?: boolean;
 }
 
 interface QualityOption {
@@ -63,6 +64,8 @@ let activeTabId: number | null = null;
 let currentDownloadId: string | null = null;
 let currentVideos: VideoInfo[] = [];
 let historyEntries: HistoryEntry[] = [];
+let historySearch = '';
+let draggingKey: string | null = null;
 
 // Connect to background script
 function initPopup(): void {
@@ -188,6 +191,11 @@ function setupEventListeners(): void {
   document.getElementById('batch-stop-btn')?.addEventListener('click', () => {
     port?.postMessage({ type: 'CANCEL_BATCH' });
   });
+
+  document.getElementById('history-search')?.addEventListener('input', (event) => {
+    historySearch = (event.target as HTMLInputElement).value.trim().toLowerCase();
+    renderHistory();
+  });
 }
 
 function requestMediaList(): void {
@@ -302,21 +310,35 @@ function visibleHistoryEntries(): HistoryEntry[] {
   return historyEntries.filter((entry) => !currentKeys.has(videoKey(entry.url)));
 }
 
+function matchesHistorySearch(entry: HistoryEntry): boolean {
+  if (!historySearch) return true;
+  const haystack = `${entry.title || ''} ${entry.pageUrl || ''}`.toLowerCase();
+  return haystack.includes(historySearch);
+}
+
 /**
  * Render previously detected media, excluding whatever is already on this page
  */
 function renderHistory(): void {
   const section = document.getElementById('history-section')!;
   const container = document.getElementById('history-list')!;
-  const entries = visibleHistoryEntries();
+  const emptyNote = document.getElementById('history-empty')!;
+
+  // A detection arriving mid-rename would wipe what's being typed.
+  if (container.querySelector('.editing')) return;
+
+  const available = visibleHistoryEntries();
+  const entries = available.filter(matchesHistorySearch);
 
   container.replaceChildren();
-  if (entries.length === 0) {
+  if (available.length === 0) {
     section.classList.add('hidden');
     return;
   }
 
   section.classList.remove('hidden');
+  emptyNote.classList.toggle('hidden', entries.length > 0);
+
   entries.forEach((entry, index) => {
     const element = createMediaItem(entry, index, entry);
     if (selectedVideo?.id === entry.id) {
@@ -325,6 +347,142 @@ function renderHistory(): void {
     }
     container.appendChild(element);
   });
+}
+
+// --- Drag to reorder ---
+
+function attachDragBehaviour(element: HTMLElement, entry: HistoryEntry): void {
+  element.dataset.key = videoKey(entry.url);
+
+  element.addEventListener('dragstart', (event) => {
+    draggingKey = element.dataset.key || null;
+    element.classList.add('dragging');
+    event.dataTransfer?.setData('text/plain', draggingKey || '');
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+  });
+
+  element.addEventListener('dragend', () => {
+    element.classList.remove('dragging');
+    draggingKey = null;
+    persistHistoryOrder();
+  });
+
+  element.addEventListener('dragover', (event) => {
+    if (!draggingKey || element.dataset.key === draggingKey) return;
+    event.preventDefault();
+    const container = element.parentElement;
+    const dragged = container?.querySelector('.dragging') as HTMLElement | null;
+    if (!container || !dragged) return;
+    const box = element.getBoundingClientRect();
+    const after = event.clientY > box.top + box.height / 2;
+    container.insertBefore(dragged, after ? element.nextSibling : element);
+  });
+}
+
+// Reordering only ever touches the visible rows; the background keeps the rest.
+function persistHistoryOrder(): void {
+  const container = document.getElementById('history-list');
+  if (!container || !port) return;
+  const keys = [...container.children]
+    .map((child) => (child as HTMLElement).dataset.key)
+    .filter((key): key is string => Boolean(key));
+  port.postMessage({ type: 'REORDER_HISTORY', keys });
+}
+
+// --- Inline rename ---
+
+function startRename(element: HTMLElement, entry: HistoryEntry): void {
+  const info = element.querySelector('.media-info') as HTMLElement | null;
+  if (!info || element.classList.contains('editing')) return;
+  element.classList.add('editing');
+  element.draggable = false;
+
+  const original = info.innerHTML;
+  const form = document.createElement('div');
+  form.className = 'rename-form';
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'rename-input';
+  input.value = entry.title || '';
+  input.setAttribute('aria-label', 'New title');
+
+  const confirm = createIconButton('confirm', 'Save title', 'M20 6 9 17l-5-5');
+  const cancel = createIconButton('cancel', 'Cancel rename', 'M18 6 6 18M6 6l12 12');
+
+  form.append(input, confirm, cancel);
+  info.replaceChildren(form);
+  input.focus();
+  input.select();
+
+  const close = (): void => {
+    element.classList.remove('editing');
+    element.draggable = true;
+    info.innerHTML = original;
+  };
+
+  const commit = (): void => {
+    const title = input.value.trim();
+    close();
+    if (!title || title === entry.title) return;
+    port?.postMessage({ type: 'RENAME_HISTORY_ITEM', key: videoKey(entry.url), title });
+  };
+
+  confirm.addEventListener('click', (event) => { event.stopPropagation(); commit(); });
+  cancel.addEventListener('click', (event) => { event.stopPropagation(); close(); });
+  form.addEventListener('click', (event) => event.stopPropagation());
+  input.addEventListener('keydown', (event) => {
+    event.stopPropagation();
+    if (event.key === 'Enter') { event.preventDefault(); commit(); }
+    if (event.key === 'Escape') { event.preventDefault(); close(); }
+  });
+}
+
+function createIconButton(kind: string, label: string, path: string): HTMLButtonElement {
+  const button = document.createElement('button');
+  button.className = `icon-btn-sm icon-btn-${kind}`;
+  button.setAttribute('aria-label', label);
+  button.title = label;
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('width', '13');
+  svg.setAttribute('height', '13');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '2.5');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
+  svg.setAttribute('aria-hidden', 'true');
+  const shape = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  shape.setAttribute('d', path);
+  svg.appendChild(shape);
+  button.appendChild(svg);
+  return button;
+}
+
+function createDragHandle(): HTMLElement {
+  const handle = document.createElement('span');
+  handle.className = 'drag-handle';
+  handle.setAttribute('aria-hidden', 'true');
+  handle.title = 'Drag to reorder';
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('width', '12');
+  svg.setAttribute('height', '12');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '2');
+  svg.setAttribute('stroke-linecap', 'round');
+  for (const y of [9, 15]) {
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', '4');
+    line.setAttribute('x2', '20');
+    line.setAttribute('y1', String(y));
+    line.setAttribute('y2', String(y));
+    svg.appendChild(line);
+  }
+  handle.appendChild(svg);
+  return handle;
 }
 
 /**
@@ -384,18 +542,57 @@ function createMediaItem(video: VideoInfo, index: number, historyEntry?: History
   }
 
   if (historyEntry) {
+    // History rows are denser: one meta line instead of separate type/duration
+    // blocks, so the extra controls fit without growing the popup.
     div.classList.add('media-item-history');
-    const source = document.createElement('div');
-    source.className = 'media-source';
-    source.textContent = [getSiteLabel(historyEntry.pageUrl), formatRelativeTime(historyEntry.detectedAt)]
-      .filter(Boolean)
-      .join(' · ');
+    div.draggable = true;
+    type.classList.add('hidden');
+    if (durationStr) info.querySelector('.media-duration')?.classList.add('hidden');
+
+    // The badge must sit outside the ellipsised text, not inside it.
+    const titleText = document.createElement('span');
+    titleText.className = 'media-title-text';
+    titleText.textContent = video.title || 'Unknown Video';
+    title.textContent = '';
+    title.classList.add('media-title-row');
+    title.appendChild(titleText);
+
+    if (historyEntry.downloaded) {
+      const badge = document.createElement('span');
+      badge.className = 'downloaded-badge';
+      badge.textContent = '✓';
+      badge.title = 'Already downloaded';
+      badge.setAttribute('aria-label', 'Already downloaded');
+      title.appendChild(badge);
+    }
+
+    const meta = document.createElement('div');
+    meta.className = 'media-meta';
+    meta.textContent = [
+      getTypeLabel(video.type),
+      durationStr,
+      getSiteLabel(historyEntry.pageUrl),
+      formatRelativeTime(historyEntry.detectedAt)
+    ].filter(Boolean).join(' · ');
     if (historyEntry.pageUrl) div.title = historyEntry.pageUrl;
-    info.appendChild(source);
+    info.appendChild(meta);
+
+    div.prepend(createDragHandle());
+    attachDragBehaviour(div, historyEntry);
   }
 
   div.appendChild(info);
-  
+
+  if (historyEntry) {
+    const rename = createIconButton('rename', 'Rename', 'M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z');
+    rename.classList.add('rename-btn');
+    rename.addEventListener('click', (event) => {
+      event.stopPropagation();
+      startRename(div, historyEntry);
+    });
+    div.appendChild(rename);
+  }
+
   div.addEventListener('click', () => selectMedia(video, div));
   div.addEventListener('keydown', (event) => {
     if (event.key === 'Enter' || event.key === ' ') {
@@ -672,9 +869,14 @@ function startDownload(video: VideoInfo, quality: QualityOption): void {
   showDownloadingUI();
   
   if (port) {
+    const fromHistory = historyEntries.some((entry) => videoKey(entry.url) === videoKey(video.url));
     port.postMessage({
       type: 'DOWNLOAD',
       tabId: activeTabId,
+      sourceUrl: video.url,
+      // Only history links are old enough to have expired; skip the probe for
+      // what the current page just handed us.
+      checkFreshness: fromHistory && !currentVideos.some((current) => videoKey(current.url) === videoKey(video.url)),
       video: {
         ...video,
         url: quality.url,

@@ -54,6 +54,8 @@ export interface HistoryEntry extends VideoInfo {
   pageTitle?: string;
   /** When this video was last detected. */
   detectedAt: number;
+  /** Set when broadcasting: this video was downloaded at least once. */
+  downloaded?: boolean;
 }
 
 export interface DownloadProgress {
