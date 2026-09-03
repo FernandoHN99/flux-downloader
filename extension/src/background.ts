@@ -16,6 +16,20 @@ import {
   upsertDetectedVideo,
   visibleVideos
 } from './lib/video-catalog';
+import {
+  getContentType,
+  getFfmpegHttpArgs,
+  getMediaTypeFromContentType,
+  getRequestReferer
+} from './lib/http-media';
+import {
+  ensureFilenameExtension,
+  formatFfmpegError,
+  getDefaultExtension,
+  joinOutputPath,
+  pickBatchQuality,
+  sanitizeFilename
+} from './lib/download-plan';
 
 const nativeClient = new NativeClient();
 
@@ -327,45 +341,6 @@ chrome.webRequest.onHeadersReceived.addListener(
   ['responseHeaders']
 );
 
-function getContentType(headers?: chrome.webRequest.HttpHeader[]): string {
-  const header = headers?.find((item) => item.name.toLowerCase() === 'content-type');
-  return (header?.value || '').split(';', 1)[0].trim().toLowerCase();
-}
-
-function getMediaTypeFromContentType(contentType: string): VideoInfo['type'] | undefined {
-  if (
-    contentType === 'application/vnd.apple.mpegurl' ||
-    contentType === 'application/x-mpegurl' ||
-    contentType === 'audio/mpegurl' ||
-    contentType === 'audio/x-mpegurl'
-  ) {
-    return 'hls';
-  }
-
-  if (contentType === 'application/dash+xml') return 'dash';
-  return undefined;
-}
-
-function getRequestReferer(initiator?: string): string | undefined {
-  if (!initiator || initiator === 'null') return undefined;
-  try {
-    const url = new URL(initiator);
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') return undefined;
-    return `${url.origin}/`;
-  } catch {
-    return undefined;
-  }
-}
-
-function getFfmpegHttpArgs(referer?: string): string[] {
-  if (!referer) return [];
-  try {
-    return ['-referer', referer, '-headers', `Origin: ${new URL(referer).origin}\r\n`];
-  } catch {
-    return ['-referer', referer];
-  }
-}
-
 function fallbackYtdlpQualities(url: string): VideoInfo['qualities'] {
   return [
     { label: 'Best', height: 0, url, bitrate: 0, formatArgs: ['-f', 'bv*+ba/b'] },
@@ -631,19 +606,6 @@ function broadcastBatch(): void {
   });
 }
 
-function pickBatchQuality(video: VideoInfo, preference: Settings['batchQuality']): VideoInfo['qualities'][number] | undefined {
-  const all = video.qualities || [];
-  const videoOnly = all.filter((quality) => (quality.kind || 'video') === 'video');
-  const candidates = videoOnly.length > 0 ? videoOnly : all;
-  if (candidates.length === 0) return undefined;
-  return candidates.reduce((chosen, quality) => {
-    const better = preference === 'worst'
-      ? (quality.height || 0) < (chosen.height || 0)
-      : (quality.height || 0) > (chosen.height || 0);
-    return better ? quality : chosen;
-  }, candidates[0]);
-}
-
 // Downloads run one at a time: ffmpeg is network-bound and parallel pulls from
 // the same CDN tend to get throttled.
 async function runBatchDownload(videos: VideoInfo[], tabId?: number, quality?: 'best' | 'worst'): Promise<void> {
@@ -654,7 +616,7 @@ async function runBatchDownload(videos: VideoInfo[], tabId?: number, quality?: '
   // Each run drops its files in its own folder, stamped with the epoch
   // milliseconds so two runs in the same second can't collide.
   const folder = `Flux_${Date.now()}`;
-  const directory = joinOutputPath(defaultDownloadDir, folder);
+  const directory = joinOutputPath(defaultDownloadDir, folder, coappPlatform);
   try {
     await nativeClient.ensureDir(directory);
   } catch (error: any) {
@@ -1173,35 +1135,6 @@ async function ensureCoAppConnected(): Promise<void> {
   }
 }
 
-function sanitizeFilename(name: string): string {
-  const sanitized = name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').trim();
-  return sanitized || `video_${Date.now()}`;
-}
-
-function ensureFilenameExtension(filename: string, extension: string): string {
-  const baseName = filename.replace(/\.(mp4|webm|mkv|mov|m4v|avi|ts|m3u8|mp3|m4a|aac|opus|wav|flac|vtt|srt|ttml)$/i, '');
-  return `${baseName}.${extension.replace(/^\./, '')}`;
-}
-
-function getDefaultExtension(video: VideoInfo, type: VideoInfo['type']): string {
-  if (video.qualities[0]?.kind === 'subtitle') return video.qualities[0]?.ext || 'vtt';
-  if (video.qualities[0]?.kind === 'audio') return video.qualities[0]?.ext || 'm4a';
-  if (type === 'webm') return 'webm';
-  if (video.qualities[0]?.ext === 'mp3') return 'mp3';
-  return 'mp4';
-}
-
-function formatFfmpegError(exitCode: number | null, stderr: string): string {
-  const details = stderr.trim();
-  if (/HTTP error (401|403|410)|Server returned 4XX/i.test(details)) {
-    return 'Ссылка на поток недоступна или устарела. Запустите плеер заново и повторите загрузку.';
-  }
-  if (/Invalid data found|Error opening input/i.test(details)) {
-    return 'FFmpeg не смог открыть поток. Запустите плеер на несколько секунд и повторите загрузку.';
-  }
-  return `FFmpeg exit code ${exitCode}: ${details.slice(-1000)}`;
-}
-
 interface ManifestFile {
   placeholder: string;
   content: string;
@@ -1264,12 +1197,6 @@ async function prepareHlsArguments(tabId: number, args: string[], referer?: stri
   return { args: prepared, manifestFiles };
 }
 
-function joinOutputPath(directory: string, filename: string): string {
-  if (!directory) return filename;
-  const separator = coappPlatform === 'win32' ? '\\' : '/';
-  return `${directory.replace(/[\\/]$/, '')}${separator}${filename}`;
-}
-
 async function startDownload(
   video: VideoInfo,
   filename?: string,
@@ -1307,7 +1234,7 @@ async function startDownload(
     const codecArg = isSubtitle ? ['-c:s', 'copy'] : ['-c', 'copy'];
     const formatArgs = video.qualities[0]?.formatArgs;
     const downloadKey = `convert_${Date.now()}`;
-    const outputPath = joinOutputPath(directory, outFilename);
+    const outputPath = joinOutputPath(directory, outFilename, coappPlatform);
 
     const inputArgs = [...getFfmpegHttpArgs(video.referer), '-i', video.url];
     const baseArgs = formatArgs && formatArgs.length > 0
@@ -1355,7 +1282,7 @@ async function startDownload(
   } else if (video.type === 'mse') {
     // MSE stream — use FFmpeg with captured segment URLs if available
     const downloadKey = `convert_${Date.now()}`;
-    const outputPath = joinOutputPath(directory, outFilename);
+    const outputPath = joinOutputPath(directory, outFilename, coappPlatform);
     const formatArgs = video.qualities[0]?.formatArgs;
 
     activeDownloads.set(downloadKey, {
