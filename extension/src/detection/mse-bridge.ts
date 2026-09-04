@@ -1,7 +1,17 @@
 import type { MseState } from './mse-media';
 
-interface MseBridgeBase {
-  source: 'Flux-MSE';
+/**
+ * Marker on every MAIN-world message, checked here before anything is trusted.
+ *
+ * Deliberately says nothing about this extension. The page shares the MAIN
+ * world, so it can always watch this traffic; what it should not get for free
+ * is the name of the extension producing it. Both sides import this constant,
+ * so it can be changed in one place.
+ */
+export const BRIDGE_SOURCE = 'mse-observer';
+
+export interface MseBridgeBase {
+  source: typeof BRIDGE_SOURCE;
   pageUrl: string;
   generation: number;
 }
@@ -23,7 +33,7 @@ export type MseStateMessage = Extract<
 function bridgeBase(value: unknown): value is Record<string, unknown> & MseBridgeBase {
   if (!value || typeof value !== 'object') return false;
   const item = value as Record<string, unknown>;
-  return item.source === 'Flux-MSE' &&
+  return item.source === BRIDGE_SOURCE &&
     typeof item.pageUrl === 'string' &&
     Number.isSafeInteger(item.generation) &&
     Number(item.generation) >= 0;

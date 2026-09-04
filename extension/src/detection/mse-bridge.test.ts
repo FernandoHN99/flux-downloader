@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { emptyMseState } from './mse-media';
-import { isMseBridgeMessage, reduceMseState } from './mse-bridge';
+import { isMseBridgeMessage, reduceMseState, BRIDGE_SOURCE } from './mse-bridge';
+import type { MseBridgeBase } from './mse-bridge';
 
-const base = {
-  source: 'Flux-MSE' as const,
+const base: MseBridgeBase = {
+  source: BRIDGE_SOURCE,
   pageUrl: 'https://course.example/lesson',
   generation: 3
 };

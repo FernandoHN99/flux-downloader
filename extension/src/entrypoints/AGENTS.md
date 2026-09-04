@@ -60,9 +60,38 @@ MAIN world. **No `chrome.*` API is available here** — communication is
 `window.postMessage` only, and everything it needs must be inlined into this
 bundle (hence `--format=iife`).
 
-Guarded by `window.__FluxMSEHooked` so a re-injection does not double-hook
-`MediaSource`, `fetch` and `XHR`. Every refresh must not attach another
-`loadedmetadata` listener to the same element.
+Guarded by `Symbol.for('mediasource.observer')` so a re-injection does not
+double-hook `MediaSource`, `fetch` and `XHR`. Every refresh must not attach
+another `loadedmetadata` listener to the same element.
+
+### Do not let the patches announce themselves
+
+Players check whether the APIs they use are still native and refuse to play
+when they find them patched — that is how a site ends up serving the media
+while its own page stops rendering it. Every hook here is therefore disguised:
+
+- The re-entry guard is a non-enumerable, unbranded symbol. It was
+  `window.__FluxMSEHooked`, a one-line detection.
+- `disguise(wrapper, original)` registers a wrapper so `toString()` returns the
+  original's source. `Function.prototype.toString` is patched once and reports
+  itself as native. **Every new hook must go through `disguise`.**
+- Marks live in `WeakSet`/`WeakMap`, never as properties on page objects, and
+  `xhr.open` is defined non-enumerable so `Object.keys(xhr)` stays empty.
+- `window.XMLHttpRequest` is replaced as a plain data property. It used to be
+  an accessor, which re-wrapped a constructor the page installed later but was
+  visible to a single `getOwnPropertyDescriptor` call. That re-wrapping is
+  gone on purpose.
+- Property descriptors keep their original `enumerable`/`configurable` flags.
+
+What cannot be hidden: the page shares the MAIN world, so it can always watch
+the `postMessage` traffic. The marker is `BRIDGE_SOURCE` in
+`detection/mse-bridge.ts` (`'mse-observer'`), which is deliberately unbranded —
+a page can see the messages but not learn which extension sends them. The two
+sides must agree, and this bundle inlines the value because it cannot import.
+
+Verify with a page that loads `dist/mse-inject.js` first, then checks
+`/native code/.test(String(fn))` for each patched API, `Object.keys(window)`,
+`Object.getOwnPropertySymbols(window)` and the descriptor shapes.
 
 Whatever this file posts is untrusted by the time it reaches the isolated
 world; `detection/mse-bridge.ts` validates and reduces it.
