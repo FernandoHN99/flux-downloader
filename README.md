@@ -50,8 +50,8 @@ Not on the Chrome Web Store — load it unpacked.
 **1. Build it**
 
 ```bash
-git clone https://github.com/miroshArtem/MediaGrabber.git
-cd MediaGrabber
+git clone https://github.com/FernandoHN99/flux-downloader.git
+cd flux-downloader
 npm install
 npm run build
 ```
@@ -138,6 +138,13 @@ npm run dev:extension
 
 No linter and no runtime dependencies — just TypeScript, esbuild and Vitest.
 Deeper notes live in [AGENTS.md](AGENTS.md) and [docs/](docs).
+
+## Credits
+
+Flux Downloader started from [miroshArtem/MediaGrabber](https://github.com/miroshArtem/MediaGrabber)
+and grew from there: the domain-grouped source layout, the component popup, the
+parser and lifecycle test suites, and the detection and download fixes above.
+Still MIT, same as the original.
 
 ## Privacy
 
