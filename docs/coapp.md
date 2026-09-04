@@ -36,6 +36,7 @@ Startup diagnostics use `console.error`. This is essential: stdout is reserved f
 | `src/native-autoinstall.ts` | native manifest registration |
 | `src/native-autoinstall-cli.ts` | register/unregister CLI |
 | `src/installer.ts` | release install/uninstall and verified runtime download |
+| `scripts/register-dev-host.sh` / `.ps1` | dev host launcher + registration (mac/Linux, Windows) |
 | `scripts/build-sea.mjs` | Node SEA executable creation |
 | `scripts/create-release-config.mjs` | release URLs/checksums/extension ID |
 | `scripts/create-checksums.mjs` | release `SHA256SUMS.txt` |
@@ -171,7 +172,24 @@ Registration destinations:
 
 Firefox manifests/IDs are not implemented.
 
-Development CLI:
+Development host (preferred for local builds — builds/registers a launcher
+that execs this checkout's `dist/main.js`, so it works without a `coapp`
+binary already sitting at the install root):
+
+```bash
+cd coapp
+./scripts/register-dev-host.sh        # macOS/Linux
+scripts\register-dev-host.ps1         # Windows (PowerShell)
+```
+
+Both derive the extension ID from `extension/manifest.json`; pass one
+explicitly only to assert it matches. Re-run after moving/renaming the
+repository — the launcher embeds an absolute path to `dist/main.js`, and a
+stale path is what produces Chrome's "native host has exited" disconnect.
+
+Lower-level CLI (writes only the manifest; the `path` it points at,
+`coapp[.exe]` in the install root, must already exist — true for a release
+install, not a fresh source checkout):
 
 ```bash
 cd coapp

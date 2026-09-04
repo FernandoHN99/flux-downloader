@@ -29,7 +29,7 @@ Extension source is grouped by domain. Each domain folder carries its own `AGENT
 | `extension/src/popup/` | Component popup, settings page, component-scoped CSS | [AGENTS.md](extension/src/popup/AGENTS.md) |
 | `coapp/` | Native messaging host (`flux-downloader-coapp`) | |
 | `coapp/src/` | RPC, FFmpeg, yt-dlp, HTTP download, paths, registration, installer | [AGENTS.md](coapp/src/AGENTS.md) |
-| `coapp/scripts/` | SEA builds, release config/checksums, Windows dev registration | |
+| `coapp/scripts/` | SEA builds, release config/checksums, dev host registration (mac/Linux/Windows) | |
 | `docs/` | Current Flux Downloader implementation and release documentation | |
 | `.github/workflows/release.yml` | Windows x64 tagged-release pipeline | |
 
@@ -61,7 +61,15 @@ node dist/native-autoinstall-cli.js register <extension-id>
 node dist/native-autoinstall-cli.js unregister
 ```
 
-For Windows development, `coapp/scripts/register-dev-host.ps1 -ExtensionId <id>` builds/registers a development host.
+For local development, prefer the dev-host scripts over calling
+`native-autoinstall-cli.js` directly: it only writes a manifest pointing at a
+`coapp` binary that must already exist at the install root, so following it
+alone leaves the host unreachable. `coapp/scripts/register-dev-host.sh`
+(macOS/Linux) and `coapp/scripts/register-dev-host.ps1 -ExtensionId <id>`
+(Windows) instead build/register a launcher that execs this checkout's
+`dist/main.js`. Both derive the extension ID from `extension/manifest.json`
+automatically. Re-run the script after moving or renaming the repository —
+the launcher embeds an absolute path.
 
 ## Verification baseline
 

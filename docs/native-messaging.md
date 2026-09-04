@@ -259,6 +259,13 @@ This repository does not register Firefox `allowed_extensions`.
 3. Confirm `allowed_origins` contains the browser's actual extension ID.
 4. Confirm the Windows registry value points to that JSON.
 5. Reload the extension after registration.
+6. On a source checkout, prefer `coapp/scripts/register-dev-host.sh` (or
+   `.ps1` on Windows) over the raw `native-autoinstall-cli.js register` step —
+   the latter only writes a manifest pointing at a `coapp` binary that has to
+   already exist at the install root. If the repository was ever moved or
+   renamed after registering, the launcher's embedded path goes stale and
+   Chrome reports the host as having exited immediately; re-run the script to
+   fix it.
 
 ### Port disconnects immediately
 

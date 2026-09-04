@@ -65,10 +65,20 @@ and select the repository's `extension/` folder.
 
 ```bash
 cd coapp
-node dist/native-autoinstall-cli.js register igephdkobpgbfgdjmehckbhffbimgkii
+./scripts/register-dev-host.sh      # macOS/Linux
 ```
 
-The extension ID is fixed by the manifest key, so it is always the one above.
+```powershell
+coapp\scripts\register-dev-host.ps1   # Windows
+```
+
+The extension ID is fixed by the manifest key, so both scripts pick it up
+automatically — there is nothing to pass in. Each script builds a small
+launcher that points at this checkout's `coapp/dist/main.js` and registers it
+as the native messaging host. **Re-run it whenever you move, rename, or
+re-clone the repository** — the launcher embeds an absolute path, and a stale
+one is what makes Chrome report "The companion app stopped responding" even
+though the extension and CoApp are both fine.
 
 **4. Make sure the tools are reachable**
 
