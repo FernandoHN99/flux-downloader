@@ -7,7 +7,7 @@ import { M3U8ParserWrapper } from './lib/m3u8-parser';
 import { DashParserWrapper } from './lib/dash-parser';
 import { loadSettings, Settings, DEFAULT_SETTINGS } from './lib/settings';
 import { videoKey } from './lib/video-key';
-import { PageMetadata, RelayCodec, TabStateStore } from './lib/tab-state';
+import { PageMetadata, TabStateStore } from './lib/tab-state';
 import { mergeDetectedVideosIntoHistory, sameHistoryContent } from './lib/history';
 import { isMediaUrl, isYouTubeUrl, mediaTypeFromUrl } from './lib/media-url';
 import {
@@ -45,12 +45,11 @@ import type {
 } from './lib/content-protocol';
 import { applyPageMetadataToVideos, mergePageMetadata } from './lib/page-context';
 import { buildYtdlpVideo, fallbackYtdlpQualities } from './lib/youtube';
+import { inferRelayCodec, mergeRelayCodecs, resolveRelayUrl } from './lib/relay-codec';
 
 const nativeClient = new NativeClient();
 
 const tabStates = new TabStateStore();
-
-const relayAlphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
 
 function resetTabState(tabId: number): void {
   tabStates.resetPage(tabId);
@@ -58,102 +57,24 @@ function resetTabState(tabId: number): void {
 }
 
 function learnRelayCodec(tabId: number, originalUrl: string, relayUrl: string): void {
-  let original: URL;
-  let relay: URL;
-  try {
-    original = new URL(originalUrl);
-    relay = new URL(relayUrl);
-  } catch {
-    return;
-  }
-  if (!/^https?:$/.test(original.protocol) || !/^https?:$/.test(relay.protocol)) return;
-
-  const separator = relay.pathname.lastIndexOf('/');
-  const token = separator >= 0 ? relay.pathname.slice(separator + 1) : '';
-  if (!token) return;
-
-  const candidateHours = new Set<number>();
-  const currentHour = Math.round(Date.now() / 1000 / 60 / 60);
-  for (let offset = -48; offset <= 48; offset += 1) candidateHours.add(currentHour + offset);
-  const queryTime = Number(original.searchParams.get('t'));
-  if (Number.isFinite(queryTime) && queryTime > 0) {
-    const queryHour = Math.round(queryTime / 1000 / 60 / 60);
-    for (let offset = -2; offset <= 2; offset += 1) candidateHours.add(queryHour + offset);
-  }
-
-  let best: { hour: number; mapping: Record<string, string>; mapped: number } | undefined;
-  for (const hour of candidateHours) {
-    let encoded: string;
-    try {
-      encoded = btoa(`${hour}/${original.pathname}${original.search}`);
-    } catch {
-      continue;
-    }
-    if (encoded.length !== token.length) continue;
-
-    const mapping: Record<string, string> = {};
-    let valid = true;
-    for (let i = 0; i < encoded.length; i += 1) {
-      const source = encoded[i];
-      const target = token[i];
-      if (relayAlphabet.includes(source)) {
-        if (mapping[source] && mapping[source] !== target) {
-          valid = false;
-          break;
-        }
-        mapping[source] = target;
-      } else if (source !== target) {
-        valid = false;
-        break;
-      }
-    }
-    if (valid && (!best || Object.keys(mapping).length > best.mapped)) {
-      best = { hour, mapping, mapped: Object.keys(mapping).length };
-    }
-  }
-  if (!best) return;
+  const learned = inferRelayCodec(originalUrl, relayUrl);
+  if (!learned) return;
 
   const state = tabStates.ensure(tabId);
   const mappings = state.relayMappings || new Map<string, string>();
-  mappings.set(original.href, relay.href);
+  mappings.set(learned.originalUrl, learned.relayUrl);
   state.relayMappings = mappings;
 
-  const codecs = state.relayCodecs || new Map<string, RelayCodec>();
-  const existing = codecs.get(original.origin);
-  if (existing && (existing.hour !== best.hour || existing.prefix !== relay.pathname.slice(0, separator + 1))) return;
-
-  const mapping = existing?.mapping || {};
-  for (const [source, target] of Object.entries(best.mapping)) {
-    if (!mapping[source]) mapping[source] = target;
-  }
-  codecs.set(original.origin, {
-    hour: best.hour,
-    prefix: relay.pathname.slice(0, separator + 1),
-    relayOrigin: relay.origin,
-    mapping
-  });
+  const codecs = state.relayCodecs || new Map();
+  const merged = mergeRelayCodecs(codecs.get(learned.originalOrigin), learned.codec);
+  if (!merged) return;
+  codecs.set(learned.originalOrigin, merged);
   state.relayCodecs = codecs;
 }
 
 function getRelayUrl(tabId: number, originalUrl: string): string | undefined {
   const state = tabStates.get(tabId);
-  const mappings = state?.relayMappings;
-  if (mappings?.has(originalUrl)) return mappings.get(originalUrl);
-
-  let original: URL;
-  try { original = new URL(originalUrl); } catch { return undefined; }
-  const codec = state?.relayCodecs?.get(original.origin);
-  if (!codec) return undefined;
-
-  let encoded: string;
-  try {
-    encoded = btoa(`${codec.hour}/${original.pathname}${original.search}`);
-  } catch {
-    return undefined;
-  }
-  if ([...encoded].some((char) => relayAlphabet.includes(char) && !codec.mapping[char])) return undefined;
-  const token = [...encoded].map((char) => relayAlphabet.includes(char) ? codec.mapping[char] : char).join('');
-  return `${codec.relayOrigin}${codec.prefix}${token}`;
+  return resolveRelayUrl(originalUrl, state?.relayMappings, state?.relayCodecs);
 }
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {

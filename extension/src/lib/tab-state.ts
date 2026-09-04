@@ -1,4 +1,5 @@
 import { VideoInfo } from './types';
+import type { RelayCodec } from './relay-codec';
 
 export interface PageMetadata {
   title?: string;
@@ -6,13 +7,6 @@ export interface PageMetadata {
   duration?: number;
   pageUrl?: string;
   generation?: number;
-}
-
-export interface RelayCodec {
-  hour: number;
-  prefix: string;
-  relayOrigin: string;
-  mapping: Record<string, string>;
 }
 
 export interface TabState {
