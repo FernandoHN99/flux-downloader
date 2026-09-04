@@ -1,4 +1,4 @@
-# Flux / MediaGrabber quick reference
+# Flux Downloader quick reference
 
 Updated: 2026-09-03.
 
@@ -7,10 +7,10 @@ Updated: 2026-09-03.
 | Item | Value |
 |---|---|
 | UI/product name | Flux |
-| Repository/package/release prefix | MediaGrabber |
+| Repository/package/release prefix | Flux Downloader |
 | Version | `1.1.1` |
 | Browsers | Chrome/Edge 102+, Manifest V3 |
-| Native host | `com.mediagrabber.coapp` |
+| Native host | `com.fluxdownloader.coapp` |
 | Fixed release extension ID | `igephdkobpgbfgdjmehckbhffbimgkii` |
 | License | MIT for project source |
 | Distribution | GitHub Release + unpacked extension |
@@ -181,17 +181,17 @@ Historical links are probed for common expiration responses. Output collision su
 
 ## Extension package
 
-`npm run package:extension` copies all six bundles, including `dist/popup.css`, then validates local `src`/`href` references in popup/settings HTML before creating `extension/MediaGrabber-extension.zip`.
+`npm run package:extension` copies all six bundles, including `dist/popup.css`, then validates local `src`/`href` references in popup/settings HTML before creating `extension/FluxDownloader-extension.zip`.
 
 ## Install roots
 
 | OS | Root |
 |---|---|
-| Windows | `%LOCALAPPDATA%\MediaGrabber` |
-| macOS | `~/Library/Application Support/MediaGrabber` |
-| Linux | `$XDG_DATA_HOME/MediaGrabber` or `~/.local/share/MediaGrabber` |
+| Windows | `%LOCALAPPDATA%\Flux Downloader` |
+| macOS | `~/Library/Application Support/FluxDownloader` |
+| Linux | `$XDG_DATA_HOME/FluxDownloader` or `~/.local/share/FluxDownloader` |
 
-Overrides: `MEDIAGRABBER_INSTALL_DIR` and `MEDIAGRABBER_HOME`.
+Overrides: `FLUX_INSTALL_DIR` and `FLUX_HOME`.
 
 ## Current release pins
 

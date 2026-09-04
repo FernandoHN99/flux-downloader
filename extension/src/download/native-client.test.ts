@@ -18,7 +18,7 @@ function fakePort() {
   const onMessage = new EventHook<[any]>();
   const onDisconnect = new EventHook<[]>();
   const port = {
-    name: 'com.mediagrabber.coapp',
+    name: 'com.fluxdownloader.coapp',
     postMessage: vi.fn(),
     disconnect: vi.fn(() => onDisconnect.emit()),
     onMessage,
@@ -50,7 +50,7 @@ describe('NativeClient', () => {
     await Promise.all([client.connect(), client.connect()]);
 
     expect(connectNative).toHaveBeenCalledTimes(1);
-    expect(connectNative).toHaveBeenCalledWith('com.mediagrabber.coapp');
+    expect(connectNative).toHaveBeenCalledWith('com.fluxdownloader.coapp');
     expect(client.connected).toBe(true);
     client.disconnect();
   });

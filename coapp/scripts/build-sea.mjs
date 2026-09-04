@@ -17,7 +17,7 @@ for (const arg of process.argv.slice(4)) {
   if (prefix === '--gzip-asset=') gzipAssets[key] = resolve(assetPath);
   else assets[key] = resolve(assetPath);
 }
-const workDir = await mkdtemp(join(tmpdir(), 'mediagrabber-sea-'));
+const workDir = await mkdtemp(join(tmpdir(), 'flux-sea-'));
 const configPath = join(workDir, 'sea-config.json');
 const blobPath = join(workDir, 'sea-prep.blob');
 

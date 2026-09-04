@@ -24,9 +24,9 @@ if (-not (Test-Path $distMain)) {
     throw "CoApp build not found: $distMain"
 }
 
-$devDir = Join-Path $env:LOCALAPPDATA 'MediaGrabberDev'
-$launcherExe = Join-Path $devDir 'mediagrabber-host-v6.exe'
-$manifestPath = Join-Path $devDir 'com.mediagrabber.coapp.json'
+$devDir = Join-Path $env:LOCALAPPDATA 'FluxDownloaderDev'
+$launcherExe = Join-Path $devDir 'flux-host-v6.exe'
+$manifestPath = Join-Path $devDir 'com.fluxdownloader.coapp.json'
 
 New-Item -ItemType Directory -Force -Path $devDir | Out-Null
 
@@ -42,8 +42,8 @@ finally {
 }
 
 $manifest = @{
-    name = 'com.mediagrabber.coapp'
-    description = 'MediaGrabber companion application (dev)'
+    name = 'com.fluxdownloader.coapp'
+    description = 'Flux Downloader companion application (dev)'
     path = $launcherExe
     type = 'stdio'
     allowed_origins = @("chrome-extension://$ExtensionId/")
@@ -51,8 +51,8 @@ $manifest = @{
 
 $manifest | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 $manifestPath
 
-reg add "HKCU\Software\Google\Chrome\NativeMessagingHosts\com.mediagrabber.coapp" /ve /d $manifestPath /f | Out-Null
-reg add "HKCU\Software\Microsoft\Edge\NativeMessagingHosts\com.mediagrabber.coapp" /ve /d $manifestPath /f | Out-Null
+reg add "HKCU\Software\Google\Chrome\NativeMessagingHosts\com.fluxdownloader.coapp" /ve /d $manifestPath /f | Out-Null
+reg add "HKCU\Software\Microsoft\Edge\NativeMessagingHosts\com.fluxdownloader.coapp" /ve /d $manifestPath /f | Out-Null
 
 Write-Host "Dev native host registered."
 Write-Host "Launcher: $launcherExe"

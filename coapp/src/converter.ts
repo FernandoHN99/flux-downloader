@@ -75,7 +75,7 @@ rpc.listen({
     let resolvedArgs = args;
     const manifestFiles = Array.isArray(options.manifestFiles) ? options.manifestFiles : [];
     if (manifestFiles.length > 0) {
-      manifestDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'mediagrabber-hls-'));
+      manifestDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'flux-hls-'));
       const replacements = new Map<string, string>();
       for (let i = 0; i < manifestFiles.length; i += 1) {
         const filePath = path.join(manifestDir, `manifest-${i}.m3u8`);
@@ -192,4 +192,4 @@ process.on('SIGINT', killAll);
 process.on('SIGTERM', killAll);
 process.on('exit', killAll);
 
-console.error('[MediaGrabber CoApp] Converter module loaded (ffmpeg: %s)', ffmpegBin);
+console.error('[Flux Downloader CoApp] Converter module loaded (ffmpeg: %s)', ffmpegBin);

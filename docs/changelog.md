@@ -1,4 +1,4 @@
-# Flux / MediaGrabber changelog
+# Flux Downloader changelog
 
 This is the project changelog. It replaces the old Video DownloadHelper historical timeline that previously occupied this file.
 
@@ -8,7 +8,7 @@ This section describes commits after the `v1.1.1` tag on the current refactor li
 
 ### Product and list model
 
-- Rebranded the user-facing extension and popup to **Flux** while retaining MediaGrabber internal/release compatibility names.
+- Rebranded the user-facing extension and popup to **Flux** while retaining Flux Downloader internal/release compatibility names.
 - Replaced separate current/history presentations with one global list.
 - Current media from every open tab is pinned and visibly marked.
 - Added optional persisted history (maximum 50 entries) and **Only current** mode.
@@ -115,10 +115,10 @@ At this baseline:
 
 ### Documentation
 
-- Rewrote every tracked Markdown documentation file around the current Flux/MediaGrabber implementation.
+- Rewrote every tracked Markdown documentation file around the current Flux Downloader implementation.
 - Removed obsolete claims about Video DownloadHelper, Firefox, proprietary code, watermarking, VDH v10, and broad filesystem RPCs.
 - Corrected privacy disclosure to describe locally persisted media history and required source/CDN network activity.
-- Documented the Flux/MediaGrabber naming split, popup/state invariants, refresh protocol, source ownership, tab generations, parser coverage, native RPC, CoApp, runtime paths, and release process.
+- Documented the Flux Downloader naming split, popup/state invariants, refresh protocol, source ownership, tab generations, parser coverage, native RPC, CoApp, runtime paths, and release process.
 
 ### Commit map
 

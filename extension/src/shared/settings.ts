@@ -25,7 +25,7 @@ export async function loadSettings(): Promise<Settings> {
     const result = await chrome.storage.local.get(['settings']);
     return { ...DEFAULT_SETTINGS, ...result.settings };
   } catch (error) {
-    console.error('[MediaGrabber] Failed to load settings:', error);
+    console.error('[Flux] Failed to load settings:', error);
     return DEFAULT_SETTINGS;
   }
 }
@@ -37,7 +37,7 @@ export async function saveSettings(settings: Settings): Promise<void> {
   try {
     await chrome.storage.local.set({ settings });
   } catch (error) {
-    console.error('[MediaGrabber] Failed to save settings:', error);
+    console.error('[Flux] Failed to save settings:', error);
     throw error;
   }
 }
@@ -50,7 +50,7 @@ export async function resetSettings(): Promise<Settings> {
     await chrome.storage.local.set({ settings: DEFAULT_SETTINGS });
     return DEFAULT_SETTINGS;
   } catch (error) {
-    console.error('[MediaGrabber] Failed to reset settings:', error);
+    console.error('[Flux] Failed to reset settings:', error);
     throw error;
   }
 }

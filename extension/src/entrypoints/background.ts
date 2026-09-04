@@ -1,4 +1,4 @@
-// MediaGrabber Service Worker (Background Script)
+// Flux Downloader Service Worker (Background Script)
 // Manifest V3 — webRequest, media detection, download orchestration.
 
 import { NativeClient } from '../download/native-client';
@@ -257,11 +257,11 @@ nativeClient.listen({
 });
 
 chrome.runtime.onInstalled.addListener(() => {
-  console.log('[MediaGrabber] Extension installed');
+  console.log('[Flux] Extension installed');
 });
 
 chrome.runtime.onStartup.addListener(() => {
-  console.log('[MediaGrabber] Service worker starting');
+  console.log('[Flux] Service worker starting');
 });
 
 // --- Media detection via webRequest (works in MV3 service worker) ---
@@ -570,7 +570,7 @@ async function handleInterceptedMedia(
         }
       }
     } catch (error) {
-      console.warn('[MediaGrabber] Failed to parse HLS manifest:', error);
+      console.warn('[Flux] Failed to parse HLS manifest:', error);
       seen.delete(url);
       return;
     }
@@ -583,7 +583,7 @@ async function handleInterceptedMedia(
       childUrls = parsed.childUrls;
       qualities = buildDashQualities(parsed);
     } catch (error) {
-      console.warn('[MediaGrabber] Failed to parse DASH manifest:', error);
+      console.warn('[Flux] Failed to parse DASH manifest:', error);
     }
   }
 
@@ -637,7 +637,7 @@ async function handleInterceptedMedia(
     fileSize
   });
 
-  console.log('[MediaGrabber] Intercepted media:', url, type);
+  console.log('[Flux] Intercepted media:', url, type);
 }
 
 // --- Popup communication ---
@@ -667,7 +667,7 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: PopupRequest): void 
 
     case 'REFRESH_TABS':
       refreshOpenTabs()
-        .catch((error) => console.warn('[MediaGrabber] Failed to refresh open tabs:', error))
+        .catch((error) => console.warn('[Flux] Failed to refresh open tabs:', error))
         .then(() => {
           postPopup(port, { type: 'MEDIA_LIST', ...currentMediaPayload() });
           return history.settled()
@@ -675,7 +675,7 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: PopupRequest): void 
             .then((entries) => history.decorate(entries))
             .then((entries) => postPopup(port, { type: 'HISTORY_LIST', entries }));
         })
-        .catch((error) => console.warn('[MediaGrabber] Failed to send refreshed history:', error));
+        .catch((error) => console.warn('[Flux] Failed to send refreshed history:', error));
       break;
 
     case 'DOWNLOAD':
@@ -712,12 +712,12 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: PopupRequest): void 
 
     case 'RENAME_HISTORY_ITEM':
       history.rename(msg.key, msg.title || '')
-        .catch((error) => console.warn('[MediaGrabber] Failed to rename history entry:', error));
+        .catch((error) => console.warn('[Flux] Failed to rename history entry:', error));
       break;
 
     case 'REORDER_HISTORY':
       history.reorder(msg.keys || [])
-        .catch((error) => console.warn('[MediaGrabber] Failed to reorder history:', error));
+        .catch((error) => console.warn('[Flux] Failed to reorder history:', error));
       break;
 
     case 'RENAME_VIDEO':
@@ -726,12 +726,12 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: PopupRequest): void 
 
     case 'DELETE_HISTORY_ITEMS':
       history.remove(msg.keys || [])
-        .catch((error) => console.warn('[MediaGrabber] Failed to delete history entries:', error));
+        .catch((error) => console.warn('[Flux] Failed to delete history entries:', error));
       break;
 
     case 'CLEAR_HISTORY':
       history.clear()
-        .catch((error) => console.warn('[MediaGrabber] Failed to clear history:', error));
+        .catch((error) => console.warn('[Flux] Failed to clear history:', error));
       break;
 
     case 'DOWNLOAD_ALL':
@@ -847,7 +847,7 @@ async function ensureCoAppConnected(): Promise<void> {
       defaultDownloadDir = info?.downloadDir || '';
       coappPlatform = info?.platform || '';
     } catch (error) {
-      console.warn('[MediaGrabber] Failed to read CoApp info:', error);
+      console.warn('[Flux] Failed to read CoApp info:', error);
     }
   }
 }
@@ -1247,7 +1247,7 @@ function handleVideoDetected(tabId: number | undefined, video: DetectedVideo, fr
     return { success: true, stale: true };
   }
   upsertVideo(tabId, video);
-  console.log(`[MediaGrabber] Detected video on tab ${tabId}:`, video.title);
+  console.log(`[Flux] Detected video on tab ${tabId}:`, video.title);
   return { success: true, count: (tabStates.get(tabId)?.media || []).length };
 }
 
@@ -1298,7 +1298,7 @@ async function loadYouTubeFormats(tabId: number, url: string, videoId: string, m
 
     upsertVideo(tabId, buildYtdlpVideo(videoId, url, currentMetadata, info));
   } catch (error) {
-    console.warn('[MediaGrabber] Failed to load yt-dlp formats:', error);
+    console.warn('[Flux] Failed to load yt-dlp formats:', error);
     const currentMetadata = tabStates.get(tabId)?.pageMetadata || metadata;
     if (!tabStates.isCurrentPageGeneration(tabId, generation) || currentMetadata.pageUrl !== url) return;
     upsertVideo(tabId, buildYtdlpVideo(videoId, url, currentMetadata));

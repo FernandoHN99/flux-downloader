@@ -1,4 +1,4 @@
-// MediaGrabber CoApp — Main Entry Point
+// Flux Downloader CoApp — Main Entry Point
 // Loads native-messaging (stdin/stdout bridge), then converter and downloads
 // (which register their own RPC handlers at module scope), then registers
 // app-level handlers.
@@ -28,7 +28,7 @@ rpc.listen({
   }
 });
 
-console.error('[MediaGrabber CoApp] Ready');
+console.error('[Flux Downloader CoApp] Ready');
 
 process.on('SIGINT', () => process.exit(0));
 process.on('SIGTERM', () => process.exit(0));

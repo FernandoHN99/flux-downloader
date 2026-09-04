@@ -39,8 +39,8 @@ jobs:
 
           $ffmpegArchive = Join-Path $env:TEMP 'ffmpeg-8.0.1-essentials_build.zip'
           Invoke-WebRequest -Uri 'https://github.com/GyanD/codexffmpeg/releases/download/8.1.2/ffmpeg-8.1.2-essentials_build.zip' -OutFile $ffmpegArchive
-          Expand-Archive -Path $ffmpegArchive -DestinationPath (Join-Path $env:TEMP 'mediagrabber-ffmpeg') -Force
-          $ffmpegRoot = Get-ChildItem (Join-Path $env:TEMP 'mediagrabber-ffmpeg') -Directory | Select-Object -First 1
+          Expand-Archive -Path $ffmpegArchive -DestinationPath (Join-Path $env:TEMP 'flux-ffmpeg') -Force
+          $ffmpegRoot = Get-ChildItem (Join-Path $env:TEMP 'flux-ffmpeg') -Directory | Select-Object -First 1
           Copy-Item (Join-Path $ffmpegRoot.FullName 'bin/ffmpeg.exe') 'release-runtime/ffmpeg.exe'
           Copy-Item (Join-Path $ffmpegRoot.FullName 'bin/ffprobe.exe') 'release-runtime/ffprobe.exe'
 
@@ -59,10 +59,10 @@ jobs:
 
           npm --workspace coapp run bundle
           npm --workspace coapp run bundle:installer
-          node coapp/scripts/build-sea.mjs coapp/dist/main.bundle.cjs release/MediaGrabber-CoApp-win-x64
-          node coapp/scripts/build-sea.mjs coapp/dist/installer.bundle.cjs release/MediaGrabber-Setup-win-x64 --asset=release-config.json=release-config.json --gzip-asset=coapp.bin.gz=release/MediaGrabber-CoApp-win-x64.exe
+          node coapp/scripts/build-sea.mjs coapp/dist/main.bundle.cjs release/FluxDownloader-CoApp-win-x64
+          node coapp/scripts/build-sea.mjs coapp/dist/installer.bundle.cjs release/FluxDownloader-Setup-win-x64 --asset=release-config.json=release-config.json --gzip-asset=coapp.bin.gz=release/FluxDownloader-CoApp-win-x64.exe
 
-          Copy-Item 'extension/MediaGrabber-extension.zip' 'release/MediaGrabber-extension.zip'
+          Copy-Item 'extension/FluxDownloader-extension.zip' 'release/FluxDownloader-extension.zip'
           Copy-Item 'THIRD_PARTY_NOTICES.md' 'release/THIRD_PARTY_NOTICES.txt'
           node coapp/scripts/create-checksums.mjs release SHA256SUMS.txt
 
@@ -72,4 +72,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $assets = Get-ChildItem release -File | ForEach-Object { $_.FullName }
-          gh release create $env:GITHUB_REF_NAME $assets --title "MediaGrabber $env:GITHUB_REF_NAME" --generate-notes
+          gh release create $env:GITHUB_REF_NAME $assets --title "Flux Downloader $env:GITHUB_REF_NAME" --generate-notes

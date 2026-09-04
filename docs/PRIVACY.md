@@ -4,7 +4,7 @@ Last updated: 2026-09-03.
 
 Implementation audit: reviewed against the 505-test post-refactor baseline. Storage keys, permissions, external services, and runtime pins did not change.
 
-Flux is the user-facing name of the MediaGrabber browser extension and local companion application.
+Flux is the user-facing name of the Flux Downloader browser extension and local companion application.
 
 ## Summary
 
@@ -67,7 +67,7 @@ Flux has no separate maintainer-controlled collection endpoint.
 
 ## Native companion
 
-The MediaGrabber CoApp:
+The Flux Downloader CoApp:
 
 - runs locally;
 - is started through Chrome/Edge native messaging;
@@ -118,4 +118,4 @@ Users are responsible for complying with website terms, copyright, privacy, and 
 
 Material changes to storage, permissions, external services, or telemetry must update this file and the store listing before release.
 
-Questions can be filed in the [MediaGrabber GitHub repository](https://github.com/miroshArtem/MediaGrabber/issues).
+Questions can be filed in the [Flux Downloader GitHub repository](https://github.com/miroshArtem/MediaGrabber/issues).

@@ -124,14 +124,14 @@ async function install(): Promise<void> {
   const extensionId = typeof args['extension-id'] === 'string' ? args['extension-id'] : config.extensionId;
   if (!extensionId) throw new Error('Missing extension ID in release config or --extension-id');
   const installDir = typeof args['install-dir'] === 'string' ? args['install-dir'] : getInstallDir();
-  process.env.MEDIAGRABBER_INSTALL_DIR = installDir;
+  process.env.FLUX_INSTALL_DIR = installDir;
   await fs.promises.mkdir(installDir, { recursive: true });
 
   let temporaryCoapp: string | undefined;
   const compressedCoappAsset = getSeaAsset('coapp.bin.gz');
   const coappAsset = compressedCoappAsset ? gunzipSync(compressedCoappAsset) : getSeaAsset('coapp.bin');
   if (coappAsset) {
-    temporaryCoapp = path.join(os.tmpdir(), `mediagrabber-coapp-${process.pid}${process.platform === 'win32' ? '.exe' : ''}`);
+    temporaryCoapp = path.join(os.tmpdir(), `flux-downloader-coapp-${process.pid}${process.platform === 'win32' ? '.exe' : ''}`);
     await fs.promises.writeFile(temporaryCoapp, coappAsset);
   }
   const coappSource = typeof args.coapp === 'string'
@@ -156,7 +156,7 @@ async function install(): Promise<void> {
       await installFile(kind, url, hash, installDir);
     }
     await registerManifest([extensionId]);
-    console.log(`MediaGrabber installed in ${installDir}`);
+    console.log(`Flux Downloader installed in ${installDir}`);
   } finally {
     if (temporaryCoapp) await fs.promises.rm(temporaryCoapp, { force: true });
   }
@@ -165,7 +165,7 @@ async function install(): Promise<void> {
 async function uninstall(): Promise<void> {
   const args = parseArgs(process.argv.slice(3));
   const installDir = typeof args['install-dir'] === 'string' ? args['install-dir'] : getInstallDir();
-  process.env.MEDIAGRABBER_INSTALL_DIR = installDir;
+  process.env.FLUX_INSTALL_DIR = installDir;
   await unregisterManifest();
   console.log(`Native messaging registration removed for ${installDir}`);
 }
@@ -185,7 +185,7 @@ async function main(): Promise<void> {
 
 if (require.main === module) {
   main().catch(error => {
-    console.error(`[MediaGrabber] Installation failed: ${error.message || String(error)}`);
+    console.error(`[Flux] Installation failed: ${error.message || String(error)}`);
     process.exitCode = 1;
   });
 }

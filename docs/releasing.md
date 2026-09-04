@@ -1,4 +1,4 @@
-# Releasing Flux / MediaGrabber
+# Releasing Flux Downloader
 
 Updated: 2026-09-03.
 
@@ -8,11 +8,11 @@ Flux is currently distributed through GitHub Releases. The extension is sideload
 
 The automated workflow builds **Windows x64 only**. Source code supports Chrome/Edge and contains cross-platform CoApp registration/runtime paths, but tagged macOS/Linux installer artifacts are not produced.
 
-Release naming retains MediaGrabber:
+Release naming retains Flux Downloader:
 
-- `MediaGrabber-extension.zip`
-- `MediaGrabber-CoApp-win-x64.exe`
-- `MediaGrabber-Setup-win-x64.exe`
+- `FluxDownloader-extension.zip`
+- `FluxDownloader-CoApp-win-x64.exe`
+- `FluxDownloader-Setup-win-x64.exe`
 - `ffmpeg-win-x64.exe`
 - `ffprobe-win-x64.exe`
 - `yt-dlp-win-x64.exe`
@@ -130,11 +130,11 @@ The installer embeds **gzip-compressed CoApp bytes**. Do not directly inject an 
 
 The release installer:
 
-- installs under `%LOCALAPPDATA%\MediaGrabber` on Windows;
+- installs under `%LOCALAPPDATA%\Flux Downloader` on Windows;
 - extracts/copies `coapp.exe`;
 - downloads each runtime from the same GitHub Release over HTTPS;
 - verifies each pinned SHA-256;
-- writes `com.mediagrabber.coapp.json`;
+- writes `com.fluxdownloader.coapp.json`;
 - registers Chrome and Edge HKCU keys;
 - allowlists the fixed extension origin.
 
@@ -145,7 +145,7 @@ Users still need to extract the extension ZIP, enable Developer mode, and choose
 Recommended checks:
 
 ```bash
-unzip -l extension/MediaGrabber-extension.zip
+unzip -l extension/FluxDownloader-extension.zip
 sha256sum -c SHA256SUMS.txt
 ```
 

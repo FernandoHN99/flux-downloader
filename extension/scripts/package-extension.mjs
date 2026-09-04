@@ -5,8 +5,8 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const extensionRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const outputPath = resolve(extensionRoot, process.env.MEDIA_GRABBER_OUTPUT || 'MediaGrabber-extension.zip');
-const stagingPath = await mkdtemp(join(tmpdir(), 'mediagrabber-extension-'));
+const outputPath = resolve(extensionRoot, process.env.MEDIA_GRABBER_OUTPUT || 'FluxDownloader-extension.zip');
+const stagingPath = await mkdtemp(join(tmpdir(), 'flux-downloader-extension-'));
 
 async function validateLocalAssets(relativeHtmlPath) {
   const htmlPath = join(stagingPath, relativeHtmlPath);

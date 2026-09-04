@@ -1,8 +1,8 @@
-# Flux / MediaGrabber documentation
+# Flux Downloader documentation
 
 This directory documents the implementation in this repository. It no longer describes Video DownloadHelper as though it were the current codebase.
 
-The product name displayed in the browser is **Flux**. Internal packages, the native host, install paths, GitHub repository, and release artifacts continue to use **MediaGrabber**.
+The product name displayed in the browser is **Flux**. Internal packages, the native host, install paths, GitHub repository, and release artifacts continue to use **Flux Downloader**.
 
 Documentation baseline: **2026-09-03**, version `1.1.1`, including the component popup, pure content/background boundaries, `TabStateStore`, central all-tab refresh, source-page attribution, parser/manifest projection, download lifecycle/concurrency, native reconnect coverage, package validation, the extension watch workflow, compact progress panel, and flat-list reorder inset.
 
@@ -22,7 +22,7 @@ Documentation baseline: **2026-09-03**, version `1.1.1`, including the component
 | [Releasing](releasing.md) | tag workflow, Windows assets, checksums, runtime pins |
 | [Privacy](PRIVACY.md) | locally stored data, network activity, permissions |
 | [Store listing](STORE_LISTING.md) | current product copy and distribution caveat |
-| [Changelog](changelog.md) | MediaGrabber/Flux releases and refactor history |
+| [Changelog](changelog.md) | Flux Downloader releases and refactor history |
 | [Third-party notices](../THIRD_PARTY_NOTICES.md) | FFmpeg and yt-dlp licensing/pins |
 
 ## Current engineering snapshot

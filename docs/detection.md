@@ -108,7 +108,7 @@ Messages/results commit only when their page and content generations still match
 
 ## MAIN-world MSE and relay hook
 
-`extension/src/mse-inject.ts` runs in the page's JavaScript world. It is guarded by `window.__MediaGrabberMSEHooked` and communicates only through `window.postMessage`.
+`extension/src/mse-inject.ts` runs in the page's JavaScript world. It is guarded by `window.__FluxMSEHooked` and communicates only through `window.postMessage`.
 
 It wraps or observes:
 

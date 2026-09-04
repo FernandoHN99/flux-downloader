@@ -35,7 +35,7 @@ The always-visible **Refresh tabs** action rescans every open HTTP(S) page. It c
 
 Flux preserves where media came from separately from its CDN address. For example, a course lesson stays linked and grouped under the course page rather than the server that happens to deliver the stream.
 
-Downloads run through the local MediaGrabber companion application:
+Downloads run through the local Flux Downloader companion application:
 
 - FFmpeg for HLS/DASH/MSE remuxing;
 - direct local HTTP streaming for ordinary files;
@@ -45,7 +45,7 @@ Flux does not bypass DRM. Only download content you own or are authorized to sav
 
 ## How to use
 
-1. Install/register the MediaGrabber companion app.
+1. Install/register the Flux Downloader companion app.
 2. Load the Flux extension.
 3. Open a page and start its media when necessary.
 4. Click the Flux toolbar icon.
@@ -56,7 +56,7 @@ Flux does not bypass DRM. Only download content you own or are authorized to sav
 
 - Chrome or Edge 102+.
 - Windows, macOS, or Linux source/runtime support.
-- Local MediaGrabber CoApp for downloads.
+- Local Flux Downloader CoApp for downloads.
 - FFmpeg/ffprobe for adaptive/MSE media.
 - yt-dlp for YouTube.
 

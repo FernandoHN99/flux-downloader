@@ -5,19 +5,19 @@ const args = process.argv.slice(2);
 if (args[0] === 'register') {
   registerManifest(args.slice(1))
     .then(() => {
-      console.error('[MediaGrabber] Registration complete');
+      console.error('[Flux] Registration complete');
     })
     .catch(error => {
-      console.error('[MediaGrabber] Registration failed:', error);
+      console.error('[Flux] Registration failed:', error);
       process.exitCode = 1;
     });
 } else if (args[0] === 'unregister') {
   unregisterManifest()
     .then(() => {
-      console.error('[MediaGrabber] Unregistration complete');
+      console.error('[Flux] Unregistration complete');
     })
     .catch(error => {
-      console.error('[MediaGrabber] Unregistration failed:', error);
+      console.error('[Flux] Unregistration failed:', error);
       process.exitCode = 1;
     });
 } else {

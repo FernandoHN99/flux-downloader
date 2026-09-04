@@ -1,7 +1,7 @@
 {
-  "name": "mediagrabber-coapp",
+  "name": "flux-downloader-coapp",
   "version": "1.1.1",
-  "description": "Companion app for MediaGrabber extension",
+  "description": "Companion app for Flux Downloader extension",
   "main": "dist/main.js",
   "scripts": {
     "build": "tsc",

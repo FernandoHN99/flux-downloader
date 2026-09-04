@@ -37,4 +37,4 @@ process.stdin.on('data', processInput);
 process.on('SIGINT', () => process.exit(0));
 process.on('SIGTERM', () => process.exit(0));
 
-console.error('[MediaGrabber CoApp] Native messaging host started');
+console.error('[Flux Downloader CoApp] Native messaging host started');

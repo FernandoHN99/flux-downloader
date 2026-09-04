@@ -2,7 +2,7 @@
 
 Updated: 2026-09-03.
 
-Flux uses FFmpeg and ffprobe as separate local runtime programs through the MediaGrabber CoApp. They are not linked into the extension or CoApp source.
+Flux uses FFmpeg and ffprobe as separate local runtime programs through the Flux Downloader CoApp. They are not linked into the extension or CoApp source.
 
 ## Responsibilities
 
@@ -26,9 +26,9 @@ Flux does not currently expose a generic conversion UI, transcoding presets, or 
 
 Install roots:
 
-- Windows: `%LOCALAPPDATA%\MediaGrabber`
-- macOS: `~/Library/Application Support/MediaGrabber`
-- Linux: `$XDG_DATA_HOME/MediaGrabber` or `~/.local/share/MediaGrabber`
+- Windows: `%LOCALAPPDATA%\Flux Downloader`
+- macOS: `~/Library/Application Support/FluxDownloader`
+- Linux: `$XDG_DATA_HOME/FluxDownloader` or `~/.local/share/FluxDownloader`
 
 Expected platform paths:
 
@@ -41,15 +41,15 @@ ffmpeg/linux/ffmpeg
 ffmpeg/linux/ffprobe
 ```
 
-Search roots include `MEDIAGRABBER_HOME`, current working directory, install directory, executable directory, and the project directory near compiled code. Converter code also checks `<cwd>/ffmpeg/ffmpeg[.exe]` and `ffprobe[.exe]`. The final fallback is the command name on system `PATH`.
+Search roots include `FLUX_HOME`, current working directory, install directory, executable directory, and the project directory near compiled code. Converter code also checks `<cwd>/ffmpeg/ffmpeg[.exe]` and `ffprobe[.exe]`. The final fallback is the command name on system `PATH`.
 
-`MEDIAGRABBER_INSTALL_DIR` overrides the install root.
+`FLUX_INSTALL_DIR` overrides the install root.
 
 ## Release binary
 
 The current Windows release workflow downloads the **GyanD/codexffmpeg 8.1.2 Essentials** archive and publishes/install its `ffmpeg.exe` and `ffprobe.exe` as separate GPLv3 runtime programs.
 
-The project does not claim these are custom MediaGrabber builds. Keep the exact provider/version and corresponding source/license information synchronized with [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) whenever the workflow pin changes.
+The project does not claim these are custom Flux Downloader builds. Keep the exact provider/version and corresponding source/license information synchronized with [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) whenever the workflow pin changes.
 
 ## Converter RPC
 
@@ -105,7 +105,7 @@ Preserve this context for CDNs that reject requests without a valid page origin.
 
 Some opaque HLS streams require rewritten manifests. The background can send `manifestFiles` with placeholder arguments. The CoApp:
 
-1. creates `<os tmp>/mediagrabber-hls-*`;
+1. creates `<os tmp>/flux-hls-*`;
 2. writes `manifest-0.m3u8`, `manifest-1.m3u8`, etc.;
 3. replaces argument placeholders with local paths;
 4. executes FFmpeg;

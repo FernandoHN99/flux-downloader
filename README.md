@@ -16,7 +16,7 @@
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="License">
 </p>
 
-> The user-facing product is **Flux**. The repository, npm packages, native host, install paths, and release files still use the historical **MediaGrabber** name.
+> The user-facing product is **Flux**. The repository, npm packages, native host, install paths, and release files still use the historical **Flux Downloader** name.
 
 ## See it in action
 
@@ -45,18 +45,18 @@ Production artifacts are published through [GitHub Releases](https://github.com/
 
 The tagged release workflow currently produces Windows x64 artifacts:
 
-- `MediaGrabber-extension.zip`
-- `MediaGrabber-CoApp-win-x64.exe`
-- `MediaGrabber-Setup-win-x64.exe`
+- `FluxDownloader-extension.zip`
+- `FluxDownloader-CoApp-win-x64.exe`
+- `FluxDownloader-Setup-win-x64.exe`
 - pinned FFmpeg, ffprobe, and yt-dlp executables
 - `SHA256SUMS.txt`
 - `THIRD_PARTY_NOTICES.txt`
 
 ### Windows x64
 
-1. Download `MediaGrabber-Setup-win-x64.exe` and `MediaGrabber-extension.zip` from the latest release.
+1. Download `FluxDownloader-Setup-win-x64.exe` and `FluxDownloader-extension.zip` from the latest release.
 2. Optionally verify both against `SHA256SUMS.txt`.
-3. Run the setup executable. It installs CoApp and runtime tools in `%LOCALAPPDATA%\MediaGrabber` and registers the native host for Chrome and Edge.
+3. Run the setup executable. It installs CoApp and runtime tools in `%LOCALAPPDATA%\Flux Downloader` and registers the native host for Chrome and Edge.
 4. Extract the extension ZIP to a permanent folder.
 5. Open `chrome://extensions` or `edge://extensions`.
 6. Enable **Developer mode**, choose **Load unpacked**, and select the extracted folder containing `manifest.json`.
@@ -80,7 +80,7 @@ Clone, install, test, and build:
 
 ```bash
 git clone https://github.com/miroshArtem/MediaGrabber.git
-cd MediaGrabber
+cd Flux Downloader
 npm install
 npm test
 npm run build
@@ -233,7 +233,7 @@ The detailed refactor record and invariants future agents must preserve are in [
 
 - Build/install and register the native host with the exact extension ID.
 - Reload the extension after registration.
-- Confirm `com.mediagrabber.coapp.json` points to a real executable.
+- Confirm `com.fluxdownloader.coapp.json` points to a real executable.
 - Run `cd coapp && node dist/main.js`; diagnostics must go to stderr because stdout is reserved for native messages.
 
 ### No media appears

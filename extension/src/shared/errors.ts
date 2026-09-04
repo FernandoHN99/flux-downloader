@@ -1,4 +1,4 @@
-// Error types for MediaGrabber extension
+// Error types for Flux Downloader extension
 
 export class CoAppError extends Error {
   constructor(

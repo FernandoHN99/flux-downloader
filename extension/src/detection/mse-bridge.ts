@@ -1,7 +1,7 @@
 import type { MseState } from './mse-media';
 
 interface MseBridgeBase {
-  source: 'MediaGrabber-MSE';
+  source: 'Flux-MSE';
   pageUrl: string;
   generation: number;
 }
@@ -23,7 +23,7 @@ export type MseStateMessage = Extract<
 function bridgeBase(value: unknown): value is Record<string, unknown> & MseBridgeBase {
   if (!value || typeof value !== 'object') return false;
   const item = value as Record<string, unknown>;
-  return item.source === 'MediaGrabber-MSE' &&
+  return item.source === 'Flux-MSE' &&
     typeof item.pageUrl === 'string' &&
     Number.isSafeInteger(item.generation) &&
     Number(item.generation) >= 0;

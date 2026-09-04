@@ -40,6 +40,10 @@ coverage/
 *.crx
 *.xpi
 
+# Promo/marketing media. Large binaries bloat every clone; keep them out of
+# git history and share them out of band.
+docs/media/
+
 # FFmpeg binaries (downloaded separately)
 coapp/ffmpeg/**/ffmpeg.exe
 coapp/ffmpeg/**/ffmpeg

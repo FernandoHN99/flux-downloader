@@ -3,8 +3,8 @@
 // with the isolated-world content script.
 
 (function() {
-  if ((window as any).__MediaGrabberMSEHooked) return;
-  (window as any).__MediaGrabberMSEHooked = true;
+  if ((window as any).__FluxMSEHooked) return;
+  (window as any).__FluxMSEHooked = true;
 
   const MSE_STATE: any = {
     blobUrl: null,
@@ -24,7 +24,7 @@
   function postToContentScript(payload: any, generation = pageGeneration): void {
     if (generation !== pageGeneration) return;
     window.postMessage(Object.assign({
-      source: 'MediaGrabber-MSE',
+      source: 'Flux-MSE',
       pageUrl: window.location.href,
       generation
     }, payload), '*');
@@ -130,8 +130,8 @@
   }
 
   function wrapXhrInstance(xhr: any): void {
-    if (!xhr || xhr.__MediaGrabberRelayWrapped || typeof xhr.open !== 'function') return;
-    xhr.__MediaGrabberRelayWrapped = true;
+    if (!xhr || xhr.__FluxRelayWrapped || typeof xhr.open !== 'function') return;
+    xhr.__FluxRelayWrapped = true;
     let report = () => {};
     for (const property of ['onload', 'onreadystatechange', 'onloadend']) {
       try {
@@ -164,7 +164,7 @@
   }
 
   function wrapXhrConstructor(value: any): any {
-    if (!value || value.__MediaGrabberRelayConstructor) return value;
+    if (!value || value.__FluxRelayConstructor) return value;
     const Wrapped = function(this: any, ...args: any[]): any {
       const xhr = new value(...args);
       wrapXhrInstance(xhr);
@@ -172,7 +172,7 @@
     } as any;
     Wrapped.prototype = value.prototype;
     try { Object.setPrototypeOf(Wrapped, value); } catch {}
-    Wrapped.__MediaGrabberRelayConstructor = true;
+    Wrapped.__FluxRelayConstructor = true;
     return Wrapped;
   }
 

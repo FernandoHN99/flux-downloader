@@ -1,4 +1,4 @@
-// MediaGrabber Content Script
+// Flux Downloader Content Script
 // Runs on every page to detect video streams
 
 import {
@@ -215,7 +215,7 @@ class MediaDetector {
     if (!normalizedUrl || this.mediaUrls.has(normalizedUrl)) return;
     this.mediaUrls.add(normalizedUrl);
 
-    console.log('[MediaGrabber] Media URL detected:', normalizedUrl);
+    console.log('[Flux] Media URL detected:', normalizedUrl);
 
     const media: DetectedMedia = {
       type: mediaTypeFromUrl(normalizedUrl),

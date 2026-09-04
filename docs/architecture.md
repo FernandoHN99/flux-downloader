@@ -1,4 +1,4 @@
-# Flux / MediaGrabber architecture
+# Flux Downloader architecture
 
 Updated: 2026-09-03. This document describes the repository implementation, not Video DownloadHelper.
 
@@ -23,7 +23,7 @@ Flux has two processes joined by Chrome native messaging:
 │            ▲                                            │
 │  popup App ─┴─ Store + components + typed messages      │
 └─────────────────────┬───────────────────────────────────┘
-                      │ connectNative("com.mediagrabber.coapp")
+                      │ connectNative("com.fluxdownloader.coapp")
                       │ 4-byte length + JSON, weh#rpc
 ┌─────────────────────▼───────────────────────────────────┐
 │ local Node.js CoApp                                    │
@@ -35,7 +35,7 @@ Flux has two processes joined by Chrome native messaging:
 └─────────────────────────────────────────────────────────┘
 ```
 
-The UI/product is named Flux. Internal IDs and release packaging intentionally retain MediaGrabber.
+The UI/product is named Flux. Internal IDs and release packaging intentionally retain Flux Downloader.
 
 ## Browser contexts
 
@@ -78,7 +78,7 @@ One capture-phase `loadedmetadata` listener serves every media element. Refresh 
 
 `extension/src/mse-inject.ts` also runs at `document_start` in every frame, with `world: "MAIN"`. It can patch page APIs but cannot access `chrome.*`. It:
 
-- guards duplicate installation with `window.__MediaGrabberMSEHooked`;
+- guards duplicate installation with `window.__FluxMSEHooked`;
 - observes `URL.createObjectURL(MediaSource)`;
 - wraps `MediaSource.addSourceBuffer` and `SourceBuffer.appendBuffer`;
 - tracks MIME/codecs, segment counts/bytes, and generation;
@@ -314,7 +314,7 @@ Opaque HLS media playlists are transformed by `hls-rewrite.ts`: segment lines pl
 
 ## Native boundary
 
-The extension uses `chrome.runtime.connectNative("com.mediagrabber.coapp")`. Chrome serializes extension-side JS objects; the process-side stream uses a 4-byte little-endian byte length followed by UTF-8 JSON.
+The extension uses `chrome.runtime.connectNative("com.fluxdownloader.coapp")`. Chrome serializes extension-side JS objects; the process-side stream uses a 4-byte little-endian byte length followed by UTF-8 JSON.
 
 `weh#rpc` is bidirectional request/reply. CoApp progress “pushes” are requests back to registered extension handlers, not unacknowledged notification envelopes.
 

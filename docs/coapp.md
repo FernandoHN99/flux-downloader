@@ -2,9 +2,9 @@
 
 Updated: 2026-09-03.
 
-The MediaGrabber CoApp is the local Node.js process used by Flux for work a Manifest V3 extension cannot do directly: run FFmpeg/ffprobe/yt-dlp, write to chosen filesystem paths, and stream direct downloads.
+The Flux Downloader CoApp is the local Node.js process used by Flux for work a Manifest V3 extension cannot do directly: run FFmpeg/ffprobe/yt-dlp, write to chosen filesystem paths, and stream direct downloads.
 
-Native host ID: `com.mediagrabber.coapp`.
+Native host ID: `com.fluxdownloader.coapp`.
 
 ## Startup
 
@@ -65,7 +65,7 @@ Startup diagnostics use `console.error`. This is essential: stdout is reserved f
 -progress pipe:1 -hide_banner -loglevel error
 ```
 
-If `options.manifestFiles` is present, it creates a temporary `mediagrabber-hls-*` directory, writes supplied HLS manifests, replaces placeholder arguments with local file paths, and removes the directory when FFmpeg exits.
+If `options.manifestFiles` is present, it creates a temporary `flux-hls-*` directory, writes supplied HLS manifests, replaces placeholder arguments with local file paths, and removes the directory when FFmpeg exits.
 
 The process PID is pushed to the extension through `convertStartNotification`. Machine-readable progress is parsed from stdout and sent through `convertOutput`. stderr is accumulated for the final result/error formatter.
 
@@ -129,14 +129,14 @@ The older VDH-style broad `fs.*` surface is not part of this CoApp.
 
 | OS | Install root |
 |---|---|
-| Windows | `%LOCALAPPDATA%\MediaGrabber` |
-| macOS | `~/Library/Application Support/MediaGrabber` |
-| Linux | `$XDG_DATA_HOME/MediaGrabber` or `~/.local/share/MediaGrabber` |
+| Windows | `%LOCALAPPDATA%\Flux Downloader` |
+| macOS | `~/Library/Application Support/FluxDownloader` |
+| Linux | `$XDG_DATA_HOME/FluxDownloader` or `~/.local/share/FluxDownloader` |
 
 Overrides:
 
-- `MEDIAGRABBER_INSTALL_DIR` changes the install root.
-- `MEDIAGRABBER_HOME` adds the first runtime search root.
+- `FLUX_INSTALL_DIR` changes the install root.
+- `FLUX_HOME` adds the first runtime search root.
 
 Runtime roots also include the current working directory, install directory, executable directory, and project directory near compiled code.
 
@@ -154,9 +154,9 @@ Known source-layout caveat: tracked placeholder folders currently include `coapp
 
 ## Native host registration
 
-`registerManifest(extensionIds)` writes `com.mediagrabber.coapp.json` under the install root with:
+`registerManifest(extensionIds)` writes `com.fluxdownloader.coapp.json` under the install root with:
 
-- name `com.mediagrabber.coapp`;
+- name `com.fluxdownloader.coapp`;
 - path to `coapp[.exe]` in the install root;
 - `type: "stdio"`;
 - Chrome extension origins for the supplied IDs.
@@ -165,7 +165,7 @@ Registration destinations:
 
 | OS | Chrome | Edge |
 |---|---|---|
-| Windows | `HKCU\Software\Google\Chrome\NativeMessagingHosts\com.mediagrabber.coapp` | `HKCU\Software\Microsoft\Edge\NativeMessagingHosts\com.mediagrabber.coapp` |
+| Windows | `HKCU\Software\Google\Chrome\NativeMessagingHosts\com.fluxdownloader.coapp` | `HKCU\Software\Microsoft\Edge\NativeMessagingHosts\com.fluxdownloader.coapp` |
 | macOS | `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/` | `~/Library/Application Support/Microsoft Edge/NativeMessagingHosts/` |
 | Linux | `~/.config/google-chrome/NativeMessagingHosts/` | `~/.config/microsoft-edge/NativeMessagingHosts/` |
 

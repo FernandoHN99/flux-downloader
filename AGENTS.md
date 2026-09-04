@@ -1,11 +1,11 @@
-# Flux / MediaGrabber — Agent Instructions
+# Flux Downloader — Agent Instructions
 
 This file is the authoritative implementation guide for AI agents working in this repository. It describes the code as it exists after the popup, content, background, and download-lifecycle refactor completed on 2026-09-03. When a count or behavior matters, verify it again before changing code.
 
 ## Identity and scope
 
 - **Flux** is the product name shown in the extension manifest and UI.
-- **MediaGrabber** remains the repository/package namespace, native host description, install directory, logs, and release artifact prefix. This is intentional compatibility, not necessarily unfinished renaming.
+- **Flux Downloader** remains the repository/package namespace, native host description, install directory, logs, and release artifact prefix. This is intentional compatibility, not necessarily unfinished renaming.
 - The product is a Chrome/Edge Manifest V3 extension plus a local Node.js companion application (CoApp).
 - TypeScript is used throughout. The extension detects media; the CoApp performs filesystem, FFmpeg, direct HTTP, and yt-dlp work.
 - DRM bypass is out of scope.
@@ -18,17 +18,17 @@ This is an npm-workspaces monorepo.
 
 | Path | Purpose |
 |---|---|
-| `extension/` | Manifest V3 extension (`mediagrabber-extension`) |
+| `extension/` | Manifest V3 extension (`flux-downloader-extension`) |
 | `extension/src/background.ts` | Service worker: detection aggregation, tab state, history, popup protocol, downloads |
 | `extension/src/content.ts` | Isolated-world DOM detector and bridge from the page world |
 | `extension/src/content/` | Tested DOM collection, page metadata, MSE bridge validation/reduction, detection projection |
 | `extension/src/mse-inject.ts` | MAIN-world MSE/fetch/XHR hook; cannot use `chrome.*` |
 | `extension/src/lib/` | Shared protocols/types, parsers/projections, state/history/download lifecycle, native client, settings |
 | `extension/src/popup/` | Component popup, settings page, and component-scoped CSS |
-| `coapp/` | Native messaging host (`mediagrabber-coapp`) |
+| `coapp/` | Native messaging host (`flux-downloader-coapp`) |
 | `coapp/src/` | RPC, FFmpeg, yt-dlp, HTTP download, paths, registration, installer |
 | `coapp/scripts/` | SEA builds, release config/checksums, Windows dev registration |
-| `docs/` | Current Flux/MediaGrabber implementation and release documentation |
+| `docs/` | Current Flux Downloader implementation and release documentation |
 | `.github/workflows/release.yml` | Windows x64 tagged-release pipeline |
 
 There is currently no `agent-plan/` or `installer/` directory. Do not follow old references to either. The installer is built from `coapp/src/installer.ts` and `coapp/scripts/build-sea.mjs`.
@@ -43,7 +43,7 @@ npm test                   # extension Vitest suite
 npm run build              # extension tsc + bundles, then CoApp tsc
 npm run build:extension
 npm run build:coapp
-npm run package:extension  # extension/MediaGrabber-extension.zip
+npm run package:extension  # extension/FluxDownloader-extension.zip
 npm run dev:extension      # extension tsc --noEmit + six esbuild watchers
 npm run dev:coapp          # CoApp tsc --watch
 cd coapp && npm start      # node dist/main.js
@@ -220,7 +220,7 @@ The service worker also observes `webRequest.onBeforeRequest` and `onHeadersRece
 
 Top-frame metadata owns page title/URL/thumbnail. Messages are checked against sender frame URL, sender tab URL, and content generation; stale navigation results are discarded. Child frames may contribute media but must not replace top-level source ownership. `content/dom-media.ts` performs normalized subtree collection and `content/mse-bridge.ts` validates/reduces page-world traffic before it mutates isolated-world state.
 
-`mse-inject.ts` is self-contained and guarded by `window.__MediaGrabberMSEHooked`. It has no extension API access. Content-script sends catch invalidated-extension errors because a loaded page can outlive an extension reload.
+`mse-inject.ts` is self-contained and guarded by `window.__FluxMSEHooked`. It has no extension API access. Content-script sends catch invalidated-extension errors because a loaded page can outlive an extension reload.
 
 ## HLS and DASH parsing
 
@@ -252,7 +252,7 @@ YouTube tabs are handled exclusively as `VideoInfo.type='ytdlp'`.
 
 ## Native messaging and CoApp
 
-Native host ID: `com.mediagrabber.coapp`.
+Native host ID: `com.fluxdownloader.coapp`.
 
 The browser-facing API uses `chrome.runtime.connectNative`. At the native process boundary, messages are 4-byte little-endian length-prefixed UTF-8 JSON. Stdout is protocol-only; logs go to stderr.
 
@@ -280,11 +280,11 @@ Key CoApp handlers:
 
 Release install roots:
 
-- Windows: `%LOCALAPPDATA%\MediaGrabber`
-- macOS: `~/Library/Application Support/MediaGrabber`
-- Linux: `$XDG_DATA_HOME/MediaGrabber` or `~/.local/share/MediaGrabber`
+- Windows: `%LOCALAPPDATA%\Flux Downloader`
+- macOS: `~/Library/Application Support/FluxDownloader`
+- Linux: `$XDG_DATA_HOME/FluxDownloader` or `~/.local/share/FluxDownloader`
 
-`MEDIAGRABBER_INSTALL_DIR` overrides the install root. `MEDIAGRABBER_HOME` adds a runtime search root.
+`FLUX_INSTALL_DIR` overrides the install root. `FLUX_HOME` adds a runtime search root.
 
 Runtime binaries are searched under known roots using `ffmpeg/{win|darwin|linux}/`, `ytdlp/{win|darwin|linux}/`, then project/current-working-directory fallbacks, then system `PATH` command names. The tracked yt-dlp placeholder uses `coapp/ytdlp/mac`, while `paths.ts` derives `darwin`; there is currently no tracked `coapp/ffmpeg/` tree. Verify actual platform paths before changing discovery logic.
 

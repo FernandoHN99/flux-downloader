@@ -3,7 +3,7 @@ import { emptyMseState } from './mse-media';
 import { isMseBridgeMessage, reduceMseState } from './mse-bridge';
 
 const base = {
-  source: 'MediaGrabber-MSE' as const,
+  source: 'Flux-MSE' as const,
   pageUrl: 'https://course.example/lesson',
   generation: 3
 };

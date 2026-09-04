@@ -166,4 +166,4 @@ rpc.listen({
   }
 });
 
-console.error('[MediaGrabber CoApp] File module loaded');
+console.error('[Flux Downloader CoApp] File module loaded');

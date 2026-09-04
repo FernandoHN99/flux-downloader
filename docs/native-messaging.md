@@ -2,9 +2,9 @@
 
 Updated: 2026-09-03.
 
-Flux's extension talks to the local MediaGrabber CoApp through Chrome's native messaging port and a bidirectional request/reply layer named `weh#rpc`.
+Flux's extension talks to the local Flux Downloader CoApp through Chrome's native messaging port and a bidirectional request/reply layer named `weh#rpc`.
 
-Native host ID: `com.mediagrabber.coapp`.
+Native host ID: `com.fluxdownloader.coapp`.
 
 ## Layers
 
@@ -142,7 +142,7 @@ Unknown or non-function methods produce an error reply.
 
 `NativeClient`:
 
-- opens `chrome.runtime.connectNative("com.mediagrabber.coapp")` lazily;
+- opens `chrome.runtime.connectNative("com.fluxdownloader.coapp")` lazily;
 - reuses an already-live port (connection setup itself is synchronous);
 - never caches a synchronous failed `connectNative` attempt, so the next call can recover after installation/restart;
 - rejects every pending call when the port disconnects;
@@ -204,9 +204,9 @@ Representative generated manifest:
 
 ```json
 {
-  "name": "com.mediagrabber.coapp",
-  "description": "MediaGrabber companion application",
-  "path": "C:\\Users\\name\\AppData\\Local\\MediaGrabber\\coapp.exe",
+  "name": "com.fluxdownloader.coapp",
+  "description": "Flux Downloader companion application",
+  "path": "C:\\Users\\name\\AppData\\Local\\Flux Downloader\\coapp.exe",
   "type": "stdio",
   "allowed_origins": [
     "chrome-extension://igephdkobpgbfgdjmehckbhffbimgkii/"
@@ -221,8 +221,8 @@ Chrome/Edge require exact extension origins. The release manifest key fixes the 
 Windows stores registry values under the current user:
 
 ```text
-HKCU\Software\Google\Chrome\NativeMessagingHosts\com.mediagrabber.coapp
-HKCU\Software\Microsoft\Edge\NativeMessagingHosts\com.mediagrabber.coapp
+HKCU\Software\Google\Chrome\NativeMessagingHosts\com.fluxdownloader.coapp
+HKCU\Software\Microsoft\Edge\NativeMessagingHosts\com.fluxdownloader.coapp
 ```
 
 macOS copies JSON into:
@@ -254,7 +254,7 @@ This repository does not register Firefox `allowed_extensions`.
 
 ### CoApp is not found
 
-1. Confirm `com.mediagrabber.coapp.json` exists.
+1. Confirm `com.fluxdownloader.coapp.json` exists.
 2. Confirm its `path` is absolute and executable.
 3. Confirm `allowed_origins` contains the browser's actual extension ID.
 4. Confirm the Windows registry value points to that JSON.

@@ -314,4 +314,4 @@ rpc.listen({
 process.on('SIGINT', killAll);
 process.on('SIGTERM', killAll);
 process.on('exit', killAll);
-console.error('[MediaGrabber CoApp] yt-dlp module loaded (binary: %s)', ytdlpBin);
+console.error('[Flux Downloader CoApp] yt-dlp module loaded (binary: %s)', ytdlpBin);

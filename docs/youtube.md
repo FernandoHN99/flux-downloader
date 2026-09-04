@@ -2,7 +2,7 @@
 
 Updated: 2026-09-03.
 
-Flux handles YouTube exclusively through yt-dlp running in the local MediaGrabber CoApp. The extension does not maintain its own YouTube signature decipherer.
+Flux handles YouTube exclusively through yt-dlp running in the local Flux Downloader CoApp. The extension does not maintain its own YouTube signature decipherer.
 
 ## Why the route is separate
 
@@ -128,7 +128,7 @@ ytdlp/darwin/yt-dlp
 ytdlp/linux/yt-dlp
 ```
 
-Search roots include install/project/executable/current directories and `MEDIAGRABBER_HOME`. A generic `<cwd>/ytdlp/yt-dlp[.exe]` and system `PATH` are fallbacks. Windows additionally scans common per-user Python installation `Scripts` directories.
+Search roots include install/project/executable/current directories and `FLUX_HOME`. A generic `<cwd>/ytdlp/yt-dlp[.exe]` and system `PATH` are fallbacks. Windows additionally scans common per-user Python installation `Scripts` directories.
 
 Known caveat: the repository's historical `coapp/ytdlp/mac/` placeholder is not the `darwin` folder current code searches.
 

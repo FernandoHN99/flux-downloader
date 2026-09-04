@@ -4,7 +4,7 @@
 
 import { ConnectionError, TimeoutError, CoAppError } from '../shared/errors';
 
-const APP_ID = 'com.mediagrabber.coapp';
+const APP_ID = 'com.fluxdownloader.coapp';
 const DEFAULT_TIMEOUT = 60000;
 const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_RETRY_DELAY = 1000;

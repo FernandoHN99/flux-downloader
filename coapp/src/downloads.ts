@@ -190,4 +190,4 @@ rpc.listen({
   }
 });
 
-console.error('[MediaGrabber CoApp] Downloads module loaded (default folder: %s)', defaultDownloadFolder);
+console.error('[Flux Downloader CoApp] Downloads module loaded (default folder: %s)', defaultDownloadFolder);

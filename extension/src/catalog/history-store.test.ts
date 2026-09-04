@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { HistoryStore } from './history-store';
+import type { HistoryStoreDeps } from './history-store';
 import type { HistoryEntry, VideoInfo } from '../shared/types';
 
 /** In-memory chrome.storage.local, so writes are observable across calls. */
@@ -18,17 +19,22 @@ function fakeStorage(initial: Record<string, unknown> = {}) {
 }
 
 function video(url: string, title = 'Clip'): VideoInfo {
-  return { url, title, type: 'mp4' } as VideoInfo;
+  return { id: url, url, title, type: 'mp4', qualities: [] };
 }
 
-function makeStore(overrides: Partial<Parameters<typeof HistoryStore.prototype.constructor>[0]> = {}) {
+/** History entries carry no key of their own; it is derived from the url. */
+function entry(url: string): HistoryEntry {
+  return { ...video(url), detectedAt: 1_000 };
+}
+
+function makeStore(overrides: Partial<HistoryStoreDeps> = {}) {
   const broadcast = vi.fn();
   const store = new HistoryStore({
     currentKeys: () => [],
     keepHistory: async () => true,
     broadcast,
-    ...(overrides as object)
-  } as any);
+    ...overrides
+  });
   return { store, broadcast };
 }
 
@@ -109,7 +115,7 @@ describe('HistoryStore', () => {
   });
 
   it('clears the stored list and broadcasts the empty result', async () => {
-    const { data } = fakeStorage({ mediaHistory: [{ key: 'k', url: 'u' }] });
+    const { data } = fakeStorage({ mediaHistory: [entry('https://cdn.test/a.mp4')] });
     const { store, broadcast } = makeStore();
 
     await store.clear();
@@ -131,8 +137,8 @@ describe('HistoryStore', () => {
   it('drops entries that are no longer playing when history is off', async () => {
     const { data } = fakeStorage({
       mediaHistory: [
-        { key: 'https://cdn.test/live.mp4', url: 'https://cdn.test/live.mp4' },
-        { key: 'https://cdn.test/gone.mp4', url: 'https://cdn.test/gone.mp4' }
+        entry('https://cdn.test/live.mp4'),
+        entry('https://cdn.test/gone.mp4')
       ]
     });
     const { store } = makeStore({
@@ -142,14 +148,14 @@ describe('HistoryStore', () => {
 
     await store.schedulePruneIfOff();
 
-    expect((data.mediaHistory as HistoryEntry[]).map((e) => e.key)).toEqual([
+    expect((data.mediaHistory as HistoryEntry[]).map((e) => e.url)).toEqual([
       'https://cdn.test/live.mp4'
     ]);
   });
 
   it('leaves the stored list alone while history is on', async () => {
     const { local } = fakeStorage({
-      mediaHistory: [{ key: 'https://cdn.test/gone.mp4', url: 'https://cdn.test/gone.mp4' }]
+      mediaHistory: [entry('https://cdn.test/gone.mp4')]
     });
     const { store } = makeStore({ keepHistory: async () => true, currentKeys: () => [] });
 
@@ -160,7 +166,7 @@ describe('HistoryStore', () => {
 
   it('marks a url downloaded and republishes the decorated list', async () => {
     const { data } = fakeStorage({
-      mediaHistory: [{ key: 'https://cdn.test/a.mp4', url: 'https://cdn.test/a.mp4' }]
+      mediaHistory: [entry('https://cdn.test/a.mp4')]
     });
     const { store, broadcast } = makeStore();
 
@@ -188,8 +194,8 @@ describe('HistoryStore', () => {
     const { store } = makeStore();
 
     const decorated = await store.decorate([
-      { key: 'https://cdn.test/a.mp4', url: 'https://cdn.test/a.mp4' } as HistoryEntry,
-      { key: 'https://cdn.test/b.mp4', url: 'https://cdn.test/b.mp4' } as HistoryEntry
+      entry('https://cdn.test/a.mp4'),
+      entry('https://cdn.test/b.mp4')
     ]);
 
     expect(decorated[0].downloaded).toBe(true);

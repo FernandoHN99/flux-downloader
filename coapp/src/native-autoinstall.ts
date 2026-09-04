@@ -6,7 +6,7 @@ import * as path from 'path';
 import { execSync } from 'child_process';
 import { getHostBinaryPath, getInstallDir } from './paths';
 
-const MANIFEST_NAME = 'com.mediagrabber.coapp.json';
+const MANIFEST_NAME = 'com.fluxdownloader.coapp.json';
 
 export interface ManifestContent {
   name: string;
@@ -20,14 +20,14 @@ function getManifestPath(): string {
 }
 function getChromeRegistryKeyPath(): string {
   if (process.platform === 'win32') {
-    return 'HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\com.mediagrabber.coapp';
+    return 'HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\com.fluxdownloader.coapp';
   }
   return '';
 }
 
 function getEdgeRegistryKeyPath(): string {
   if (process.platform === 'win32') {
-    return 'HKCU\\Software\\Microsoft\\Edge\\NativeMessagingHosts\\com.mediagrabber.coapp';
+    return 'HKCU\\Software\\Microsoft\\Edge\\NativeMessagingHosts\\com.fluxdownloader.coapp';
   }
   return '';
 }
@@ -39,8 +39,8 @@ function getManifestContent(extensionIds?: string[]): ManifestContent {
   ];
   
   return {
-    name: 'com.mediagrabber.coapp',
-    description: 'MediaGrabber companion application',
+    name: 'com.fluxdownloader.coapp',
+    description: 'Flux Downloader companion application',
     path: getHostBinaryPath(),
     type: 'stdio',
     allowed_origins: extensionIds?.length ? extensionIds.map(id => `chrome-extension://${id}/`) : defaultOrigins
@@ -60,7 +60,7 @@ export async function registerManifest(extensionIds?: string[]): Promise<void> {
   // Write manifest file
   await fs.promises.writeFile(manifestPath, JSON.stringify(manifest, null, 2));
   
-  console.error(`[MediaGrabber] Manifest written to: ${manifestPath}`);
+  console.error(`[Flux] Manifest written to: ${manifestPath}`);
   
   // Register based on platform
   if (process.platform === 'win32') {
@@ -88,7 +88,7 @@ export async function unregisterManifest(): Promise<void> {
   const manifestPath = getManifestPath();
   try {
     await fs.promises.unlink(manifestPath);
-    console.error(`[MediaGrabber] Manifest removed: ${manifestPath}`);
+    console.error(`[Flux] Manifest removed: ${manifestPath}`);
   } catch {
     // File may not exist
   }
@@ -100,9 +100,9 @@ async function registerWindows(manifestPath: string): Promise<void> {
   const chromeKeyPath = getChromeRegistryKeyPath();
   try {
     execSync(`reg add "${chromeKeyPath}" /ve /d "${manifestPath}" /f`, { stdio: 'pipe' });
-    console.error(`[MediaGrabber] Registry key added: ${chromeKeyPath}`);
+    console.error(`[Flux] Registry key added: ${chromeKeyPath}`);
   } catch (e) {
-    console.error('[MediaGrabber] Failed to add Chrome registry key:', e);
+    console.error('[Flux] Failed to add Chrome registry key:', e);
     throw e;
   }
   
@@ -110,9 +110,9 @@ async function registerWindows(manifestPath: string): Promise<void> {
   const edgeKeyPath = getEdgeRegistryKeyPath();
   try {
     execSync(`reg add "${edgeKeyPath}" /ve /d "${manifestPath}" /f`, { stdio: 'pipe' });
-    console.error(`[MediaGrabber] Registry key added: ${edgeKeyPath}`);
+    console.error(`[Flux] Registry key added: ${edgeKeyPath}`);
   } catch (e) {
-    console.error('[MediaGrabber] Failed to add Edge registry key:', e);
+    console.error('[Flux] Failed to add Edge registry key:', e);
     // Don't throw - Edge registration is not critical
   }
 }
@@ -122,7 +122,7 @@ async function unregisterWindows(): Promise<void> {
   const chromeKeyPath = getChromeRegistryKeyPath();
   try {
     execSync(`reg delete "${chromeKeyPath}" /f`, { stdio: 'pipe' });
-    console.error(`[MediaGrabber] Registry key removed: ${chromeKeyPath}`);
+    console.error(`[Flux] Registry key removed: ${chromeKeyPath}`);
   } catch {
     // Key may not exist
   }
@@ -131,7 +131,7 @@ async function unregisterWindows(): Promise<void> {
   const edgeKeyPath = getEdgeRegistryKeyPath();
   try {
     execSync(`reg delete "${edgeKeyPath}" /f`, { stdio: 'pipe' });
-    console.error(`[MediaGrabber] Registry key removed: ${edgeKeyPath}`);
+    console.error(`[Flux] Registry key removed: ${edgeKeyPath}`);
   } catch {
     // Key may not exist
   }
@@ -148,7 +148,7 @@ async function registerMac(manifestPath: string): Promise<void> {
   for (const destDir of destinations) {
     await fs.promises.mkdir(destDir, { recursive: true });
     await fs.promises.copyFile(manifestPath, path.join(destDir, MANIFEST_NAME));
-    console.error(`[MediaGrabber] Manifest copied to: ${destDir}`);
+    console.error(`[Flux] Manifest copied to: ${destDir}`);
   }
 }
 
@@ -162,7 +162,7 @@ async function unregisterMac(): Promise<void> {
   for (const destDir of destinations) {
     try {
       await fs.promises.unlink(path.join(destDir, MANIFEST_NAME));
-      console.error(`[MediaGrabber] Manifest removed from: ${destDir}`);
+      console.error(`[Flux] Manifest removed from: ${destDir}`);
     } catch {
       // File may not exist
     }
@@ -179,7 +179,7 @@ async function registerLinux(manifestPath: string): Promise<void> {
   for (const destDir of destinations) {
     await fs.promises.mkdir(destDir, { recursive: true });
     await fs.promises.copyFile(manifestPath, path.join(destDir, MANIFEST_NAME));
-    console.error(`[MediaGrabber] Manifest copied to: ${destDir}`);
+    console.error(`[Flux] Manifest copied to: ${destDir}`);
   }
 }
 
@@ -193,7 +193,7 @@ async function unregisterLinux(): Promise<void> {
   for (const destDir of destinations) {
     try {
       await fs.promises.unlink(path.join(destDir, MANIFEST_NAME));
-      console.error(`[MediaGrabber] Manifest removed from: ${destDir}`);
+      console.error(`[Flux] Manifest removed from: ${destDir}`);
     } catch {
       // File may not exist
     }

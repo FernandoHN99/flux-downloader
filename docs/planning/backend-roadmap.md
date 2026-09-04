@@ -13,8 +13,8 @@ not a spec to hand to someone else.
 
 ```
 GitHub org or account
-├── mediagrabber (this repo)        — extension + CoApp, stays as-is
-└── mediagrabber-backend (new repo) — API, auth, database
+├── flux-downloader (this repo)        — extension + CoApp, stays as-is
+└── flux-downloader-backend (new repo) — API, auth, database
 ```
 
 Why separate rather than a workspace folder in this repo:
