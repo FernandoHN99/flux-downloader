@@ -1,261 +1,148 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="extension/public/icons/icon-128.png">
-    <img src="extension/public/icons/icon-128.png" width="128" alt="Flux logo">
-  </picture>
+  <img src="extension/public/icons/icon-128.png" width="96" alt="Flux Downloader">
+</p>
+
+<h1 align="center">Flux Downloader</h1>
+
+<p align="center">
+  Detect the media a page is streaming, pick a quality, save it locally.
 </p>
 
 <p align="center">
-  <strong>Flux — detect online media, choose a quality, and download it locally.</strong>
+  <img src="https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white" alt="TypeScript">
+  <img src="https://img.shields.io/badge/Manifest%20V3-4285F4?logo=googlechrome&logoColor=white" alt="Manifest V3">
+  <img src="https://img.shields.io/badge/Node.js-22-5FA04E?logo=nodedotjs&logoColor=white" alt="Node.js 22">
+  <img src="https://img.shields.io/badge/tests-560%20passing-3fb950" alt="560 tests">
+  <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT">
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Chrome-102%2B-4285F4?logo=googlechrome&logoColor=white" alt="Chrome 102+">
-  <img src="https://img.shields.io/badge/Edge-102%2B-0078D7?logo=microsoftedge&logoColor=white" alt="Edge 102+">
-  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey" alt="Platform">
-  <img src="https://img.shields.io/badge/license-MIT-blue" alt="License">
+  <sub>Chrome / Edge 102+ · Windows, macOS, Linux · no telemetry</sub>
 </p>
 
-> The user-facing product is **Flux**. The repository, npm packages, native host, install paths, and release files still use the historical **Flux Downloader** name.
-
-## See it in action
+---
 
 https://github.com/user-attachments/assets/05a171ad-6ba6-4ab1-8d7c-9ef7cbdec57d
 
-Flux is a Manifest V3 browser extension plus a local companion app. The extension observes media used by open pages; the companion uses FFmpeg, yt-dlp, or direct HTTP streaming to save the selected item.
+## What it does
 
-### Features
+A browser cannot write files or run FFmpeg, so Flux is two halves: a Manifest V3
+extension that **finds** media, and a small local Node companion (CoApp) that
+**fetches** it. They talk over Chrome native messaging.
 
-- Detects HLS (`.m3u8`), DASH (`.mpd`), direct MP4/WebM, DOM media elements, and streams exposed through Media Source Extensions.
-- Parses available video, alternate audio, and subtitle renditions.
-- Uses yt-dlp exclusively for YouTube format discovery and downloads.
-- Maintains one list containing media from all open tabs and, optionally, up to 50 historical detections.
-- Pins current media above history and can show either a flat list or collapsible groups by source site.
-- Preserves the real page that exposed a stream. A Rocketseat lesson remains grouped under `app.rocketseat.com.br` even when its bytes come from `b-cdn.net`.
-- Offers rename, search, drag reorder, selective delete, per-site download, and sequential batch download.
-- Provides one compact progress panel and prevents overlapping download runs.
-- Includes an always-visible **Refresh tabs** action that restores deleted current entries and asks every open HTTP(S) page to announce media again.
-- Stores settings/history locally and contains no telemetry or analytics.
+| | |
+|---|---|
+| **Finds** | HLS (`.m3u8`), DASH (`.mpd`), direct MP4/WebM, `<video>` elements, and streams that only exist inside Media Source Extensions |
+| **Understands** | Video, alternate audio and subtitle renditions, parsed from the manifest itself |
+| **Downloads** | FFmpeg stream-copy for HLS/DASH, yt-dlp for YouTube, plain HTTP for direct files |
+| **Organises** | One list across every open tab, optional history, grouping by the real source site, rename, search, reorder, batch download |
 
-Flux does not bypass DRM. Download only content you are authorized to save.
+Media playing right now is pinned above history. A video keeps the page that
+actually exposed it — a Rocketseat lesson stays under `app.rocketseat.com.br`
+even though its bytes come from `b-cdn.net`.
 
-## Release installation
+> Flux does not bypass DRM. Download only what you are allowed to save.
 
-Production artifacts are published through [GitHub Releases](https://github.com/miroshArtem/MediaGrabber/releases/latest). The extension is currently sideloaded and is not published in the Chrome Web Store.
+## Install
 
-The tagged release workflow currently produces Windows x64 artifacts:
+Not on the Chrome Web Store — load it unpacked.
 
-- `FluxDownloader-extension.zip`
-- `FluxDownloader-CoApp-win-x64.exe`
-- `FluxDownloader-Setup-win-x64.exe`
-- pinned FFmpeg, ffprobe, and yt-dlp executables
-- `SHA256SUMS.txt`
-- `THIRD_PARTY_NOTICES.txt`
-
-### Windows x64
-
-1. Download `FluxDownloader-Setup-win-x64.exe` and `FluxDownloader-extension.zip` from the latest release.
-2. Optionally verify both against `SHA256SUMS.txt`.
-3. Run the setup executable. It installs CoApp and runtime tools in `%LOCALAPPDATA%\Flux Downloader` and registers the native host for Chrome and Edge.
-4. Extract the extension ZIP to a permanent folder.
-5. Open `chrome://extensions` or `edge://extensions`.
-6. Enable **Developer mode**, choose **Load unpacked**, and select the extracted folder containing `manifest.json`.
-7. Reload Flux after setup, then reload any already-open media pages.
-
-The manifest public key fixes the extension ID at `igephdkobpgbfgdjmehckbhffbimgkii`; the release installer registers this ID automatically.
-
-See [the release guide](docs/releasing.md) for maintainer details.
-
-## Source setup
-
-### Requirements
-
-- Node.js 22 is recommended and is what release CI uses.
-- npm (included with Node.js).
-- Chrome 102+ or Edge 102+.
-- FFmpeg + ffprobe for HLS/DASH/MSE work.
-- yt-dlp for YouTube.
-
-Clone, install, test, and build:
+**1. Build it**
 
 ```bash
 git clone https://github.com/miroshArtem/MediaGrabber.git
-cd Flux Downloader
+cd MediaGrabber
 npm install
-npm test
 npm run build
 ```
 
-The root is an npm-workspaces project. `npm run build` compiles and bundles the extension, then compiles the CoApp.
+**2. Load the extension**
 
-### Runtime binaries in development
+Open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**,
+and select the repository's `extension/` folder.
 
-The CoApp first looks below its runtime roots, then uses generic project fallbacks and finally the system `PATH`.
-
-Expected platform folder names come from Node's `process.platform`:
-
-```text
-coapp/ffmpeg/win/ffmpeg.exe
-coapp/ffmpeg/win/ffprobe.exe
-coapp/ffmpeg/darwin/ffmpeg
-coapp/ffmpeg/darwin/ffprobe
-coapp/ffmpeg/linux/ffmpeg
-coapp/ffmpeg/linux/ffprobe
-
-coapp/ytdlp/win/yt-dlp.exe
-coapp/ytdlp/darwin/yt-dlp
-coapp/ytdlp/linux/yt-dlp
-```
-
-Generic fallbacks also exist at `coapp/ffmpeg/ffmpeg[.exe]` and `coapp/ytdlp/yt-dlp[.exe]`. A system installation is valid when `ffmpeg`, `ffprobe`, and `yt-dlp` resolve on `PATH`.
-
-The repository still contains historical `coapp/ytdlp/mac/` placeholders, but current path resolution uses `darwin`; do not rely on the `mac` folder.
-
-### Load the unpacked extension
-
-1. Open `chrome://extensions` or `edge://extensions`.
-2. Enable **Developer mode**.
-3. Click **Load unpacked**.
-4. Select the repository's **`extension/`** directory.
-
-Do not select `extension/dist/`. The manifest, popup HTML, icons, and source CSS are rooted in `extension/`; generated JavaScript and popup CSS are referenced from `dist/`.
-
-After every build, reload the extension card. Also reload open test pages when content scripts from the previous extension instance were invalidated.
-
-### Register the development CoApp
-
-Build first, copy the extension ID from the browser card when it differs from the fixed release ID, then run:
+**3. Register the companion app**
 
 ```bash
 cd coapp
-node dist/native-autoinstall-cli.js register <extension-id>
+node dist/native-autoinstall-cli.js register igephdkobpgbfgdjmehckbhffbimgkii
 ```
 
-To unregister:
+The extension ID is fixed by the manifest key, so it is always the one above.
+
+**4. Make sure the tools are reachable**
+
+`ffmpeg`, `ffprobe` and `yt-dlp` must be on your `PATH` (or under
+`coapp/ffmpeg/<platform>/` and `coapp/ytdlp/<platform>/`).
 
 ```bash
-node dist/native-autoinstall-cli.js unregister
+brew install ffmpeg yt-dlp      # macOS
 ```
 
-On Windows, `coapp/scripts/register-dev-host.ps1 -ExtensionId <id>` provides a development registration flow.
+Reload the extension, then reload any page that was already open.
 
-## Using Flux
+## How it works
 
-Open pages containing media, then click the Flux toolbar icon.
+```mermaid
+flowchart TB
+    PAGE["🌐 <b>Web page</b><br/><sub>MSE · fetch · XHR hooks · DOM scan</sub>"]
 
-- Click a row to open its quality panel, select a rendition, and download.
-- Use the search field to filter the combined list.
-- Use the trash action to enter selective deletion mode.
-- Drag historical rows to reorder them; current and busy rows stay pinned.
-- In **By site** mode, click the source heading to collapse it or its icon to download that site's visible entries.
-- Use **Download all** with the Best/Worst batch preference for a sequential run.
-- Use **Refresh tabs** whenever a current item was deleted, the service worker restarted, or an open page needs to be scanned again.
-- Open Settings to choose History versus Only current and Flat list versus By site.
+    subgraph ext["🧩 Extension · service worker"]
+        DET["<b>detection</b><br/><sub>parsers · identity</sub>"]
+        CAT["<b>catalog</b><br/><sub>tab state · history</sub>"]
+        DL["<b>download</b><br/><sub>plan · concurrency</sub>"]
+        DET --> CAT
+    end
 
-The empty state uses the same **Refresh tabs** action; there is no separate refresh implementation.
+    POPUP["📋 <b>Popup UI</b><br/><sub>components · store · selectors</sub>"]
+    COAPP["⚙️ <b>CoApp</b> · local Node process<br/><sub>FFmpeg · yt-dlp · HTTP</sub>"]
 
-YouTube pages use yt-dlp formats rather than raw intercepted Google video requests. Full behavior depends on the installed yt-dlp version and what the current page/account exposes.
-
-## Architecture in one minute
-
-```text
-open web pages
-  ├─ isolated content script: DOM scan, metadata, cached rescan
-  ├─ MAIN-world hook: MSE + fetch/XHR observations
-  └─ service-worker webRequest listeners
-                 │
-                 ▼
-      background TabStateStore + download-run gate
-        ├─ current media from every tab
-        ├─ persisted history and markers
-        ├─ popup message protocol
-        └─ download orchestration
-                 │
-      Chrome native messaging + weh#rpc
-                 │
-                 ▼
-         local Node.js CoApp
-      FFmpeg · yt-dlp · direct HTTP
+    PAGE -- postMessage --> DET
+    CAT --> POPUP
+    POPUP -- "download this" --> DL
+    DL -- native messaging --> COAPP
 ```
 
-`VideoInfo.url` is the media/CDN URL. `VideoInfo.pageUrl` is the exact top-level source page. Keeping those facts separate is essential for grouping, links, Referer handling, and restoring history.
+Source is grouped by domain, and each folder carries its own `AGENTS.md`
+explaining the rules that live there:
 
-Read [architecture.md](docs/architecture.md), [detection.md](docs/detection.md), and [native-messaging.md](docs/native-messaging.md) for the complete flows.
+| Folder | Owns |
+|---|---|
+| [`entrypoints/`](extension/src/entrypoints) | Service worker, content script, MAIN-world hook |
+| [`detection/`](extension/src/detection) | Page hooks, HLS/DASH parsers, media identity |
+| [`catalog/`](extension/src/catalog) | Per-tab state, history and its persistence |
+| [`download/`](extension/src/download) | Download plan, concurrency gate, native client |
+| [`popup/`](extension/src/popup) | Component UI with its own store and selectors |
+| [`coapp/src/`](coapp/src) | RPC, FFmpeg, yt-dlp, filesystem |
+
+A few decisions worth calling out:
+
+- **Media identity is a normalised key, not a URL.** Signed CDN links rotate
+  their token on every visit, so matching raw strings would show one video
+  twice.
+- **The popup owns its own state, split from the background's.** A detection
+  arriving mid-rename cannot wipe what you are typing.
+- **One download run owns the CoApp at a time**, reserved synchronously before
+  the first `await` — disabling buttons is feedback, not the lock.
+- **The MAIN-world hooks stay invisible.** Patched APIs report native source and
+  keep the extension out of error stacks, because a player that notices
+  tampering stops rendering.
 
 ## Development
 
-### Commands
-
 ```bash
-npm test                    # 39 files / 505 tests at the 2026-09-03 baseline
-npm run build               # full extension + CoApp verification
-npm run build:extension
-npm run build:coapp
-npm run package:extension
+npm test          # 560 tests · Vitest + happy-dom
+npm run build     # tsc + esbuild bundles, then the CoApp
 npm run dev:extension
-npm run dev:coapp
 ```
 
-Tests use Vitest with happy-dom and live under `extension/src/**/*.test.ts`. They cover popup components, pure content/background rules, parsers, download lifecycle, and the extension-side native client. There are currently no process-side CoApp tests and no linter.
+No linter and no runtime dependencies — just TypeScript, esbuild and Vitest.
+Deeper notes live in [AGENTS.md](AGENTS.md) and [docs/](docs).
 
-`npm run dev:extension` keeps the six extension bundles in `extension/dist/` rebuilt while TypeScript checks in parallel. It does not reload the unpacked extension or pages in Chrome/Edge; reload those manually when needed. Use `npm run build` for final extension + CoApp verification.
+## Privacy
 
-### Important source files
+Everything stays on your machine. Settings and history use
+`chrome.storage.local`; the CoApp only talks to the extension that registered
+it. No analytics, no accounts, no servers.
 
-| Path | Responsibility |
-|---|---|
-| `extension/src/background.ts` | MV3 service worker, current/history state, protocol, downloads |
-| `extension/src/lib/tab-state.ts` | one owner for per-tab state and page generations |
-| `extension/src/lib/history.ts` | pure history merge/source attribution rules |
-| `extension/src/content.ts` | isolated-world integration, navigation, rescan cache |
-| `extension/src/content/` | tested DOM collection, metadata, MSE bridge validation/reduction |
-| `extension/src/mse-inject.ts` | MAIN-world MSE/fetch/XHR hook |
-| `extension/src/lib/m3u8-parser.ts` | HLS parsing |
-| `extension/src/lib/dash-parser.ts` | DASH parsing |
-| `extension/src/lib/manifest-qualities.ts` | parsed HLS/DASH → typed quality choices |
-| `extension/src/lib/hls-{rewrite,arguments}.ts` | opaque manifest URI rewrite and multi-input FFmpeg preparation |
-| `extension/src/lib/download-tracker.ts` | active IDs, outcomes, waiters, cancellation lifecycle |
-| `extension/src/lib/download-run-gate.ts` | service-worker enforcement of one native run |
-| `extension/src/lib/native-client.ts` | tested bidirectional native RPC client/reconnect lifecycle |
-| `extension/src/popup/index.ts` | popup app shell |
-| `extension/src/popup/state.ts` | separate remote and local UI state |
-| `extension/src/popup/components/` | DOM-owning UI components |
-| `extension/src/popup/styles/` | component/concern CSS imported by `index.css` |
-| `coapp/src/` | native RPC, downloads, runtimes, paths, registration |
-
-The detailed refactor record and invariants future agents must preserve are in [AGENTS.md](AGENTS.md) and [the project changelog](docs/changelog.md).
-
-`npm run package:extension` includes `dist/popup.css` and fails before archiving if popup/settings HTML references a missing local asset.
-
-## Troubleshooting
-
-### CoApp shows Disconnected
-
-- Build/install and register the native host with the exact extension ID.
-- Reload the extension after registration.
-- Confirm `com.fluxdownloader.coapp.json` points to a real executable.
-- Run `cd coapp && node dist/main.js`; diagnostics must go to stderr because stdout is reserved for native messages.
-
-### No media appears
-
-- Click **Refresh tabs** and wait for all open pages to reply.
-- If the extension was just rebuilt/reloaded, reload the page itself; an invalidated old content script cannot receive `RESCAN`.
-- Start playback or scroll the player into view on lazy-loaded sites.
-- `chrome://`, `edge://`, and store pages cannot be scanned.
-- DRM-protected media is unsupported.
-
-### A historical link is expired
-
-Reopen the exact source page, start playback if necessary, then use **Refresh tabs**. Flux probes historical URLs before starting and reports common expired-link HTTP statuses.
-
-### Download fails or stalls
-
-- Verify `ffmpeg -version`, `ffprobe -version`, and/or `yt-dlp --version`.
-- Verify the page still authorizes its media URL; authenticated CDNs may require source Referer/Origin context.
-- Check the Settings status for the CoApp connection.
-
-## Privacy and license
-
-Flux has no telemetry or analytics. It stores settings, recent media/history metadata, and downloaded/failed markers in `chrome.storage.local`; downloads and manifest/format requests necessarily contact the selected source/CDN. See [the privacy policy](docs/PRIVACY.md) for exact details.
-
-The project source is MIT licensed. FFmpeg and yt-dlp are separate runtime programs with their own terms; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+<p align="center"><sub><a href="LICENSE">MIT</a></sub></p>
