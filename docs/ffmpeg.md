@@ -115,6 +115,8 @@ Do not write these generated manifests into the repository or download folder.
 
 The text transformation is isolated in `extension/src/lib/hls-rewrite.ts`. It resolves segment lines and quoted `URI` attributes (including encryption keys and init maps) against the final manifest response URL, then asks the tab's relay codec for replacements. If zero URIs are rewritten or any URI is unresolved, the background fails with an actionable “start playback and retry” error instead of passing a partially rewritten playlist to FFmpeg.
 
+`extension/src/lib/hls-arguments.ts` prepares the final FFmpeg array without inserting into the array it is currently scanning. Every HTTP(S) `-i` is visited in order, so separate rewritten video and alternate-audio playlists each receive their own local-manifest protocol options. Local/data/already-placeholder inputs are left untouched.
+
 ## Progress
 
 FFmpeg writes key/value records to stdout because of `-progress pipe:1`. The CoApp accumulates a record until it sees `progress=...` and then calls:

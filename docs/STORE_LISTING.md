@@ -2,7 +2,7 @@
 
 Updated: 2026-09-03.
 
-Copy audit: reviewed against the 500-test post-refactor implementation and current GitHub-distributed `1.1.1` baseline.
+Copy audit: reviewed against the 505-test post-refactor implementation and current GitHub-distributed `1.1.1` baseline.
 
 > Distribution status: Flux is currently shipped through GitHub Releases as an unpacked extension, **not** through the Chrome Web Store. This is maintained as canonical product copy for release pages or a future listing. Review store policy—especially YouTube behavior—before publishing.
 

@@ -187,7 +187,7 @@ Read [architecture.md](docs/architecture.md), [detection.md](docs/detection.md),
 ### Commands
 
 ```bash
-npm test                    # 38 files / 500 tests at the 2026-09-03 baseline
+npm test                    # 39 files / 505 tests at the 2026-09-03 baseline
 npm run build               # full extension + CoApp verification
 npm run build:extension
 npm run build:coapp
@@ -212,6 +212,7 @@ Tests use Vitest with happy-dom and live under `extension/src/**/*.test.ts`. The
 | `extension/src/lib/m3u8-parser.ts` | HLS parsing |
 | `extension/src/lib/dash-parser.ts` | DASH parsing |
 | `extension/src/lib/manifest-qualities.ts` | parsed HLS/DASH → typed quality choices |
+| `extension/src/lib/hls-{rewrite,arguments}.ts` | opaque manifest URI rewrite and multi-input FFmpeg preparation |
 | `extension/src/lib/download-tracker.ts` | active IDs, outcomes, waiters, cancellation lifecycle |
 | `extension/src/lib/download-run-gate.ts` | service-worker enforcement of one native run |
 | `extension/src/lib/native-client.ts` | tested bidirectional native RPC client/reconnect lifecycle |

@@ -79,6 +79,7 @@ This section describes commits after the `v1.1.1` tag on the current refactor li
 - Added explicit HLS `SUBTITLES` group tracking so valid subtitle renditions are not filtered as unrelated.
 - Projected HLS/DASH parser output into explicit video/audio/subtitle qualities in a tested module.
 - Covered HLS relay rewriting for segments, encryption-key URIs, and init-map URIs; partial relay maps fail early.
+- Isolated HLS FFmpeg input preparation so video/audio inputs are visited in order without mutating the argument array being scanned.
 
 ### Parser work
 
@@ -105,8 +106,8 @@ This section describes commits after the `v1.1.1` tag on the current refactor li
 
 At this baseline:
 
-- 38 test files;
-- 500 passing tests;
+- 39 test files;
+- 505 passing tests;
 - Vitest 3 + happy-dom;
 - full extension and CoApp build passes;
 - no linter and no CoApp test suite yet.
@@ -161,6 +162,7 @@ At this baseline:
 | `c70b819` | native reconnect retry/tests |
 | `d1e8be5` | global native-run gate |
 | `9c3a496` | native process settlement |
+| `60d3d56` | HLS input argument preparation |
 
 ### Resolved release check
 

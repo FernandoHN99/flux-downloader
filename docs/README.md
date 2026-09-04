@@ -33,7 +33,7 @@ Documentation baseline: **2026-09-03**, version `1.1.1`, including the component
 - Top-level source page is kept separately from media/CDN URLs.
 - Vanilla TypeScript components with component-owned DOM and split CSS.
 - Per-tab background data is owned by one `TabStateStore`.
-- Vitest + happy-dom: 38 files / 500 passing tests at this baseline.
+- Vitest + happy-dom: 39 files / 505 passing tests at this baseline.
 - Content-side DOM/MSE transformations and background catalog/history/download rules live in focused tested modules rather than anonymous service-worker blocks.
 - One `DownloadRunGate` in the worker—not popup timing—enforces the single native run.
 - Full verification: `npm test`, then `npm run build`.

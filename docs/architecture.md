@@ -148,7 +148,7 @@ Every fresh page gets a monotonically increasing generation. Async parsing and y
 
 The following state intentionally remains global because its lifecycle is not one tab: `DownloadTracker` active IDs/waiters/outcomes, `DownloadRunGate`, `BatchRun`, popup ports, CoApp metadata, settings cache, and history-write queue.
 
-Pure service-worker rules live under `extension/src/lib/` rather than inside Chrome event callbacks. Important owners include `video-catalog.ts`, `page-context.ts`, `history.ts`, `http-media.ts`, `download-plan.ts`, `manifest-qualities.ts`, `relay-codec.ts`, and `hls-rewrite.ts`. Popup and content traffic use separate discriminated protocols in `popup-protocol.ts` and `content-protocol.ts`.
+Pure service-worker rules live under `extension/src/lib/` rather than inside Chrome event callbacks. Important owners include `video-catalog.ts`, `page-context.ts`, `history.ts`, `http-media.ts`, `download-plan.ts`, `manifest-qualities.ts`, `relay-codec.ts`, `hls-rewrite.ts`, and `hls-arguments.ts`. Popup and content traffic use separate discriminated protocols in `popup-protocol.ts` and `content-protocol.ts`.
 
 ## Detection-to-history flow
 
@@ -308,7 +308,7 @@ Batch downloads are sequential, choose Best/Worst video quality per item, and wr
 
 `DownloadTracker` retains very short-lived outcomes so a process that finishes before the batch begins waiting is still observed. It resolves multiple waiters, ignores duplicate/late callbacks, and keeps cancellation tombstones long enough to abort a late PID. FFmpeg/MSE/yt-dlp promises share one settlement path for popup events, notifications, markers, and lease release.
 
-Opaque HLS media playlists are transformed by `hls-rewrite.ts`: segment lines plus quoted key/init-map `URI` attributes are resolved against the final manifest URL and replaced with learned relay URLs. A zero/partial mapping fails before FFmpeg rather than producing a corrupt output.
+Opaque HLS media playlists are transformed by `hls-rewrite.ts`: segment lines plus quoted key/init-map `URI` attributes are resolved against the final manifest URL and replaced with learned relay URLs. A zero/partial mapping fails before FFmpeg rather than producing a corrupt output. `hls-arguments.ts` then walks the original FFmpeg array into a new one, rewriting every HTTP(S) input—including separate video/audio manifests—and placing protocol options immediately before the matching `-i`.
 
 ## Native boundary
 
@@ -347,4 +347,4 @@ See [PRIVACY.md](PRIVACY.md) for exact disclosure.
 
 ## Verification baseline
 
-As of this update, 38 Vitest files contain 500 passing extension tests. This includes popup components, parsers, content DOM/MSE helpers, protocols, catalog/history/relay/download state, and `NativeClient`. The CoApp still has no process-side test runner. Required verification remains `npm test` followed by `npm run build`.
+As of this update, 39 Vitest files contain 505 passing extension tests. This includes popup components, parsers, content DOM/MSE helpers, protocols, catalog/history/relay/download state, HLS argument preparation, and `NativeClient`. The CoApp still has no process-side test runner. Required verification remains `npm test` followed by `npm run build`.

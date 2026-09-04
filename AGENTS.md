@@ -64,13 +64,13 @@ For Windows development, `coapp/scripts/register-dev-host.ps1 -ExtensionId <id>`
 
 As of 2026-09-03:
 
-- 38 extension test files and **500 tests** pass.
+- 39 extension test files and **505 tests** pass.
 - Tests use Vitest 3 with `happy-dom`; configuration is in `extension/vitest.config.ts`.
 - `NativeClient` is covered on the extension side; there are still no process-side CoApp tests and no linter.
 - The required final verification for code changes is `npm test` followed by `npm run build`.
 - Parser and component regressions should be protected with tests before or with a refactor.
 
-Do not keep reporting the 500 count after adding/removing tests without rerunning the suite.
+Do not keep reporting the 505 count after adding/removing tests without rerunning the suite.
 
 ## Extension build and loading
 
@@ -232,6 +232,7 @@ Both parsers are regex-based because `DOMParser` is not available in the MV3 ser
 - HLS preserves distinct same-resolution variants when their audio rendition groups differ, but deduplicates groups with equivalent rendition membership.
 - HLS variants record both `AUDIO` and `SUBTITLES` group IDs. `manifest-qualities.ts` projects parsed variants/renditions into typed popup/FFmpeg choices.
 - `hls-rewrite.ts` rewrites segment, key, and init-map URIs for learned browser relays and rejects a partial mapping.
+- `hls-arguments.ts` walks FFmpeg inputs without mutating the array under iteration and attaches local-manifest protocol options to every rewritten HTTP(S) input.
 - DASH inherits representation attributes from `AdaptationSet`, records DRM presence, extracts subtitle tracks, and parses ISO-8601 media durations.
 - DASH duration accepts full zero-year/month forms such as `P0Y0M0DT0H25M23.000S`, plus days/weeks. Non-zero years or months are rejected because they have no fixed duration.
 - Calling M3U8 `parse()` without a base URL cannot resolve/return relative variants; production `fetchAndParse()` supplies one.
@@ -348,6 +349,7 @@ These commits are the context future work must preserve:
 | `c70b819` | Fixed retry after an initial native connection failure; added RPC lifecycle tests |
 | `d1e8be5` | Enforced one native download run in the service worker |
 | `9c3a496` | Centralized FFmpeg/MSE/yt-dlp process settlement |
+| `60d3d56` | Isolated multi-input HLS FFmpeg argument preparation |
 
 Structural regressions this refactor prevents:
 
@@ -368,6 +370,7 @@ Structural regressions this refactor prevents:
 - every refresh attaching another `loadedmetadata` listener to the same media element;
 - an initial missing native host making every later connect retry reuse one rejected promise;
 - separate popup instances bypassing the visual-only download concurrency guard;
-- packaged popup HTML referencing a CSS asset absent from the ZIP.
+- packaged popup HTML referencing a CSS asset absent from the ZIP;
+- in-place HLS argument insertion skipping or misordering a later audio input.
 
 Preserve these invariants with tests whenever touching popup rendering, content detection, protocols, history/catalog merging, tab generations, refresh, source attribution, native lifecycle, download concurrency/cancellation, or packaging.

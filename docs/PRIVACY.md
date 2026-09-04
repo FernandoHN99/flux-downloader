@@ -2,7 +2,7 @@
 
 Last updated: 2026-09-03.
 
-Implementation audit: reviewed against the 500-test post-refactor baseline. Storage keys, permissions, external services, and runtime pins did not change.
+Implementation audit: reviewed against the 505-test post-refactor baseline. Storage keys, permissions, external services, and runtime pins did not change.
 
 Flux is the user-facing name of the MediaGrabber browser extension and local companion application.
 

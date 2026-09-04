@@ -30,7 +30,7 @@ cd coapp && npm start
 
 `npm run dev:extension` does not work: the extension has no `watch` script.
 
-Verification baseline: 38 extension test files, 500 tests, no process-side CoApp tests, no linter.
+Verification baseline: 39 extension test files, 505 tests, no process-side CoApp tests, no linter.
 
 ## Load and register
 
@@ -61,7 +61,7 @@ Focused source owners (not separate bundles):
 
 - `extension/src/content/{dom-media,page-metadata,mse-bridge,mse-media}.ts`
 - `extension/src/lib/{popup-protocol,content-protocol,video-catalog,page-context,history}.ts`
-- `extension/src/lib/{manifest-qualities,hls-rewrite,relay-codec}.ts`
+- `extension/src/lib/{manifest-qualities,hls-rewrite,hls-arguments,relay-codec}.ts`
 - `extension/src/lib/{download-plan,download-tracker,download-run-gate,batch-run}.ts`
 
 ## Popup
