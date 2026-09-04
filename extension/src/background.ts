@@ -34,8 +34,7 @@ import { isPopupRequest } from './lib/popup-protocol';
 import type {
   BatchStatus,
   PopupMessage,
-  PopupRequest,
-  ProgressDetail
+  PopupRequest
 } from './lib/popup-protocol';
 import { isRuntimeRequest } from './lib/content-protocol';
 import type {
@@ -46,6 +45,7 @@ import type {
 import { applyPageMetadataToVideos, mergePageMetadata } from './lib/page-context';
 import { buildYtdlpVideo, fallbackYtdlpQualities } from './lib/youtube';
 import { inferRelayCodec, mergeRelayCodecs, resolveRelayUrl } from './lib/relay-codec';
+import { DownloadTracker } from './lib/download-tracker';
 
 const nativeClient = new NativeClient();
 
@@ -94,50 +94,19 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   notifyPopups();
 });
 
-// Active downloads: key = downloadKey, value = tracking info
-const activeDownloads = new Map<string, {
-  pid?: number;
-  downloadId?: number;
-  type: 'convert' | 'direct' | 'ytdlp';
-  video?: VideoInfo;
-  /** The detected video's own URL — video.url holds the chosen quality's. */
-  sourceUrl?: string;
-  directory: string;
-  filename: string;
-  tabId?: number;
-  lastProgress?: ProgressDetail;
-}>();
-
-// Resolvers for callers waiting on a download to finish (batch downloads).
-const downloadWaiters = new Map<string, (succeeded: boolean) => void>();
-// Outcomes of downloads that finished before anyone awaited them.
-const recentOutcomes = new Map<string, boolean>();
+const activeDownloads = new DownloadTracker();
 
 function finishDownload(key: string, succeeded: boolean): void {
-  const tracked = activeDownloads.get(key);
+  const tracked = activeDownloads.finish(key, succeeded);
+  if (!tracked) return;
   const sourceUrl = tracked?.sourceUrl || tracked?.video?.url;
-  activeDownloads.delete(key);
   if (succeeded && sourceUrl) {
     markDownloaded(sourceUrl).catch(() => { /* marker is best-effort */ });
   }
-  const waiter = downloadWaiters.get(key);
-  if (waiter) {
-    downloadWaiters.delete(key);
-    waiter(succeeded);
-    return;
-  }
-  // A short download can finish before the batch starts awaiting it.
-  recentOutcomes.set(key, succeeded);
-  setTimeout(() => recentOutcomes.delete(key), 30000);
 }
 
 function waitForDownload(key: string): Promise<boolean> {
-  if (recentOutcomes.has(key)) {
-    const outcome = recentOutcomes.get(key)!;
-    recentOutcomes.delete(key);
-    return Promise.resolve(outcome);
-  }
-  return new Promise((resolve) => downloadWaiters.set(key, resolve));
+  return activeDownloads.wait(key);
 }
 
 // Popup connections
@@ -183,6 +152,7 @@ nativeClient.listen({
   // FFmpeg progress push: (progressTime, currentSeconds, info)
   convertOutput: (progressTime: number, currentSeconds: number, info: any) => {
     for (const [key, dl] of activeDownloads) {
+      if (!activeDownloads.isRunning(key)) continue;
       if (!dl.video) continue;
       if (dl.type !== 'convert' && dl.type !== 'ytdlp') continue;
       const duration = dl.video.duration || 0;
@@ -202,11 +172,27 @@ nativeClient.listen({
 
   // CoApp tells us the ffmpeg PID for a convert operation
   convertStartNotification: (startHandler: any, pid: number) => {
-    const keyedDownload = activeDownloads.get(String(startHandler));
+    const key = String(startHandler);
+    const keyedDownload = activeDownloads.get(key);
     if (keyedDownload && keyedDownload.type === 'convert') {
       keyedDownload.pid = pid;
+      if (activeDownloads.cancelledType(key)) {
+        void nativeClient.abortConvert(pid).finally(() => finishDownload(key, false));
+      }
       return;
     }
+    if (keyedDownload && keyedDownload.type === 'ytdlp') {
+      keyedDownload.pid = pid;
+      if (activeDownloads.cancelledType(key)) {
+        void nativeClient.abortYtdlp(pid).finally(() => finishDownload(key, false));
+      }
+      return;
+    }
+
+    // Stop a process whose PID arrived just after an early cancellation.
+    const cancelledType = activeDownloads.cancelledType(key);
+    if (cancelledType === 'convert') void nativeClient.abortConvert(pid).catch(() => {});
+    if (cancelledType === 'ytdlp') void nativeClient.abortYtdlp(pid).catch(() => {});
 
     // Fallback for older CoApp calls without startHandler.
     for (const dl of activeDownloads.values()) {
@@ -220,8 +206,7 @@ nativeClient.listen({
   // Direct download complete (pushed by CoApp)
   downloadComplete: (downloadId: number, outputPath: string) => {
     const key = `direct_${downloadId}`;
-    const dl = activeDownloads.get(key);
-    if (dl) {
+    if (activeDownloads.isRunning(key)) {
       popupPorts.forEach(port => {
         postPopup(port, { type: 'DOWNLOAD_COMPLETE', downloadId: key, outputPath });
       });
@@ -232,6 +217,7 @@ nativeClient.listen({
   // Direct download error (pushed by CoApp)
   downloadError: (downloadId: number, error: string) => {
     const key = `direct_${downloadId}`;
+    if (!activeDownloads.isRunning(key)) return;
     popupPorts.forEach(port => {
       postPopup(port, { type: 'DOWNLOAD_ERROR', downloadId: key, error });
     });
@@ -954,7 +940,7 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: PopupRequest): void 
 
     case 'GET_ACTIVE_DOWNLOAD': {
       const tabId = msg.tabId;
-      const entry = [...activeDownloads.entries()].find(([, dl]) => dl.tabId === tabId);
+      const entry = activeDownloads.findForTab(tabId);
       if (entry) {
         const [key, dl] = entry;
         postPopup(port, {
@@ -1180,6 +1166,7 @@ async function startDownload(
       prepared.args,
       { progressTime: 1000, startHandler: downloadKey, manifestFiles: prepared.manifestFiles }
     ).then(result => {
+      if (!activeDownloads.isRunning(downloadKey)) return;
       if (result.exitCode === 0) {
         notify('Download complete', outFilename);
         popupPorts.forEach(port => {
@@ -1193,6 +1180,7 @@ async function startDownload(
       }
       finishDownload(downloadKey, result.exitCode === 0);
     }).catch(err => {
+      if (!activeDownloads.isRunning(downloadKey)) return;
       notify('Download failed', err.message);
       popupPorts.forEach(port => {
         postPopup(port, { type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: err.message });
@@ -1224,6 +1212,7 @@ async function startDownload(
       ffmpegArgs,
       { progressTime: 1000, startHandler: downloadKey }
     ).then(result => {
+      if (!activeDownloads.isRunning(downloadKey)) return;
       if (result.exitCode === 0) {
         notify('Download complete', outFilename);
         popupPorts.forEach(port => {
@@ -1237,6 +1226,7 @@ async function startDownload(
       }
       finishDownload(downloadKey, result.exitCode === 0);
     }).catch(err => {
+      if (!activeDownloads.isRunning(downloadKey)) return;
       notify('Download failed', err.message);
       popupPorts.forEach(port => {
         postPopup(port, { type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: err.message });
@@ -1264,6 +1254,7 @@ async function startDownload(
       formatArgs,
       { progressTime: 1000, startHandler: downloadKey, outputDir: directory || undefined, filename: outFilename.replace(/\.[^.]+$/, '.%(ext)s') }
     ).then(result => {
+      if (!activeDownloads.isRunning(downloadKey)) return;
       if (result.exitCode === 0) {
         notify('Download complete', outFilename);
         popupPorts.forEach(port => {
@@ -1277,6 +1268,7 @@ async function startDownload(
       }
       finishDownload(downloadKey, result.exitCode === 0);
     }).catch(err => {
+      if (!activeDownloads.isRunning(downloadKey)) return;
       notify('Download failed', err.message);
       popupPorts.forEach(port => {
         postPopup(port, { type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: err.message });
@@ -1313,8 +1305,16 @@ async function startDownload(
 
 function startDirectProgressPolling(downloadKey: string, downloadId: number, duration?: number): void {
   const timer = setInterval(async () => {
+    if (!activeDownloads.isRunning(downloadKey)) {
+      clearInterval(timer);
+      return;
+    }
     try {
       const results = await nativeClient.searchDownloads(downloadId);
+      if (!activeDownloads.isRunning(downloadKey)) {
+        clearInterval(timer);
+        return;
+      }
       if (!results || results.length === 0) {
         clearInterval(timer);
         return;
@@ -1353,20 +1353,22 @@ function startDirectProgressPolling(downloadKey: string, downloadId: number, dur
 }
 
 async function handleCancelDownload(downloadId: string): Promise<any> {
-  const dl = activeDownloads.get(downloadId);
+  const dl = activeDownloads.beginCancel(downloadId);
   if (!dl) {
     return { success: false, error: 'Download not found' };
   }
 
-  if (dl.type === 'convert' && dl.pid !== undefined) {
-    await nativeClient.abortConvert(dl.pid);
-  } else if (dl.type === 'ytdlp' && dl.pid !== undefined) {
-    await nativeClient.abortYtdlp(dl.pid);
-  } else if (dl.type === 'direct' && dl.downloadId !== undefined) {
-    await nativeClient.cancelDownload(dl.downloadId);
+  try {
+    if (dl.type === 'convert' && dl.pid !== undefined) {
+      await nativeClient.abortConvert(dl.pid);
+    } else if (dl.type === 'ytdlp' && dl.pid !== undefined) {
+      await nativeClient.abortYtdlp(dl.pid);
+    } else if (dl.type === 'direct' && dl.downloadId !== undefined) {
+      await nativeClient.cancelDownload(dl.downloadId);
+    }
+  } finally {
+    finishDownload(downloadId, false);
   }
-
-  finishDownload(downloadId, false);
   return { success: true };
 }
 
