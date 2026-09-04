@@ -18,5 +18,5 @@
     "noImplicitAny": false
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "ffmpeg"]
+  "exclude": ["node_modules", "dist", "ffmpeg", "src/**/*.test.ts"]
 }
