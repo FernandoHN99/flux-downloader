@@ -8,17 +8,7 @@ import { DashParserWrapper } from '../detection/dash-parser';
 import { loadSettings, Settings, DEFAULT_SETTINGS } from '../shared/settings';
 import { videoKey } from '../detection/video-key';
 import { PageMetadata, TabStateStore } from '../catalog/tab-state';
-import {
-  decorateHistoryEntries,
-  markHistoryDownloaded,
-  markHistoryFailed,
-  mergeDetectedVideosIntoHistory,
-  removeHistoryEntries,
-  renameHistoryTitle,
-  reorderHistoryEntries,
-  retainHistoryEntries,
-  sameHistoryContent
-} from '../catalog/history';
+import { HistoryStore } from '../catalog/history-store';
 import { isMediaUrl, isYouTubeUrl, mediaTypeFromUrl } from '../detection/media-url';
 import {
   mergeChildUrls,
@@ -138,7 +128,7 @@ function finishDownload(key: string, succeeded: boolean): void {
   if (run?.releaseOnFinish) downloadRunGate.release(run.lease);
   const sourceUrl = tracked?.sourceUrl || tracked?.video?.url;
   if (succeeded && sourceUrl) {
-    markDownloaded(sourceUrl).catch(() => { /* marker is best-effort */ });
+    history.markDownloaded(sourceUrl).catch(() => { /* marker is best-effort */ });
   }
 }
 
@@ -339,100 +329,25 @@ chrome.storage.onChanged.addListener((changes, area) => {
   const keep = changes.settings.newValue?.keepHistory !== false;
   if (keep === lastKeepHistory) return;
   lastKeepHistory = keep;
-  if (!keep) schedulePruneIfHistoryOff();
+  if (!keep) history.schedulePruneIfOff();
 });
 
-const HISTORY_KEY = 'mediaHistory';
-const HISTORY_LIMIT = 50;
+const history = new HistoryStore({
+  currentKeys: () => currentMediaPayload().currentKeys,
+  keepHistory: async () => (await getSettings()).keepHistory,
+  broadcast: (entries) => {
+    popupPorts.forEach((port) => postPopup(port, { type: 'HISTORY_LIST', entries }));
+  }
+});
 
-// chrome.storage read-modify-write must not interleave — commitVideos fires often.
-let historyWrites: Promise<void> = Promise.resolve();
-
-async function readHistory(): Promise<HistoryEntry[]> {
-  const stored = await chrome.storage.local.get(HISTORY_KEY);
-  const entries = stored[HISTORY_KEY];
-  return Array.isArray(entries) ? entries : [];
-}
-
+/** Records what a tab is playing, tagged with that tab's page identity. */
 function recordHistory(tabId: number, videos: VideoInfo[]): Promise<void> {
-  if (videos.length === 0) return historyWrites;
   const state = tabStates.get(tabId);
   const metadata = state?.pageMetadata;
-  const pageUrl = metadata?.pageUrl || state?.currentPageUrl || undefined;
-  const snapshot = videos.map((video) => ({ ...video }));
-  historyWrites = historyWrites
-    .then(() => mergeIntoHistory(snapshot, pageUrl, metadata?.title))
-    .catch((error) => console.warn('[MediaGrabber] Failed to record history:', error));
-  return historyWrites;
-}
-
-async function mergeIntoHistory(videos: VideoInfo[], pageUrl?: string, pageTitle?: string): Promise<void> {
-  const history = await readHistory();
-  const next = mergeDetectedVideosIntoHistory(
-    history,
-    videos,
-    { pageUrl, pageTitle },
-    Date.now(),
-    HISTORY_LIMIT
-  );
-  if (sameHistoryContent(next, history)) return;
-
-  await chrome.storage.local.set({ [HISTORY_KEY]: next });
-  await broadcastHistory(next);
-}
-
-/**
- * With history switched off the stored list is not allowed to outlive the
- * tabs: anything no longer playing somewhere is dropped. Called whenever the
- * current set changes, and once when the setting is turned off.
- */
-async function pruneHistoryToCurrent(): Promise<void> {
-  const history = await readHistory();
-  const next = retainHistoryEntries(history, currentMediaPayload().currentKeys);
-  if (next === history) return;
-  await chrome.storage.local.set({ [HISTORY_KEY]: next });
-  await broadcastHistory(next);
-}
-
-// Fire-and-forget prune, queued behind any write already in flight.
-function schedulePruneIfHistoryOff(): void {
-  historyWrites = historyWrites
-    .then(async () => {
-      const settings = await getSettings();
-      if (settings.keepHistory) return;
-      await pruneHistoryToCurrent();
-    })
-    .catch((error) => console.warn('[MediaGrabber] Failed to prune history:', error));
-}
-
-async function clearHistory(): Promise<void> {
-  await chrome.storage.local.remove(HISTORY_KEY);
-  await broadcastHistory([]);
-}
-
-async function deleteHistoryEntries(keys: string[]): Promise<void> {
-  const history = await readHistory();
-  const next = removeHistoryEntries(history, keys);
-  if (next === history) return;
-  await chrome.storage.local.set({ [HISTORY_KEY]: next });
-  await broadcastHistory(next);
-}
-
-async function renameHistoryEntry(key: string, title: string): Promise<void> {
-  const history = await readHistory();
-  const next = renameHistoryTitle(history, key, title);
-  if (next === history) return;
-  await chrome.storage.local.set({ [HISTORY_KEY]: next });
-  await broadcastHistory(next);
-}
-
-// `keys` is the order the popup shows; entries it filtered out (the current
-// page's videos) keep their data and land after them.
-async function reorderHistory(keys: string[]): Promise<void> {
-  const history = await readHistory();
-  const next = reorderHistoryEntries(history, keys);
-  await chrome.storage.local.set({ [HISTORY_KEY]: next });
-  await broadcastHistory(next);
+  return history.record(videos, {
+    pageUrl: metadata?.pageUrl || state?.currentPageUrl || undefined,
+    pageTitle: metadata?.title
+  });
 }
 
 function renameDetectedVideo(tabId: number | undefined, key: string, title: string): void {
@@ -448,61 +363,6 @@ function renameDetectedVideo(tabId: number | undefined, key: string, title: stri
     return { ...video, title: trimmed };
   });
   if (changed) commitVideos(tabId, next);
-}
-
-async function broadcastHistory(entries: HistoryEntry[]): Promise<void> {
-  const decorated = await decorateHistory(entries);
-  popupPorts.forEach((port) => {
-    postPopup(port, { type: 'HISTORY_LIST', entries: decorated });
-  });
-}
-
-// --- Downloaded videos (drives the "already downloaded" marker) ---
-
-const DOWNLOADED_KEY = 'downloadedVideos';
-const FAILED_KEY = 'failedVideos';
-const DOWNLOADED_LIMIT = 500;
-
-async function readDownloadedKeys(): Promise<string[]> {
-  const stored = await chrome.storage.local.get(DOWNLOADED_KEY);
-  const keys = stored[DOWNLOADED_KEY];
-  return Array.isArray(keys) ? keys : [];
-}
-
-async function readFailedKeys(): Promise<string[]> {
-  const stored = await chrome.storage.local.get(FAILED_KEY);
-  const keys = stored[FAILED_KEY];
-  return Array.isArray(keys) ? keys : [];
-}
-
-async function markDownloaded(url: string): Promise<void> {
-  const key = videoKey(url);
-  const downloaded = await readDownloadedKeys();
-  const failed = await readFailedKeys();
-  const markers = { downloaded, failed };
-  const next = markHistoryDownloaded(markers, key, DOWNLOADED_LIMIT);
-  if (next === markers) return;
-
-  await chrome.storage.local.set({
-    [DOWNLOADED_KEY]: next.downloaded,
-    [FAILED_KEY]: next.failed
-  });
-  await broadcastHistory(await readHistory());
-}
-
-async function markFailed(url: string): Promise<void> {
-  const key = videoKey(url);
-  const failed = await readFailedKeys();
-  const markers = { downloaded: [], failed };
-  const next = markHistoryFailed(markers, key, DOWNLOADED_LIMIT);
-  if (next === markers) return;
-  await chrome.storage.local.set({ [FAILED_KEY]: next.failed });
-  await broadcastHistory(await readHistory());
-}
-
-async function decorateHistory(entries: HistoryEntry[]): Promise<HistoryEntry[]> {
-  const [downloaded, failed] = await Promise.all([readDownloadedKeys(), readFailedKeys()]);
-  return decorateHistoryEntries(entries, downloaded, failed);
 }
 
 // Statuses a signed CDN returns once a link's token has expired.
@@ -594,12 +454,12 @@ async function runBatchDownload(videos: VideoInfo[], tabId?: number, quality?: '
         const succeeded = downloadId ? await waitForDownload(downloadId) : false;
         const outcome = state.complete(video, succeeded);
         if (outcome.markFailed) {
-          await markFailed(video.url).catch(() => { /* badge is best-effort */ });
+          await history.markFailed(video.url).catch(() => { /* badge is best-effort */ });
         }
       } catch (error: any) {
         const outcome = state.complete(video, false);
         if (outcome.markFailed) {
-          await markFailed(video.url).catch(() => { /* badge is best-effort */ });
+          await history.markFailed(video.url).catch(() => { /* badge is best-effort */ });
         }
         const message = error?.message || String(error);
         popupPorts.forEach((port) => {
@@ -810,9 +670,9 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: PopupRequest): void 
         .catch((error) => console.warn('[MediaGrabber] Failed to refresh open tabs:', error))
         .then(() => {
           postPopup(port, { type: 'MEDIA_LIST', ...currentMediaPayload() });
-          return historyWrites
-            .then(() => readHistory())
-            .then((entries) => decorateHistory(entries))
+          return history.settled()
+            .then(() => history.read())
+            .then((entries) => history.decorate(entries))
             .then((entries) => postPopup(port, { type: 'HISTORY_LIST', entries }));
         })
         .catch((error) => console.warn('[MediaGrabber] Failed to send refreshed history:', error));
@@ -842,23 +702,21 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: PopupRequest): void 
       break;
 
     case 'GET_HISTORY':
-      schedulePruneIfHistoryOff();
-      historyWrites
-        .then(() => readHistory())
-        .then((entries) => decorateHistory(entries))
+      history.schedulePruneIfOff();
+      history.settled()
+        .then(() => history.read())
+        .then((entries) => history.decorate(entries))
         .then((entries) => postPopup(port, { type: 'HISTORY_LIST', entries }))
         .catch(() => postPopup(port, { type: 'HISTORY_LIST', entries: [] }));
       break;
 
     case 'RENAME_HISTORY_ITEM':
-      historyWrites = historyWrites
-        .then(() => renameHistoryEntry(msg.key, msg.title || ''))
+      history.rename(msg.key, msg.title || '')
         .catch((error) => console.warn('[MediaGrabber] Failed to rename history entry:', error));
       break;
 
     case 'REORDER_HISTORY':
-      historyWrites = historyWrites
-        .then(() => reorderHistory(msg.keys || []))
+      history.reorder(msg.keys || [])
         .catch((error) => console.warn('[MediaGrabber] Failed to reorder history:', error));
       break;
 
@@ -867,14 +725,12 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: PopupRequest): void 
       break;
 
     case 'DELETE_HISTORY_ITEMS':
-      historyWrites = historyWrites
-        .then(() => deleteHistoryEntries(msg.keys || []))
+      history.remove(msg.keys || [])
         .catch((error) => console.warn('[MediaGrabber] Failed to delete history entries:', error));
       break;
 
     case 'CLEAR_HISTORY':
-      historyWrites = historyWrites
-        .then(() => clearHistory())
+      history.clear()
         .catch((error) => console.warn('[MediaGrabber] Failed to clear history:', error));
       break;
 
@@ -913,7 +769,7 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: PopupRequest): void 
 }
 
 function notifyPopups(_tabId?: number): void {
-  schedulePruneIfHistoryOff();
+  history.schedulePruneIfOff();
   const payload = currentMediaPayload();
   popupPorts.forEach(port => {
     postPopup(port, { type: 'MEDIA_LIST', ...payload });
@@ -929,14 +785,14 @@ async function restoreCurrentMediaToHistory(): Promise<void> {
   for (const [tabId] of tabStates.mediaEntries()) {
     void recordHistory(tabId, getVisibleVideosForTab(tabId));
   }
-  await historyWrites;
+  await history.settled();
 }
 
 /** The single refresh path used by the popup for every open browser tab. */
 async function refreshOpenTabs(): Promise<void> {
   await restoreCurrentMediaToHistory();
   await rescanAllTabs();
-  await historyWrites;
+  await history.settled();
 }
 
 /**
