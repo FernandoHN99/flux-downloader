@@ -90,6 +90,11 @@ while its own page stops rendering it. Every hook here is therefore disguised:
   `chrome-extension://<id>/` frame, which names the extension outright.
   Rejected promises are scrubbed too.
 
+  This is the one that mattered in practice. A course platform served the media
+  but refused to render its own player while every other disguise above was
+  already in place; scrubbing the stacks fixed it. Do not unpick `passThrough`
+  to simplify a wrapper.
+
 Relay learning hangs off `XMLHttpRequest.prototype.open`, never off
 `window.XMLHttpRequest`. Telemetry SDKs and polyfills routinely replace the
 constructor; a wrapper installed there is silently dropped, relay mappings stop
