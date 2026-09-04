@@ -999,6 +999,49 @@ interface ManifestFile {
   content: string;
 }
 
+interface NativeProcessResult {
+  exitCode: number;
+  stderr: string;
+}
+
+function monitorNativeProcess(
+  downloadKey: string,
+  filename: string,
+  operation: Promise<NativeProcessResult>,
+  failureMessage: (result: NativeProcessResult) => string,
+  outputPath?: string
+): void {
+  operation.then((result) => {
+    if (!activeDownloads.isRunning(downloadKey)) return;
+    const succeeded = result.exitCode === 0;
+    notify(succeeded ? 'Download complete' : 'Download failed', filename);
+    popupPorts.forEach((port) => {
+      if (succeeded) {
+        postPopup(port, {
+          type: 'DOWNLOAD_COMPLETE',
+          downloadId: downloadKey,
+          ...(outputPath ? { outputPath } : {})
+        });
+      } else {
+        postPopup(port, {
+          type: 'DOWNLOAD_ERROR',
+          downloadId: downloadKey,
+          error: failureMessage(result)
+        });
+      }
+    });
+    finishDownload(downloadKey, succeeded);
+  }).catch((error) => {
+    if (!activeDownloads.isRunning(downloadKey)) return;
+    const message = error?.message || String(error);
+    notify('Download failed', message);
+    popupPorts.forEach((port) => {
+      postPopup(port, { type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: message });
+    });
+    finishDownload(downloadKey, false);
+  });
+}
+
 async function rewriteHlsInput(tabId: number, inputUrl: string, referer: string | undefined, manifestFiles: ManifestFile[]): Promise<string> {
   let origin: string;
   try { origin = new URL(inputUrl).origin; } catch { return inputUrl; }
@@ -1097,32 +1140,17 @@ async function startDownload(
       tabId
     }, run);
 
-    // Start ffmpeg asynchronously — progress comes via convertOutput push
-    nativeClient.convert(
-      prepared.args,
-      { progressTime: 1000, startHandler: downloadKey, manifestFiles: prepared.manifestFiles }
-    ).then(result => {
-      if (!activeDownloads.isRunning(downloadKey)) return;
-      if (result.exitCode === 0) {
-        notify('Download complete', outFilename);
-        popupPorts.forEach(port => {
-          postPopup(port, { type: 'DOWNLOAD_COMPLETE', downloadId: downloadKey, outputPath });
-        });
-      } else {
-        notify('Download failed', outFilename);
-        popupPorts.forEach(port => {
-          postPopup(port, { type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: formatFfmpegError(result.exitCode, result.stderr) });
-        });
-      }
-      finishDownload(downloadKey, result.exitCode === 0);
-    }).catch(err => {
-      if (!activeDownloads.isRunning(downloadKey)) return;
-      notify('Download failed', err.message);
-      popupPorts.forEach(port => {
-        postPopup(port, { type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: err.message });
-      });
-      finishDownload(downloadKey, false);
-    });
+    // Start ffmpeg asynchronously — progress comes via convertOutput push.
+    monitorNativeProcess(
+      downloadKey,
+      outFilename,
+      nativeClient.convert(
+        prepared.args,
+        { progressTime: 1000, startHandler: downloadKey, manifestFiles: prepared.manifestFiles }
+      ),
+      (result) => formatFfmpegError(result.exitCode, result.stderr),
+      outputPath
+    );
 
     return { success: true, downloadId: downloadKey };
   } else if (video.type === 'mse') {
@@ -1144,31 +1172,16 @@ async function startDownload(
       ? [...formatArgs, '-y', outputPath]
       : ['-i', video.url, '-c', 'copy', '-y', outputPath];
 
-    nativeClient.convert(
-      ffmpegArgs,
-      { progressTime: 1000, startHandler: downloadKey }
-    ).then(result => {
-      if (!activeDownloads.isRunning(downloadKey)) return;
-      if (result.exitCode === 0) {
-        notify('Download complete', outFilename);
-        popupPorts.forEach(port => {
-          postPopup(port, { type: 'DOWNLOAD_COMPLETE', downloadId: downloadKey, outputPath });
-        });
-      } else {
-        notify('Download failed', outFilename);
-        popupPorts.forEach(port => {
-          postPopup(port, { type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: formatFfmpegError(result.exitCode, result.stderr) });
-        });
-      }
-      finishDownload(downloadKey, result.exitCode === 0);
-    }).catch(err => {
-      if (!activeDownloads.isRunning(downloadKey)) return;
-      notify('Download failed', err.message);
-      popupPorts.forEach(port => {
-        postPopup(port, { type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: err.message });
-      });
-      finishDownload(downloadKey, false);
-    });
+    monitorNativeProcess(
+      downloadKey,
+      outFilename,
+      nativeClient.convert(
+        ffmpegArgs,
+        { progressTime: 1000, startHandler: downloadKey }
+      ),
+      (result) => formatFfmpegError(result.exitCode, result.stderr),
+      outputPath
+    );
 
     return { success: true, downloadId: downloadKey };
   } else if (video.type === 'ytdlp') {
@@ -1185,32 +1198,16 @@ async function startDownload(
       tabId
     }, run);
 
-    nativeClient.ytdlp(
-      video.url,
-      formatArgs,
-      { progressTime: 1000, startHandler: downloadKey, outputDir: directory || undefined, filename: outFilename.replace(/\.[^.]+$/, '.%(ext)s') }
-    ).then(result => {
-      if (!activeDownloads.isRunning(downloadKey)) return;
-      if (result.exitCode === 0) {
-        notify('Download complete', outFilename);
-        popupPorts.forEach(port => {
-          postPopup(port, { type: 'DOWNLOAD_COMPLETE', downloadId: downloadKey });
-        });
-      } else {
-        notify('Download failed', outFilename);
-        popupPorts.forEach(port => {
-          postPopup(port, { type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: `yt-dlp exit code ${result.exitCode}: ${result.stderr}` });
-        });
-      }
-      finishDownload(downloadKey, result.exitCode === 0);
-    }).catch(err => {
-      if (!activeDownloads.isRunning(downloadKey)) return;
-      notify('Download failed', err.message);
-      popupPorts.forEach(port => {
-        postPopup(port, { type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: err.message });
-      });
-      finishDownload(downloadKey, false);
-    });
+    monitorNativeProcess(
+      downloadKey,
+      outFilename,
+      nativeClient.ytdlp(
+        video.url,
+        formatArgs,
+        { progressTime: 1000, startHandler: downloadKey, outputDir: directory || undefined, filename: outFilename.replace(/\.[^.]+$/, '.%(ext)s') }
+      ),
+      (result) => `yt-dlp exit code ${result.exitCode}: ${result.stderr}`
+    );
 
     return { success: true, downloadId: downloadKey };
   } else {
