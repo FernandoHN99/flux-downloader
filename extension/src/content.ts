@@ -6,6 +6,9 @@ import {
 } from './content/mse-media';
 import type { DetectedMedia, MseState } from './content/mse-media';
 import {
+  isMseBridgeMessage, isMseStateMessage, reduceMseState
+} from './content/mse-bridge';
+import {
   collectPageMetadata, detectedTitle, pageDuration, pageThumbnail
 } from './content/page-metadata';
 import { isContentCommand } from './lib/content-protocol';
@@ -87,7 +90,7 @@ class MediaDetector {
 
   private setupMSEListener(): void {
     window.addEventListener('message', (event) => {
-      if (event.source !== window || !event.data || event.data.source !== 'MediaGrabber-MSE') return;
+      if (event.source !== window || !isMseBridgeMessage(event.data)) return;
 
       const msg = event.data;
       if (msg.type === 'navigation') {
@@ -103,46 +106,18 @@ class MediaDetector {
         if (msg.pageUrl !== this.pageUrl || msg.generation !== this.pageGeneration) return;
       }
 
-      switch (msg.type) {
-        case 'source-buffer':
-          this.mseState.blobUrl = msg.blobUrl;
-          this.mseState.mimeType = msg.mimeType;
-          this.mseState.codecs = msg.codecs;
-          this.sendMSEToBackground();
-          break;
-
-        case 'segment-url':
-          if (msg.isInit && !this.mseState.initSegmentUrl) {
-            this.mseState.initSegmentUrl = msg.url;
-          }
-          if (this.mseState.segmentUrls.length < 500 && !this.mseState.segmentUrls.includes(msg.url)) {
-            this.mseState.segmentUrls.push(msg.url);
-          }
-          if (this.mseState.segmentUrls.length === 1 || this.mseState.segmentUrls.length % 20 === 0) {
-            this.sendMSEToBackground();
-          }
-          break;
-
-        case 'duration':
-          this.mseState.duration = msg.duration;
-          this.sendMSEToBackground();
-          break;
-
-        case 'media-url-map':
-          if (typeof msg.originalUrl === 'string' && typeof msg.relayUrl === 'string') {
-            this.sendRuntime({
-              type: 'MEDIA_URL_MAP',
-              originalUrl: msg.originalUrl,
-              relayUrl: msg.relayUrl,
-              pageUrl: this.pageUrl,
-              generation: this.pageGeneration
-            });
-          }
-          break;
-
-        case 'progress':
-          this.mseState.totalBytes = msg.totalBytes;
-          break;
+      if (msg.type === 'media-url-map') {
+        this.sendRuntime({
+          type: 'MEDIA_URL_MAP',
+          originalUrl: msg.originalUrl,
+          relayUrl: msg.relayUrl,
+          pageUrl: this.pageUrl,
+          generation: this.pageGeneration
+        });
+      } else if (isMseStateMessage(msg)) {
+        const update = reduceMseState(this.mseState, msg);
+        this.mseState = update.state;
+        if (update.announce) this.sendMSEToBackground();
       }
     });
   }
