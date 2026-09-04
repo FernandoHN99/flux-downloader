@@ -53,3 +53,33 @@ export function titleFromMediaUrl(url: string): string | null {
   if (title.length < 2) return null;
   return title;
 }
+
+/**
+ * A title from the page's own URL, for sites that name the content in the
+ * path — `/jornada/react-2025/aula/testando-com-babel-repl` is the lesson.
+ * Used when the page offers no usable title of its own.
+ */
+export function titleFromPageUrl(pageUrl: string): string | null {
+  let segments: string[];
+  try {
+    segments = new URL(pageUrl).pathname.split('/').filter(Boolean).map(decodeURIComponent);
+  } catch {
+    return null;
+  }
+
+  // A bare route like /watch or /video names the player, not the video.
+  const last = segments.pop();
+  if (!last || segments.length === 0) return null;
+
+  const stem = last.replace(/\.[a-z0-9]{1,5}$/i, '');
+  if (!stem || GENERIC_NAMES.has(stem.toLowerCase())) return null;
+  if (looksLikeAnIdentifier(stem)) return null;
+
+  const words = stem.split(/[-_+]+/).filter(Boolean);
+  if (words.length === 0) return null;
+
+  const title = words
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+  return title.length >= 2 ? title : null;
+}

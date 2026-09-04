@@ -34,8 +34,31 @@ describe('page metadata', () => {
 
   it('uses a meaningful media filename before the page title', () => {
     document.title = 'Lesson';
-    expect(detectedTitle(document, 'https://cdn.example/react-hooks.mp4')).toBe('react-hooks');
-    expect(detectedTitle(document, 'https://cdn.example/master.m3u8')).toBe('Lesson');
+    expect(detectedTitle(document, 'https://cdn.example/react-hooks.mp4'))
+      .toEqual({ title: 'react-hooks', fromPage: false });
+    expect(detectedTitle(document, 'https://cdn.example/master.m3u8'))
+      .toEqual({ title: 'Lesson', fromPage: true });
+  });
+
+  it('names a lesson from the page URL when the page has no title yet', () => {
+    const named = detectedTitle(
+      document,
+      'https://cdn.example/master.m3u8',
+      'https://app.rocketseat.com.br/jornada/react-2025/aula/testando-com-babel-repl'
+    );
+
+    expect(named).toEqual({ title: 'Testando Com Babel Repl', fromPage: true });
+  });
+
+  it('prefers the page title over the URL slug once the page has one', () => {
+    document.title = 'Estruturação | React | Rocketseat';
+    const named = detectedTitle(
+      document,
+      'https://cdn.example/master.m3u8',
+      'https://app.rocketseat.com.br/jornada/react-2025/aula/estruturacao'
+    );
+
+    expect(named.title).toBe('Estruturação | React | Rocketseat');
   });
 
   it('returns a stable fallback when the page has no title', () => {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { VideoInfo } from '../shared/types';
+import type { PageMetadata } from '../catalog/tab-state';
 import { applyPageMetadataToVideos, mergePageMetadata } from './page-context';
 
 function video(overrides: Partial<VideoInfo> = {}): VideoInfo {
@@ -107,5 +108,57 @@ describe('applyPageMetadataToVideos', () => {
     expect(applyPageMetadataToVideos(videos, {
       pageUrl: 'https://course.example/lesson', duration: 90
     })).toBe(videos);
+  });
+});
+
+describe('a page title that arrives late', () => {
+  const metadata = (patch: Partial<PageMetadata> = {}): PageMetadata => ({
+    pageUrl: 'https://app.rocketseat.com.br/aula/estruturacao',
+    title: 'Estruturação | React | Rocketseat',
+    generation: 1,
+    ...patch
+  });
+
+  const detected = (patch: Partial<VideoInfo> = {}): VideoInfo => ({
+    id: 'v1',
+    title: 'Aula anterior | React | Rocketseat',
+    url: 'https://vz-dc851587-83d.b-cdn.net/course/playlist.m3u8',
+    pageUrl: 'https://app.rocketseat.com.br/aula/estruturacao',
+    type: 'hls',
+    qualities: [],
+    ...patch
+  });
+
+  it('replaces a stale page title once the page has set the real one', () => {
+    const [updated] = applyPageMetadataToVideos(
+      [detected({ titleFromPage: true })],
+      metadata()
+    );
+
+    expect(updated.title).toBe('Estruturação | React | Rocketseat');
+  });
+
+  it('leaves a title read from the media URL alone', () => {
+    const [updated] = applyPageMetadataToVideos(
+      [detected({ title: 'react-hooks', titleFromPage: false })],
+      metadata()
+    );
+
+    expect(updated.title).toBe('react-hooks');
+  });
+
+  it('keeps the snapshot when the page title has not changed', () => {
+    const videos = [detected({ title: 'Estruturação | React | Rocketseat', titleFromPage: true })];
+
+    expect(applyPageMetadataToVideos(videos, metadata())).toBe(videos);
+  });
+
+  it('does not blank a title when the page reports none', () => {
+    const [updated] = applyPageMetadataToVideos(
+      [detected({ titleFromPage: true })],
+      metadata({ title: undefined })
+    );
+
+    expect(updated.title).toBe('Aula anterior | React | Rocketseat');
   });
 });

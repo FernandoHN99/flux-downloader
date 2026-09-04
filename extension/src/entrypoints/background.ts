@@ -30,6 +30,7 @@ import {
   pickBatchQuality,
   sanitizeFilename
 } from '../download/download-plan';
+import { describeCoAppError, isCoAppUnreachable } from '../shared/errors';
 import { isPopupRequest } from '../shared/popup-protocol';
 import type {
   PopupMessage,
@@ -419,8 +420,13 @@ async function runBatchDownload(videos: VideoInfo[], tabId?: number, quality?: '
     const directory = joinOutputPath(defaultDownloadDir, folder, coappPlatform);
     try {
       await nativeClient.ensureDir(directory);
-    } catch (error: any) {
-      popupPorts.forEach((port) => postPopup(port, { type: 'ERROR', message: `Could not create ${folder}: ${error?.message || error}` }));
+    } catch (error: unknown) {
+      // A missing CoApp surfaces here first, so say that rather than blaming
+      // the folder this run happened to be creating.
+      const message = isCoAppUnreachable(error)
+        ? describeCoAppError(error)
+        : `Could not create ${folder}: ${describeCoAppError(error)}`;
+      popupPorts.forEach((port) => postPopup(port, { type: 'ERROR', message }));
       return;
     }
 
@@ -690,7 +696,7 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: PopupRequest): void 
           .then(result => postPopup(port, { type: 'DOWNLOAD_STARTED', ...result }))
           .catch(err => {
             downloadRunGate.release(lease);
-            postPopup(port, { type: 'ERROR', message: err.message });
+            postPopup(port, { type: 'ERROR', message: describeCoAppError(err) });
           });
       }
       break;
@@ -698,7 +704,7 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: PopupRequest): void 
     case 'CANCEL_DOWNLOAD':
       handleCancelDownload(msg.downloadId)
         .then(result => postPopup(port, { type: 'DOWNLOAD_CANCELLED', ...result }))
-        .catch(err => postPopup(port, { type: 'ERROR', message: err.message }));
+        .catch(err => postPopup(port, { type: 'ERROR', message: describeCoAppError(err) }));
       break;
 
     case 'GET_HISTORY':
@@ -736,7 +742,7 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: PopupRequest): void 
 
     case 'DOWNLOAD_ALL':
       runBatchDownload(msg.videos || [], msg.tabId, msg.quality)
-        .catch((err) => postPopup(port, { type: 'ERROR', message: err.message }));
+        .catch((err) => postPopup(port, { type: 'ERROR', message: describeCoAppError(err) }));
       break;
 
     case 'CANCEL_BATCH':

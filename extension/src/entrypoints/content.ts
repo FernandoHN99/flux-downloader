@@ -232,13 +232,19 @@ class MediaDetector {
    */
   private sendToBackground(media: DetectedMedia): void {
     this.announced.set(detectionReplayKey(media), media);
+    const named = detectedTitle(
+      document,
+      media.type === 'mse' ? undefined : media.url,
+      media.pageUrl
+    );
     const video = announcedVideo(
       media,
       this.generateVideoId(media),
-      detectedTitle(document, media.type === 'mse' ? undefined : media.url),
+      named.title,
       {
         duration: pageDuration(document),
-        thumbnail: pageThumbnail(document, media.pageUrl)
+        thumbnail: pageThumbnail(document, media.pageUrl),
+        titleFromPage: named.fromPage
       }
     );
     this.sendRuntime({ type: 'VIDEO_DETECTED', video });

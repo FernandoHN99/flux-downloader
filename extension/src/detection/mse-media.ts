@@ -83,11 +83,12 @@ export function announcedVideo(
   media: DetectedMedia,
   id: string,
   title: string,
-  fallback: { duration?: number; thumbnail?: string }
+  fallback: { duration?: number; thumbnail?: string; titleFromPage?: boolean }
 ): AnnouncedVideo {
   return {
     id,
     title,
+    titleFromPage: fallback.titleFromPage,
     url: media.url,
     type: media.type,
     qualities: media.qualities || [],

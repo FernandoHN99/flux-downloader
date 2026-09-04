@@ -34,6 +34,10 @@ export function mergeDetectedVideosIntoHistory(
     const { generation: _generation, ...persistedVideo } = video as VideoInfo & { generation?: number };
     const entry: HistoryEntry = {
       ...persistedVideo,
+      // A title the user typed outlives every later detection of the same
+      // video, so leaving and re-entering the current list keeps their name.
+      title: existing?.titleByUser ? existing.title : (persistedVideo.title || existing?.title),
+      titleByUser: existing?.titleByUser,
       pageUrl: context.pageUrl || video.pageUrl || existing?.pageUrl,
       pageTitle: context.pageTitle || existing?.pageTitle,
       detectedAt: now
@@ -42,10 +46,21 @@ export function mergeDetectedVideosIntoHistory(
     incoming.set(key, alreadyIncoming ? preferRicher(alreadyIncoming, entry) : entry);
   }
 
-  return [
-    ...incoming.values(),
-    ...history.filter((entry) => previous.has(videoKey(entry.url)))
-  ].slice(0, limit);
+  // A video already in the list keeps its slot. Only genuinely new detections
+  // go to the front: re-detecting one the user dragged into place must not
+  // yank it back to the top, and the popup pins current media anyway.
+  const known = new Set(history.map((entry) => videoKey(entry.url)));
+  const fresh: HistoryEntry[] = [];
+  for (const [key, entry] of incoming) if (!known.has(key)) fresh.push(entry);
+
+  const kept = history
+    .map((entry) => incoming.get(videoKey(entry.url)) ?? entry)
+    .filter((entry) => {
+      const key = videoKey(entry.url);
+      return incoming.has(key) || previous.has(key);
+    });
+
+  return [...fresh, ...kept].slice(0, limit);
 }
 
 /**
@@ -56,7 +71,8 @@ export function mergeDetectedVideosIntoHistory(
 function preferRicher(held: HistoryEntry, other: HistoryEntry): HistoryEntry {
   return {
     ...held,
-    title: held.title || other.title,
+    title: held.titleByUser ? held.title : (held.title || other.title),
+    titleByUser: held.titleByUser || other.titleByUser,
     pageUrl: held.pageUrl || other.pageUrl,
     pageTitle: held.pageTitle || other.pageTitle,
     qualities: held.qualities?.length ? held.qualities : other.qualities,
@@ -119,9 +135,11 @@ export function renameHistoryTitle(
   if (!trimmed) return history;
   let changed = false;
   const next = history.map((entry) => {
-    if (videoKey(entry.url) !== key || entry.title === trimmed) return entry;
+    if (videoKey(entry.url) !== key) return entry;
+    if (entry.title === trimmed && entry.titleByUser) return entry;
     changed = true;
-    return { ...entry, title: trimmed };
+    // Flagged so later detections of the same video leave the name alone.
+    return { ...entry, title: trimmed, titleByUser: true };
   });
   return changed ? next : history;
 }
@@ -200,6 +218,8 @@ function historySignature(entries: HistoryEntry[]): string {
     entry.title,
     entry.qualities?.length || 0,
     entry.pageUrl || '',
-    entry.pageTitle || ''
+    entry.pageTitle || '',
+    // A merge that only marks the title as the user's still has to be written.
+    entry.titleByUser ? 1 : 0
   ]));
 }

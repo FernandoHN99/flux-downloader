@@ -119,7 +119,11 @@ describe('history list mutations', () => {
     expect(renameHistoryTitle([one, two], videoKey(two.url), '  Renamed  ')[1].title)
       .toBe('Renamed');
     const history = [one, two];
-    expect(renameHistoryTitle(history, videoKey(two.url), 'Two')).toBe(history);
+    // Retyping the detected title still claims it as the user's, so the entry
+    // is rewritten; only an already-claimed title is a true no-op.
+    const claimed = renameHistoryTitle(history, videoKey(two.url), 'Two');
+    expect(claimed[1].titleByUser).toBe(true);
+    expect(renameHistoryTitle(claimed, videoKey(two.url), 'Two')).toBe(claimed);
     expect(renameHistoryTitle(history, videoKey(two.url), '   ')).toBe(history);
   });
 
@@ -237,5 +241,65 @@ describe('dedupeHistoryEntries', () => {
     const clean = [entry('https://cdn.test/a.m3u8'), entry('https://cdn.test/b.m3u8')];
 
     expect(dedupeHistoryEntries(clean)).toBe(clean);
+  });
+});
+
+describe('a user-given name survives re-detection', () => {
+  const url = 'https://cdn.test/lesson.m3u8?token=aaa';
+
+  it('keeps the typed title when the video is detected again', () => {
+    const named = renameHistoryTitle([entry({ url })], videoKey(url), 'My lesson');
+
+    const [merged] = mergeDetectedVideosIntoHistory(
+      named,
+      [video({ url: 'https://cdn.test/lesson.m3u8?token=bbb', title: 'playlist' })],
+      { pageTitle: 'Some tab title' },
+      2_000,
+      50
+    );
+
+    expect(merged.title).toBe('My lesson');
+    expect(merged.titleByUser).toBe(true);
+  });
+
+  it('keeps the row in place instead of moving it back to the top', () => {
+    const first = entry({ url: 'https://cdn.test/a.m3u8', id: 'a' });
+    const second = entry({ url: 'https://cdn.test/b.m3u8', id: 'b' });
+
+    const merged = mergeDetectedVideosIntoHistory(
+      [first, second],
+      [video({ url: 'https://cdn.test/b.m3u8' })],
+      {},
+      2_000,
+      50
+    );
+
+    expect(merged.map((item) => item.url)).toEqual([first.url, second.url]);
+  });
+
+  it('still puts a genuinely new detection first', () => {
+    const known = entry({ url: 'https://cdn.test/a.m3u8' });
+
+    const merged = mergeDetectedVideosIntoHistory(
+      [known],
+      [video({ url: 'https://cdn.test/new.m3u8' })],
+      {},
+      2_000,
+      50
+    );
+
+    expect(merged.map((item) => item.url)).toEqual(['https://cdn.test/new.m3u8', known.url]);
+  });
+
+  it('still adopts a detected title when the user never set one', () => {
+    const [merged] = mergeDetectedVideosIntoHistory(
+      [entry({ url, title: 'playlist' })],
+      [video({ url, title: 'Real lesson name' })],
+      {},
+      2_000,
+      50
+    );
+
+    expect(merged.title).toBe('Real lesson name');
   });
 });

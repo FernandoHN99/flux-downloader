@@ -1,4 +1,4 @@
-import { titleFromMediaUrl } from './media-title';
+import { titleFromMediaUrl, titleFromPageUrl } from './media-title';
 
 const THUMBNAIL_META_SELECTORS = [
   'meta[property="og:image"]',
@@ -32,8 +32,30 @@ export function pageTitle(document: Document): string {
   return document.title || 'Unknown Video';
 }
 
-export function detectedTitle(document: Document, mediaUrl?: string): string {
-  return (mediaUrl && titleFromMediaUrl(mediaUrl)) || pageTitle(document);
+export interface DetectedTitle {
+  title: string;
+  /** True when the page supplied it, so a later page update may replace it. */
+  fromPage: boolean;
+}
+
+/**
+ * Names a detected video. The media URL wins when it carries a real name; a
+ * single-page site that has not set its title yet falls back to the page URL
+ * slug, which changes per lesson even when the title lags behind.
+ */
+export function detectedTitle(
+  document: Document,
+  mediaUrl?: string,
+  pageUrl?: string
+): DetectedTitle {
+  const fromMedia = mediaUrl ? titleFromMediaUrl(mediaUrl) : null;
+  if (fromMedia) return { title: fromMedia, fromPage: false };
+
+  const fromPage = pageTitle(document);
+  if (fromPage && fromPage !== 'Unknown Video') return { title: fromPage, fromPage: true };
+
+  const fromUrl = pageUrl ? titleFromPageUrl(pageUrl) : null;
+  return { title: fromUrl || fromPage || 'Unknown Video', fromPage: true };
 }
 
 export function pageDuration(document: Document): number | undefined {
