@@ -43,6 +43,7 @@ import type {
   MediaUrlMapMessage,
   RuntimeRequest
 } from './lib/content-protocol';
+import { applyPageMetadataToVideos, mergePageMetadata } from './lib/page-context';
 
 const nativeClient = new NativeClient();
 
@@ -1719,13 +1720,7 @@ function handlePageMetadata(tabId: number | undefined, metadata: PageMetadata, f
     previous = {};
   }
 
-  const merged: PageMetadata = {
-    pageUrl: isTopFrame ? (metadata.pageUrl || previous.pageUrl) : previous.pageUrl,
-    title: isTopFrame ? (metadata.title || previous.title) : (previous.title || metadata.title),
-    thumbnail: isTopFrame ? (metadata.thumbnail || previous.thumbnail) : (previous.thumbnail || metadata.thumbnail),
-    duration: metadata.duration || previous.duration,
-    generation: isTopFrame ? metadata.generation : previous.generation
-  };
+  const merged = mergePageMetadata(previous, metadata, isTopFrame);
 
   tabStates.ensure(tabId).pageMetadata = merged;
 
@@ -1735,20 +1730,9 @@ function handlePageMetadata(tabId: number | undefined, metadata: PageMetadata, f
 
   const videos = tabStates.get(tabId)?.media;
   if (videos?.length) {
-    let changed = false;
-    const updated = videos.map((video) => {
-      const next = {
-        ...video,
-        pageUrl: merged.pageUrl || video.pageUrl,
-        thumbnail: video.thumbnail || merged.thumbnail,
-        duration: video.duration || merged.duration
-      };
-      changed = changed || next.pageUrl !== video.pageUrl ||
-        next.thumbnail !== video.thumbnail || next.duration !== video.duration;
-      return next;
-    });
+    const updated = applyPageMetadataToVideos(videos, merged);
 
-    if (changed) {
+    if (updated !== videos) {
       commitVideos(tabId, updated);
     } else {
       // Source title/URL can arrive after the media itself without changing
