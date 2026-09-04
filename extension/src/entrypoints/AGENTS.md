@@ -82,6 +82,19 @@ while its own page stops rendering it. Every hook here is therefore disguised:
   visible to a single `getOwnPropertyDescriptor` call. That re-wrapping is
   gone on purpose.
 - Property descriptors keep their original `enumerable`/`configurable` flags.
+- **Every call into an original goes through `passThrough`**, which strips this
+  script's frames from the error before the page sees it. Disguising
+  `toString()` is not enough on its own: a player only has to make one patched
+  call throw — probing `addSourceBuffer` with an unsupported MIME type is
+  routine codec detection — and read `err.stack` to find the
+  `chrome-extension://<id>/` frame, which names the extension outright.
+  Rejected promises are scrubbed too.
+
+Relay learning hangs off `XMLHttpRequest.prototype.open`, never off
+`window.XMLHttpRequest`. Telemetry SDKs and polyfills routinely replace the
+constructor; a wrapper installed there is silently dropped, relay mappings stop
+arriving, and downloads fall back to fetching every segment straight from the
+CDN — which reads as a large, unexplained slowdown rather than a failure.
 
 What cannot be hidden: the page shares the MAIN world, so it can always watch
 the `postMessage` traffic. The marker is `BRIDGE_SOURCE` in

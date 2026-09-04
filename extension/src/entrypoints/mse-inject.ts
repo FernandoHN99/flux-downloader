@@ -36,6 +36,56 @@
   };
   nativeSource.set(Function.prototype.toString, origFunctionToString);
 
+  // Our own script URL, read from a stack we raise ourselves. Every frame that
+  // mentions it is a frame the page should never see.
+  const OWN_URL = (() => {
+    try {
+      const frames = String(new Error().stack || '').split('\n');
+      for (const frame of frames.slice(1)) {
+        const match = frame.match(/\(?((?:https?|chrome-extension|moz-extension):\/\/[^\s)]+?):\d+:\d+\)?/);
+        if (match) return match[1];
+      }
+    } catch { /* stacks are best-effort */ }
+    return '';
+  })();
+
+  /**
+   * Removes this script's frames from an error on its way to the page.
+   *
+   * Disguising toString() is not enough on its own: a player only has to make
+   * one patched call throw — probing addSourceBuffer with an unsupported MIME
+   * type is routine codec detection — and read err.stack to find, and name,
+   * the extension. The error itself is passed through untouched.
+   */
+  function scrubStack<T>(error: T): T {
+    if (!OWN_URL) return error;
+    try {
+      const stack = (error as any)?.stack;
+      if (typeof stack !== 'string' || stack.indexOf(OWN_URL) < 0) return error;
+      (error as any).stack = stack
+        .split('\n')
+        .filter((line: string) => line.indexOf(OWN_URL) < 0)
+        .join('\n');
+    } catch { /* frozen or exotic error objects keep their stack */ }
+    return error;
+  }
+
+  /**
+   * Calls the function a wrapper stands in for, keeping this script out of any
+   * stack the page can reach — including a rejected promise's.
+   */
+  function passThrough(original: Function, thisArg: any, args: IArguments | any[]): any {
+    try {
+      const result = original.apply(thisArg, args as any);
+      if (result && typeof result.then === 'function' && typeof result.catch === 'function') {
+        return result.catch((error: unknown) => { throw scrubStack(error); });
+      }
+      return result;
+    } catch (error) {
+      throw scrubStack(error);
+    }
+  }
+
   /** Registers `wrapper` as standing in for `original`, and returns it. */
   function disguise<T extends Function>(wrapper: T, original: Function): T {
     nativeSource.set(wrapper, original);
@@ -102,13 +152,13 @@
 
   const origPushState = history.pushState;
   history.pushState = disguise(function(this: any): void {
-    origPushState.apply(this, arguments as any);
+    passThrough(origPushState, this, arguments);
     notifyNavigation();
   }, origPushState);
 
   const origReplaceState = history.replaceState;
   history.replaceState = disguise(function(this: any): void {
-    origReplaceState.apply(this, arguments as any);
+    passThrough(origReplaceState, this, arguments);
     notifyNavigation();
   }, origReplaceState);
 
@@ -182,85 +232,9 @@
     postToContentScript({ type: 'media-url-map', originalUrl, relayUrl }, generation);
   }
 
-  // Tagging the objects themselves (xhr.__FluxRelayWrapped) put an enumerable
-  // property on something the page owns and could read. WeakSets are private.
-  const wrappedXhrs = new WeakSet<object>();
-  const wrappedXhrConstructors = new WeakSet<object>();
-
-  function wrapXhrInstance(xhr: any): void {
-    if (!xhr || wrappedXhrs.has(xhr) || typeof xhr.open !== 'function') return;
-    wrappedXhrs.add(xhr);
-    let report = () => {};
-    for (const property of ['onload', 'onreadystatechange', 'onloadend']) {
-      try {
-        let handler: any;
-        Object.defineProperty(xhr, property, {
-          configurable: true,
-          get: () => handler,
-          set: (value: any) => {
-            handler = typeof value === 'function'
-              ? function(this: any, event: any): any {
-                report();
-                return value.call(this, event);
-              }
-              : value;
-          }
-        });
-      } catch {}
-    }
-    const originalOpen = xhr.open;
-    // Defined rather than assigned: a plain assignment leaves an enumerable
-    // own property, so Object.keys(xhr) would show the instance was touched.
-    Object.defineProperty(xhr, 'open', {
-      configurable: true,
-      writable: true,
-      enumerable: false,
-      value: disguise(function(this: any, method: string, url: string, ...args: any[]): any {
-      const originalUrl = String(url || '');
-      const generation = pageGeneration;
-      const startTime = performance.now();
-      report = () => reportMediaUrlMapping(originalUrl, startTime, xhr.responseURL, generation);
-      try {
-        xhr.addEventListener('loadend', report, { once: true });
-      } catch {}
-        return originalOpen.call(this, method, url, ...args);
-      }, originalOpen)
-    });
-  }
-
-  function wrapXhrConstructor(value: any): any {
-    if (!value || wrappedXhrConstructors.has(value)) return value;
-    const Wrapped = function(this: any, ...args: any[]): any {
-      const xhr = new value(...args);
-      wrapXhrInstance(xhr);
-      return xhr;
-    } as any;
-    Wrapped.prototype = value.prototype;
-    try { Object.setPrototypeOf(Wrapped, value); } catch {}
-    disguise(Wrapped, value);
-    wrappedXhrConstructors.add(Wrapped);
-    return Wrapped;
-  }
-
-  try {
-    // Kept as a plain data property. An accessor here re-wrapped a constructor
-    // the page installed later, but it also turned a value property into a
-    // getter/setter — something a page can spot with one
-    // getOwnPropertyDescriptor call, and a cheap way to notice an extension.
-    const descriptor = Object.getOwnPropertyDescriptor(window, 'XMLHttpRequest');
-    Object.defineProperty(window, 'XMLHttpRequest', {
-      value: wrapXhrConstructor(window.XMLHttpRequest),
-      writable: descriptor?.writable ?? true,
-      enumerable: descriptor?.enumerable ?? true,
-      configurable: descriptor?.configurable ?? true
-    });
-  } catch {
-    // Some page environments expose an immutable XMLHttpRequest property.
-  }
-
   const origCreateObjectURL = URL.createObjectURL;
   URL.createObjectURL = disguise(function(this: any, obj: any): string {
-    const url = origCreateObjectURL.call(this, obj);
+    const url = passThrough(origCreateObjectURL, this, [obj]);
     if (obj instanceof MediaSource) {
       mediaSourceGenerations.set(obj, pageGeneration);
       MSE_STATE.blobUrl = url;
@@ -282,7 +256,7 @@
         codecs: MSE_STATE.codecs
       });
     }
-    const sourceBuffer = origAddSourceBuffer.call(this, mimeType);
+    const sourceBuffer = passThrough(origAddSourceBuffer, this, [mimeType]);
     sourceBufferGenerations.set(sourceBuffer, generation);
     return sourceBuffer;
   }, origAddSourceBuffer);
@@ -322,7 +296,7 @@
       }
     } catch {}
     finally {
-      origAppendBuffer.call(this, data);
+      passThrough(origAppendBuffer, this, [data]);
     }
   }, origAppendBuffer);
 
@@ -335,11 +309,11 @@
       set: disguise(function(this: any, val: number) {
         const generation = mediaSourceGenerations.get(this);
         if (generation !== undefined && generation !== pageGeneration) {
-          return origDurationSet.call(this, val);
+          return passThrough(origDurationSet, this, [val]);
         }
         MSE_STATE.duration = val;
         postToContentScript({ type: 'duration', blobUrl: MSE_STATE.blobUrl, duration: val });
-        return origDurationSet.call(this, val);
+        return passThrough(origDurationSet, this, [val]);
       }, origDurationSet),
       configurable: true
     });
@@ -361,24 +335,41 @@
         totalUrls: MSE_STATE.segmentUrls.length
       }, generation);
     }
-    return origFetch.apply(this, arguments as any);
+    return passThrough(origFetch, this, arguments);
   }, origFetch);
 
+  // Relay learning and segment observation both hang off the prototype, never
+  // off window.XMLHttpRequest. Anything the page installs later — telemetry
+  // SDKs and polyfills routinely replace the constructor — still delegates to
+  // this prototype, so the mappings keep arriving. Wrapping the constructor
+  // instead meant one such replacement silently stopped relay learning, and
+  // downloads fell back to fetching every segment straight from the CDN.
   const origXHROpen = XMLHttpRequest.prototype.open;
   XMLHttpRequest.prototype.open = disguise(function(this: any, method: string, url: string): void {
     const generation = pageGeneration;
-    if (looksLikeSegment(url) && generation === pageGeneration && MSE_STATE.segmentUrls.length < 500) {
-      MSE_STATE.segmentUrls.push(url);
-      if (url.indexOf('init') >= 0 || MSE_STATE.segmentUrls.length === 1) {
-        MSE_STATE.initSegmentUrl = MSE_STATE.initSegmentUrl || url;
+    const originalUrl = String(url || '');
+    const startTime = performance.now();
+
+    if (looksLikeSegment(originalUrl) && generation === pageGeneration && MSE_STATE.segmentUrls.length < 500) {
+      MSE_STATE.segmentUrls.push(originalUrl);
+      if (originalUrl.indexOf('init') >= 0 || MSE_STATE.segmentUrls.length === 1) {
+        MSE_STATE.initSegmentUrl = MSE_STATE.initSegmentUrl || originalUrl;
       }
       postToContentScript({
         type: 'segment-url',
-        url,
-        isInit: url.indexOf('init') >= 0,
+        url: originalUrl,
+        isInit: originalUrl.indexOf('init') >= 0,
         totalUrls: MSE_STATE.segmentUrls.length
       }, generation);
     }
-    return origXHROpen.apply(this, arguments as any);
+
+    // responseURL is only final once the request settles.
+    try {
+      this.addEventListener('loadend', () => {
+        reportMediaUrlMapping(originalUrl, startTime, this.responseURL, generation);
+      }, { once: true });
+    } catch { /* an exotic XHR stand-in may not take listeners */ }
+
+    return passThrough(origXHROpen, this, arguments);
   }, origXHROpen);
 })();

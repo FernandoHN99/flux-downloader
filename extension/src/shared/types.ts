@@ -47,6 +47,12 @@ export interface VideoInfo {
    * seen, so a page-derived title stays replaceable by a later, better one.
    */
   titleFromPage?: boolean;
+  /**
+   * The title came from the page URL's own slug, which names this page and not
+   * the site. Stronger than a document title, so page metadata must not
+   * overwrite it.
+   */
+  titleFromPageUrl?: boolean;
   type: 'm3u8' | 'mpd' | 'direct' | 'hls' | 'dash' | 'mp4' | 'webm' | 'ytdlp' | 'mse';
   qualities: VideoQuality[];
   childUrls?: string[];

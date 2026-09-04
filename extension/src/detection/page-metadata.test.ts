@@ -40,23 +40,34 @@ describe('page metadata', () => {
       .toEqual({ title: 'Lesson', fromPage: true });
   });
 
-  it('names a lesson from the page URL when the page has no title yet', () => {
+  it('names a lesson from the page URL slug', () => {
     const named = detectedTitle(
       document,
       'https://cdn.example/master.m3u8',
       'https://app.rocketseat.com.br/jornada/react-2025/aula/testando-com-babel-repl'
     );
 
-    expect(named).toEqual({ title: 'Testando Com Babel Repl', fromPage: true });
+    expect(named).toEqual({
+      title: 'Testando Com Babel Repl',
+      fromPage: true,
+      fromPageUrl: true
+    });
   });
 
-  it('prefers the page title over the URL slug once the page has one', () => {
+  it('prefers a descriptive slug over a title the site never changes', () => {
     document.title = 'Estruturação | React | Rocketseat';
-    const named = detectedTitle(
-      document,
-      'https://cdn.example/master.m3u8',
-      'https://app.rocketseat.com.br/jornada/react-2025/aula/estruturacao'
-    );
+    const first = detectedTitle(document, undefined,
+      'https://app.rocketseat.com.br/jornada/react/aula/testando-com-babel-repl');
+    const second = detectedTitle(document, undefined,
+      'https://app.rocketseat.com.br/jornada/react/aula/criando-o-projeto');
+
+    // The whole point: two lessons must not end up sharing one name.
+    expect(first.title).not.toBe(second.title);
+  });
+
+  it('keeps the page title when the slug is a single weak word', () => {
+    document.title = 'Estruturação | React | Rocketseat';
+    const named = detectedTitle(document, undefined, 'https://site.example/aula/intro');
 
     expect(named.title).toBe('Estruturação | React | Rocketseat');
   });

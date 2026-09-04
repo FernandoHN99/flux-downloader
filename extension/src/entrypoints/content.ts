@@ -244,7 +244,8 @@ class MediaDetector {
       {
         duration: pageDuration(document),
         thumbnail: pageThumbnail(document, media.pageUrl),
-        titleFromPage: named.fromPage
+        titleFromPage: named.fromPage,
+        titleFromPageUrl: named.fromPageUrl
       }
     );
     this.sendRuntime({ type: 'VIDEO_DETECTED', video });

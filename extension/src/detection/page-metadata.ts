@@ -36,6 +36,8 @@ export interface DetectedTitle {
   title: string;
   /** True when the page supplied it, so a later page update may replace it. */
   fromPage: boolean;
+  /** True when it came from the page URL slug, which no title should replace. */
+  fromPageUrl?: boolean;
 }
 
 /**
@@ -51,11 +53,18 @@ export function detectedTitle(
   const fromMedia = mediaUrl ? titleFromMediaUrl(mediaUrl) : null;
   if (fromMedia) return { title: fromMedia, fromPage: false };
 
+  // A path that spells the content out names *this* page. A document title
+  // often names the site or the course, and single-page apps frequently set it
+  // once and never again — which is how every lesson on a course ends up
+  // sharing one name. A descriptive slug is per-page by construction, so it
+  // wins; anything shorter than two words is too weak to beat a real title.
+  const fromUrl = pageUrl ? titleFromPageUrl(pageUrl) : null;
+  if (fromUrl && fromUrl.includes(' ')) return { title: fromUrl, fromPage: true, fromPageUrl: true };
+
   const fromPage = pageTitle(document);
   if (fromPage && fromPage !== 'Unknown Video') return { title: fromPage, fromPage: true };
 
-  const fromUrl = pageUrl ? titleFromPageUrl(pageUrl) : null;
-  return { title: fromUrl || fromPage || 'Unknown Video', fromPage: true };
+  return { title: fromUrl || fromPage || 'Unknown Video', fromPage: true, fromPageUrl: Boolean(fromUrl) };
 }
 
 export function pageDuration(document: Document): number | undefined {

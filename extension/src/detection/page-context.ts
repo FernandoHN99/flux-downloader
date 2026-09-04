@@ -39,7 +39,11 @@ export function applyPageMetadataToVideos(
 ): VideoInfo[] {
   let changed = false;
   const updated = videos.map((video) => {
-    const title = video.titleFromPage && metadata.title ? metadata.title : video.title;
+    // Only a page title can replace a page title, and only when the page has
+    // actually changed it. A slug-derived name is per-page already and must
+    // not be overwritten by a document title the site never updates.
+    const pageNamed = video.titleFromPage && !video.titleFromPageUrl;
+    const title = pageNamed && metadata.title ? metadata.title : video.title;
     const next: VideoInfo = {
       ...video,
       title,
