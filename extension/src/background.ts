@@ -56,6 +56,7 @@ import { applyPageMetadataToVideos, mergePageMetadata } from './lib/page-context
 import { buildYtdlpVideo, fallbackYtdlpQualities } from './lib/youtube';
 import { inferRelayCodec, mergeRelayCodecs, resolveRelayUrl } from './lib/relay-codec';
 import { DownloadTracker } from './lib/download-tracker';
+import { buildDashQualities, buildHlsQualities } from './lib/manifest-qualities';
 
 const nativeClient = new NativeClient();
 
@@ -660,72 +661,7 @@ async function handleInterceptedMedia(
       const parsed = await M3U8ParserWrapper.fetchAndParse(url, referer);
       duration = parsed.duration;
       childUrls = parsed.childUrls;
-
-      const audioRenditions = (parsed.mediaRenditions || [])
-        .filter((r) => r.type.toUpperCase() === 'AUDIO');
-      const activeAudioGroups = new Set(
-        parsed.variants.map((variant) => variant.audioGroupId).filter(Boolean)
-      );
-
-      for (const variant of parsed.variants) {
-        const matchingAudio = audioRenditions
-          .filter((r) => r.groupId === variant.audioGroupId && r.uri)
-          .sort((a, b) => Number(Boolean(b.default)) - Number(Boolean(a.default)) ||
-            Number(Boolean(b.autoselect)) - Number(Boolean(a.autoselect)));
-
-        if (matchingAudio.length === 0) {
-          qualities.push({
-            height: variant.height || 0,
-            width: variant.width,
-            bitrate: variant.bandwidth,
-            url: variant.url,
-            label: variant.name,
-            kind: 'video' as const
-          });
-        } else {
-          for (const audio of matchingAudio) {
-            const audioLabel = audio.name || audio.language || 'Audio';
-            qualities.push({
-              height: variant.height || 0,
-              width: variant.width,
-              bitrate: variant.bandwidth,
-              url: variant.url,
-              label: `${variant.name} - ${audioLabel}`,
-              kind: 'video' as const,
-              language: audio.language,
-              formatArgs: [
-                ...getFfmpegHttpArgs(referer),
-                '-i', variant.url,
-                ...getFfmpegHttpArgs(referer),
-                '-i', audio.uri!,
-                '-map', '0:v:0',
-                '-map', '1:a:0',
-                '-c', 'copy'
-              ]
-            });
-          }
-        }
-      }
-
-      for (const r of parsed.mediaRenditions || []) {
-        if (!r.uri || r.type === 'CLOSED-CAPTIONS') continue;
-        if (r.groupId && !activeAudioGroups.has(r.groupId)) continue;
-        const kind = r.type === 'AUDIO' ? 'audio' as const : r.type === 'SUBTITLES' ? 'subtitle' as const : undefined;
-        if (!kind) continue;
-        const labelParts: string[] = [];
-        if (r.type === 'AUDIO') labelParts.push('Audio');
-        else if (r.type === 'SUBTITLES') labelParts.push('Subtitles');
-        if (r.name) labelParts.push(r.name);
-        else if (r.language) labelParts.push(r.language);
-        qualities.push({
-          height: 0,
-          url: r.uri,
-          bitrate: 0,
-          label: labelParts.join(' — ') || 'Alternate track',
-          kind,
-          language: r.language
-        });
-      }
+      qualities = buildHlsQualities(parsed, referer);
 
       // Fallback: fetch media playlist for duration if master had none
       if (!duration && parsed.variants.length > 0) {
@@ -748,26 +684,7 @@ async function handleInterceptedMedia(
       const parsed = await DashParserWrapper.fetchAndParse(url, referer);
       duration = parsed.duration;
       childUrls = parsed.childUrls;
-      qualities = parsed.variants.map((variant) => ({
-        height: variant.height || 0,
-        width: variant.width,
-        bitrate: variant.bandwidth,
-        url: variant.url,
-        label: variant.name
-      }));
-
-      for (const s of parsed.subtitleTracks || []) {
-        const labelParts = ['Subtitles'];
-        if (s.lang) labelParts.push(s.lang);
-        qualities.push({
-          height: 0,
-          url: s.url,
-          bitrate: 0,
-          label: labelParts.join(' — '),
-          kind: 'subtitle' as const,
-          language: s.lang
-        });
-      }
+      qualities = buildDashQualities(parsed);
     } catch (error) {
       console.warn('[MediaGrabber] Failed to parse DASH manifest:', error);
     }

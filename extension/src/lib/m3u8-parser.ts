@@ -9,6 +9,7 @@ export interface M3U8StreamInfo {
   codecs?: string;
   name?: string;
   audioGroupId?: string;
+  subtitleGroupId?: string;
 }
 
 export interface MediaRendition {
@@ -186,6 +187,11 @@ export class M3U8ParserWrapper {
     const audioGroupMatch = line.match(/AUDIO="([^"]+)"/);
     if (audioGroupMatch) {
       info.audioGroupId = audioGroupMatch[1];
+    }
+
+    const subtitleGroupMatch = line.match(/SUBTITLES="([^"]+)"/);
+    if (subtitleGroupMatch) {
+      info.subtitleGroupId = subtitleGroupMatch[1];
     }
     
     info.name = M3U8ParserWrapper.getQualityName(info.height);

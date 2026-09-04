@@ -55,6 +55,21 @@ describe('M3U8ParserWrapper.parse', () => {
       expect(best.name).toBe('1080p');
     });
 
+    it('records the subtitle group selected by a variant', () => {
+      const manifest = `#EXTM3U
+#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="English",LANGUAGE="en",URI="subs/en.m3u8"
+#EXT-X-STREAM-INF:BANDWIDTH=1400000,RESOLUTION=1280x720,SUBTITLES="subs"
+720p/index.m3u8
+`;
+      const out = M3U8.parse(manifest, BASE);
+      expect(out.variants[0].subtitleGroupId).toBe('subs');
+      expect(out.mediaRenditions?.[0]).toMatchObject({
+        type: 'SUBTITLES',
+        groupId: 'subs',
+        language: 'en'
+      });
+    });
+
     it('resolves each variant against the manifest it came from', () => {
       expect(parsed.variants[0].url).toBe('https://cdn.example.com/videos/lesson9/1080p/index.m3u8');
     });
