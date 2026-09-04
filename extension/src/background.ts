@@ -8,7 +8,17 @@ import { DashParserWrapper } from './lib/dash-parser';
 import { loadSettings, Settings, DEFAULT_SETTINGS } from './lib/settings';
 import { videoKey } from './lib/video-key';
 import { PageMetadata, TabStateStore } from './lib/tab-state';
-import { mergeDetectedVideosIntoHistory, sameHistoryContent } from './lib/history';
+import {
+  decorateHistoryEntries,
+  markHistoryDownloaded,
+  markHistoryFailed,
+  mergeDetectedVideosIntoHistory,
+  removeHistoryEntries,
+  renameHistoryTitle,
+  reorderHistoryEntries,
+  retainHistoryEntries,
+  sameHistoryContent
+} from './lib/history';
 import { isMediaUrl, isYouTubeUrl, mediaTypeFromUrl } from './lib/media-url';
 import {
   mergeChildUrls,
@@ -346,10 +356,9 @@ async function mergeIntoHistory(videos: VideoInfo[], pageUrl?: string, pageTitle
  * current set changes, and once when the setting is turned off.
  */
 async function pruneHistoryToCurrent(): Promise<void> {
-  const keep = new Set(currentMediaPayload().currentKeys);
   const history = await readHistory();
-  const next = history.filter((entry) => keep.has(videoKey(entry.url)));
-  if (next.length === history.length) return;
+  const next = retainHistoryEntries(history, currentMediaPayload().currentKeys);
+  if (next === history) return;
   await chrome.storage.local.set({ [HISTORY_KEY]: next });
   await broadcastHistory(next);
 }
@@ -371,26 +380,17 @@ async function clearHistory(): Promise<void> {
 }
 
 async function deleteHistoryEntries(keys: string[]): Promise<void> {
-  if (keys.length === 0) return;
-  const doomed = new Set(keys);
   const history = await readHistory();
-  const next = history.filter((entry) => !doomed.has(videoKey(entry.url)));
-  if (next.length === history.length) return;
+  const next = removeHistoryEntries(history, keys);
+  if (next === history) return;
   await chrome.storage.local.set({ [HISTORY_KEY]: next });
   await broadcastHistory(next);
 }
 
 async function renameHistoryEntry(key: string, title: string): Promise<void> {
-  const trimmed = title.trim();
-  if (!trimmed) return;
   const history = await readHistory();
-  let changed = false;
-  const next = history.map((entry) => {
-    if (videoKey(entry.url) !== key || entry.title === trimmed) return entry;
-    changed = true;
-    return { ...entry, title: trimmed };
-  });
-  if (!changed) return;
+  const next = renameHistoryTitle(history, key, title);
+  if (next === history) return;
   await chrome.storage.local.set({ [HISTORY_KEY]: next });
   await broadcastHistory(next);
 }
@@ -399,16 +399,7 @@ async function renameHistoryEntry(key: string, title: string): Promise<void> {
 // page's videos) keep their data and land after them.
 async function reorderHistory(keys: string[]): Promise<void> {
   const history = await readHistory();
-  const byKey = new Map(history.map((entry) => [videoKey(entry.url), entry]));
-  const reordered: HistoryEntry[] = [];
-  for (const key of keys) {
-    const entry = byKey.get(key);
-    if (entry) {
-      reordered.push(entry);
-      byKey.delete(key);
-    }
-  }
-  const next = [...reordered, ...history.filter((entry) => byKey.has(videoKey(entry.url)))];
+  const next = reorderHistoryEntries(history, keys);
   await chrome.storage.local.set({ [HISTORY_KEY]: next });
   await broadcastHistory(next);
 }
@@ -455,15 +446,15 @@ async function readFailedKeys(): Promise<string[]> {
 
 async function markDownloaded(url: string): Promise<void> {
   const key = videoKey(url);
-  const keys = await readDownloadedKeys();
+  const downloaded = await readDownloadedKeys();
   const failed = await readFailedKeys();
-  const alreadyMarked = keys.includes(key);
-  if (alreadyMarked && !failed.includes(key)) return;
+  const markers = { downloaded, failed };
+  const next = markHistoryDownloaded(markers, key, DOWNLOADED_LIMIT);
+  if (next === markers) return;
 
   await chrome.storage.local.set({
-    [DOWNLOADED_KEY]: alreadyMarked ? keys : [key, ...keys].slice(0, DOWNLOADED_LIMIT),
-    // A success clears an earlier failure for the same video.
-    [FAILED_KEY]: failed.filter((entry) => entry !== key)
+    [DOWNLOADED_KEY]: next.downloaded,
+    [FAILED_KEY]: next.failed
   });
   await broadcastHistory(await readHistory());
 }
@@ -471,19 +462,16 @@ async function markDownloaded(url: string): Promise<void> {
 async function markFailed(url: string): Promise<void> {
   const key = videoKey(url);
   const failed = await readFailedKeys();
-  if (failed.includes(key)) return;
-  await chrome.storage.local.set({ [FAILED_KEY]: [key, ...failed].slice(0, DOWNLOADED_LIMIT) });
+  const markers = { downloaded: [], failed };
+  const next = markHistoryFailed(markers, key, DOWNLOADED_LIMIT);
+  if (next === markers) return;
+  await chrome.storage.local.set({ [FAILED_KEY]: next.failed });
   await broadcastHistory(await readHistory());
 }
 
 async function decorateHistory(entries: HistoryEntry[]): Promise<HistoryEntry[]> {
-  const downloaded = new Set(await readDownloadedKeys());
-  const failed = new Set(await readFailedKeys());
-  return entries.map((entry) => ({
-    ...entry,
-    downloaded: downloaded.has(videoKey(entry.url)),
-    failed: failed.has(videoKey(entry.url))
-  }));
+  const [downloaded, failed] = await Promise.all([readDownloadedKeys(), readFailedKeys()]);
+  return decorateHistoryEntries(entries, downloaded, failed);
 }
 
 // Statuses a signed CDN returns once a link's token has expired.

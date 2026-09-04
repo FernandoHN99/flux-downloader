@@ -50,6 +50,109 @@ export function sameHistoryContent(a: HistoryEntry[], b: HistoryEntry[]): boolea
   return historySignature(a) === historySignature(b);
 }
 
+export function retainHistoryEntries(
+  history: HistoryEntry[],
+  keys: Iterable<string>
+): HistoryEntry[] {
+  const retained = new Set(keys);
+  const next = history.filter((entry) => retained.has(videoKey(entry.url)));
+  return next.length === history.length ? history : next;
+}
+
+export function removeHistoryEntries(
+  history: HistoryEntry[],
+  keys: Iterable<string>
+): HistoryEntry[] {
+  const removed = new Set(keys);
+  if (removed.size === 0) return history;
+  const next = history.filter((entry) => !removed.has(videoKey(entry.url)));
+  return next.length === history.length ? history : next;
+}
+
+export function renameHistoryTitle(
+  history: HistoryEntry[],
+  key: string,
+  title: string
+): HistoryEntry[] {
+  const trimmed = title.trim();
+  if (!trimmed) return history;
+  let changed = false;
+  const next = history.map((entry) => {
+    if (videoKey(entry.url) !== key || entry.title === trimmed) return entry;
+    changed = true;
+    return { ...entry, title: trimmed };
+  });
+  return changed ? next : history;
+}
+
+/** Visible keys lead; entries omitted by popup filtering retain their order. */
+export function reorderHistoryEntries(
+  history: HistoryEntry[],
+  keys: Iterable<string>
+): HistoryEntry[] {
+  const byKey = new Map(history.map((entry) => [videoKey(entry.url), entry]));
+  const reordered: HistoryEntry[] = [];
+  for (const key of keys) {
+    const entry = byKey.get(key);
+    if (!entry) continue;
+    reordered.push(entry);
+    byKey.delete(key);
+  }
+  return [
+    ...reordered,
+    ...history.filter((entry) => byKey.has(videoKey(entry.url)))
+  ];
+}
+
+export function decorateHistoryEntries(
+  history: HistoryEntry[],
+  downloadedKeys: Iterable<string>,
+  failedKeys: Iterable<string>
+): HistoryEntry[] {
+  const downloaded = new Set(downloadedKeys);
+  const failed = new Set(failedKeys);
+  return history.map((entry) => {
+    const key = videoKey(entry.url);
+    return {
+      ...entry,
+      downloaded: downloaded.has(key),
+      failed: failed.has(key)
+    };
+  });
+}
+
+export interface DownloadMarkers {
+  downloaded: string[];
+  failed: string[];
+}
+
+export function markHistoryDownloaded(
+  markers: DownloadMarkers,
+  key: string,
+  limit: number
+): DownloadMarkers {
+  const alreadyDownloaded = markers.downloaded.includes(key);
+  if (alreadyDownloaded && !markers.failed.includes(key)) return markers;
+  return {
+    downloaded: alreadyDownloaded
+      ? markers.downloaded
+      : [key, ...markers.downloaded].slice(0, limit),
+    failed: markers.failed.filter((entry) => entry !== key)
+  };
+}
+
+export function markHistoryFailed(
+  markers: DownloadMarkers,
+  key: string,
+  limit: number
+): DownloadMarkers {
+  if (markers.failed.includes(key)) return markers;
+  return {
+    ...markers,
+    failed: [key, ...markers.failed].slice(0, limit)
+  };
+}
+
 function historySignature(entries: HistoryEntry[]): string {
   return JSON.stringify(entries.map((entry) => [
     videoKey(entry.url),

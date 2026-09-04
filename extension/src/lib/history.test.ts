@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import type { HistoryEntry, VideoInfo } from './types';
-import { mergeDetectedVideosIntoHistory, sameHistoryContent } from './history';
-import { domainOf } from './video-key';
+import {
+  decorateHistoryEntries,
+  markHistoryDownloaded,
+  markHistoryFailed,
+  mergeDetectedVideosIntoHistory,
+  removeHistoryEntries,
+  renameHistoryTitle,
+  reorderHistoryEntries,
+  retainHistoryEntries,
+  sameHistoryContent
+} from './history';
+import { domainOf, videoKey } from './video-key';
 
 const lessonUrl = 'https://app.rocketseat.com.br/jornada/react-2025/aula/testando-com-babel-repl';
 const mediaUrl = 'https://vz-dc851587-83d.b-cdn.net/course/playlist.m3u8?token=new';
@@ -82,5 +92,70 @@ describe('sameHistoryContent', () => {
       [entry({ pageUrl: undefined })],
       [entry({ pageUrl: lessonUrl })]
     )).toBe(false);
+  });
+});
+
+describe('history list mutations', () => {
+  const one = entry({ id: 'one', url: 'https://cdn.example/one.mp4', title: 'One' });
+  const two = entry({ id: 'two', url: 'https://cdn.example/two.mp4', title: 'Two' });
+  const three = entry({ id: 'three', url: 'https://cdn.example/three.mp4', title: 'Three' });
+
+  it('retains only current keys and preserves a no-op snapshot', () => {
+    expect(retainHistoryEntries([one, two], [videoKey(one.url)])).toEqual([one]);
+    const history = [one, two];
+    expect(retainHistoryEntries(history, history.map((item) => videoKey(item.url))))
+      .toBe(history);
+  });
+
+  it('removes requested keys and ignores unknown or empty selections', () => {
+    expect(removeHistoryEntries([one, two], [videoKey(two.url)])).toEqual([one]);
+    const history = [one, two];
+    expect(removeHistoryEntries(history, [])).toBe(history);
+    expect(removeHistoryEntries(history, ['unknown'])).toBe(history);
+  });
+
+  it('trims a title and returns the old snapshot when nothing changes', () => {
+    expect(renameHistoryTitle([one, two], videoKey(two.url), '  Renamed  ')[1].title)
+      .toBe('Renamed');
+    const history = [one, two];
+    expect(renameHistoryTitle(history, videoKey(two.url), 'Two')).toBe(history);
+    expect(renameHistoryTitle(history, videoKey(two.url), '   ')).toBe(history);
+  });
+
+  it('puts ordered visible keys first and keeps omitted entries afterward', () => {
+    expect(reorderHistoryEntries(
+      [one, two, three],
+      [videoKey(three.url), videoKey(one.url), 'unknown', videoKey(three.url)]
+    )).toEqual([three, one, two]);
+  });
+});
+
+describe('history download markers', () => {
+  const item = entry({ url: 'https://cdn.example/video.mp4?token=new' });
+  const key = videoKey(item.url);
+
+  it('decorates entries from stable downloaded and failed keys', () => {
+    expect(decorateHistoryEntries([item], [key], [key])[0]).toMatchObject({
+      downloaded: true,
+      failed: true
+    });
+    expect(decorateHistoryEntries([item], [], [])[0]).toMatchObject({
+      downloaded: false,
+      failed: false
+    });
+  });
+
+  it('adds a successful key once and clears its previous failure', () => {
+    expect(markHistoryDownloaded({ downloaded: [], failed: [key, 'other'] }, key, 500))
+      .toEqual({ downloaded: [key], failed: ['other'] });
+    const markers = { downloaded: [key], failed: [] };
+    expect(markHistoryDownloaded(markers, key, 500)).toBe(markers);
+  });
+
+  it('prepends failed keys once and enforces the marker limit', () => {
+    expect(markHistoryFailed({ downloaded: [], failed: ['old'] }, key, 1))
+      .toEqual({ downloaded: [], failed: [key] });
+    const markers = { downloaded: [], failed: [key] };
+    expect(markHistoryFailed(markers, key, 10)).toBe(markers);
   });
 });
