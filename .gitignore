@@ -60,7 +60,7 @@ coapp/ytdlp/**/yt-dlp
 extension/src/*.js
 extension/src/*.js.map
 extension/src/popup/*.js
-extension/src/lib/*.js
+extension/src/*/*.js
 
 # CoApp compiled JS
 coapp/dist/
@@ -69,4 +69,6 @@ coapp/dist/
 .opencode/
 .agents/
 agent-plan/
-AGENTS.md
+
+# AGENTS.md and CLAUDE.md are tracked on purpose: they are the authoritative
+# guides for anyone (human or agent) working in this repository.

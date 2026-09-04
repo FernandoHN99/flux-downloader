@@ -6,9 +6,23 @@ This is the project changelog. It replaces the old Video DownloadHelper historic
 
 This section describes commits after the `v1.1.1` tag on the current refactor line. These changes are not part of a tagged public release yet.
 
+### Rename to Flux Downloader
+
+- Renamed the project to **Flux Downloader** everywhere: manifest, UI, npm packages, install directories, log prefix, page-world globals, and release artifacts.
+- **Breaking:** the native messaging host id changed from `com.mediagrabber.coapp` to `com.fluxdownloader.coapp`, and install paths moved from `MediaGrabber`/`MEDIAGRABBER_*` to `FluxDownloader`/`FLUX_*`. The host must be re-registered with `node dist/native-autoinstall-cli.js register <extension-id>`; the previous registration and install directory are orphaned and can be deleted by hand.
+- The `github.com/miroshArtem/MediaGrabber` URLs and the repository directory keep the old name for now, since they are live external references.
+
+### Source layout
+
+- Grouped extension source by domain: `entrypoints/`, `detection/`, `catalog/`, `download/`, `shared/`, replacing the 30-file `lib/` drawer and the `content/` folder.
+- Added a per-domain `AGENTS.md` to each folder plus a root `CLAUDE.md` pointer, and trimmed the root `AGENTS.md` to cross-cutting material.
+- Moved history persistence and the downloaded/failed markers out of `background.ts` into `catalog/history-store.ts`, which owns its own write queue; callers no longer chain onto a shared promise. 14 new tests; `background.ts` dropped from 1,554 to 1,410 lines.
+- Added Vitest to the CoApp workspace with a first suite over `RpcProtocol`, which exposed and fixed a pending-reply leak when the transport throws.
+- Dropped the 3.9MB promo video from git tracking.
+
 ### Product and list model
 
-- Rebranded the user-facing extension and popup to **Flux** while retaining Flux Downloader internal/release compatibility names.
+- Rebranded the user-facing extension and popup to **Flux** while retaining MediaGrabber internal/release compatibility names. *(Superseded by the full rename above.)*
 - Replaced separate current/history presentations with one global list.
 - Current media from every open tab is pinned and visibly marked.
 - Added optional persisted history (maximum 50 entries) and **Only current** mode.

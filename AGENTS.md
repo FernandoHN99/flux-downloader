@@ -4,34 +4,36 @@ This file is the authoritative implementation guide for AI agents working in thi
 
 ## Identity and scope
 
-- **Flux** is the product name shown in the extension manifest and UI.
-- **Flux Downloader** remains the repository/package namespace, native host description, install directory, logs, and release artifact prefix. This is intentional compatibility, not necessarily unfinished renaming.
+- **Flux Downloader** is the product name everywhere: manifest, UI, packages, native host, install directories, logs, and release artifacts.
+- The repository directory and the `github.com/miroshArtem/MediaGrabber` remote still carry the old name. Those are live external references; leave them until the repository itself is renamed.
 - The product is a Chrome/Edge Manifest V3 extension plus a local Node.js companion application (CoApp).
 - TypeScript is used throughout. The extension detects media; the CoApp performs filesystem, FFmpeg, direct HTTP, and yt-dlp work.
 - DRM bypass is out of scope.
 
-Current package version: `1.1.1` in the root, extension, CoApp, and manifest. The active refactor branch at this documentation baseline is `refactor/popup-components`.
+Current package version: `1.1.1` in the root, extension, CoApp, and manifest. This baseline is `main` after the domain restructure and the Flux Downloader rename.
 
 ## Repository layout
 
 This is an npm-workspaces monorepo.
 
-| Path | Purpose |
-|---|---|
-| `extension/` | Manifest V3 extension (`flux-downloader-extension`) |
-| `extension/src/background.ts` | Service worker: detection aggregation, tab state, history, popup protocol, downloads |
-| `extension/src/content.ts` | Isolated-world DOM detector and bridge from the page world |
-| `extension/src/content/` | Tested DOM collection, page metadata, MSE bridge validation/reduction, detection projection |
-| `extension/src/mse-inject.ts` | MAIN-world MSE/fetch/XHR hook; cannot use `chrome.*` |
-| `extension/src/lib/` | Shared protocols/types, parsers/projections, state/history/download lifecycle, native client, settings |
-| `extension/src/popup/` | Component popup, settings page, and component-scoped CSS |
-| `coapp/` | Native messaging host (`flux-downloader-coapp`) |
-| `coapp/src/` | RPC, FFmpeg, yt-dlp, HTTP download, paths, registration, installer |
-| `coapp/scripts/` | SEA builds, release config/checksums, Windows dev registration |
-| `docs/` | Current Flux Downloader implementation and release documentation |
-| `.github/workflows/release.yml` | Windows x64 tagged-release pipeline |
+Extension source is grouped by domain. Each domain folder carries its own `AGENTS.md` with the rules local to it; read that file plus this one before editing there.
 
-There is currently no `agent-plan/` or `installer/` directory. Do not follow old references to either. The installer is built from `coapp/src/installer.ts` and `coapp/scripts/build-sea.mjs`.
+| Path | Purpose | Guide |
+|---|---|---|
+| `extension/` | Manifest V3 extension (`flux-downloader-extension`) | |
+| `extension/src/entrypoints/` | The three esbuild entry points: service worker, content script, MAIN-world hook | [AGENTS.md](extension/src/entrypoints/AGENTS.md) |
+| `extension/src/detection/` | Page hooks, HLS/DASH parsers, quality projection, media identity | [AGENTS.md](extension/src/detection/AGENTS.md) |
+| `extension/src/catalog/` | Tab state, history rules and persistence, video catalog | [AGENTS.md](extension/src/catalog/AGENTS.md) |
+| `extension/src/download/` | Download plan, concurrency gate, tracker, batch, HLS args, native client | [AGENTS.md](extension/src/download/AGENTS.md) |
+| `extension/src/shared/` | Types, typed protocols, settings, theme, errors | [AGENTS.md](extension/src/shared/AGENTS.md) |
+| `extension/src/popup/` | Component popup, settings page, component-scoped CSS | [AGENTS.md](extension/src/popup/AGENTS.md) |
+| `coapp/` | Native messaging host (`flux-downloader-coapp`) | |
+| `coapp/src/` | RPC, FFmpeg, yt-dlp, HTTP download, paths, registration, installer | [AGENTS.md](coapp/src/AGENTS.md) |
+| `coapp/scripts/` | SEA builds, release config/checksums, Windows dev registration | |
+| `docs/` | Current Flux Downloader implementation and release documentation | |
+| `.github/workflows/release.yml` | Windows x64 tagged-release pipeline | |
+
+`extension/src/lib/` and `extension/src/content/` no longer exist; their contents moved into the domain folders above. There is no `agent-plan/` or `installer/` directory either — the installer is built from `coapp/src/installer.ts` and `coapp/scripts/build-sea.mjs`.
 
 ## Commands
 
@@ -39,7 +41,7 @@ Run from the repository root unless noted.
 
 ```bash
 npm install
-npm test                   # extension Vitest suite
+npm test                   # extension + CoApp Vitest suites
 npm run build              # extension tsc + bundles, then CoApp tsc
 npm run build:extension
 npm run build:coapp
@@ -65,13 +67,13 @@ For Windows development, `coapp/scripts/register-dev-host.ps1 -ExtensionId <id>`
 
 As of 2026-09-03:
 
-- 39 extension test files and **505 tests** pass.
+- 40 extension test files and **519 tests** pass, plus 1 CoApp file with **7 tests** — 526 in total.
 - Tests use Vitest 3 with `happy-dom`; configuration is in `extension/vitest.config.ts`.
 - `NativeClient` is covered on the extension side; there are still no process-side CoApp tests and no linter.
 - The required final verification for code changes is `npm test` followed by `npm run build`.
 - Parser and component regressions should be protected with tests before or with a refactor.
 
-Do not keep reporting the 505 count after adding/removing tests without rerunning the suite.
+Do not keep reporting the 526 count after adding or removing tests without rerunning the suite.
 
 ## Extension build and loading
 
@@ -79,9 +81,9 @@ The extension build runs TypeScript and then bundles browser entries with esbuil
 
 | Source | Output |
 |---|---|
-| `src/background.ts` | `dist/background.js` |
-| `src/content.ts` | `dist/content.js` |
-| `src/mse-inject.ts` | `dist/mse-inject.js` (`iife`) |
+| `src/entrypoints/background.ts` | `dist/background.js` |
+| `src/entrypoints/content.ts` | `dist/content.js` |
+| `src/entrypoints/mse-inject.ts` | `dist/mse-inject.js` (`iife`) |
 | `src/popup/index.ts` | `dist/popup.js` |
 | `src/popup/settings.ts` | `dist/settings.js` |
 | `src/popup/styles/index.css` | `dist/popup.css` |
@@ -102,99 +104,23 @@ After rebuilding/reloading the extension, pages that still contain the old conte
 
 ## Popup architecture
 
-The popup was refactored from one global 1,500-line script into an app shell, store, selectors, typed messages, components, and split CSS. Its entry is `extension/src/popup/index.ts`; the old `popup.ts` no longer exists.
+The popup is an app shell plus a store, pure selectors, typed messages, and components with scoped CSS. Entry point is `extension/src/popup/index.ts`; the old global `popup.ts` no longer exists.
 
-### Ownership
-
-- `App` owns the popup `Store`, `Messenger`, and the top-level `ListHeader`, `ProgressPanel`, `RefreshButton`, and `VideoList` components.
-- `Component<S>` owns one root element and renders only inside it. Components must not query or mutate unrelated global DOM.
-- `Component.update()` preserves focus, caret, and selection for descendants marked with `data-focus-id`. This protects search and rename fields while remote updates redraw components.
-- `RemoteState` is background-owned and replaced from messages.
-- `UiState` is popup-owned and contains search, refresh, selection, expansion, rename, grouping, dragging, quality choice, status, and errors.
-- Incoming background updates must never reset in-progress UI state.
-
-### Components and styles
-
-Components live in `extension/src/popup/components/`:
-
-- `ListHeader`
-- `ProgressPanel`
-- `RefreshButton`
-- `VideoList`
-- `VideoGroup`
-- `VideoRow`
-- `QualityPanel`
-- `base.ts` and shared `icons.ts`
-
-Styles are bundled from `extension/src/popup/styles/index.css` and split into tokens, shell, list, row, quality, progress, miscellaneous controls, and animations. Keep component-specific rules with the corresponding stylesheet. The settings page intentionally remains a small separate static page.
-
-Chrome action popups require explicit pixel sizing. Do not replace the fixed width/min/max-height with `100vw`, `100vh`, or `min()` viewport sizing; Chrome can collapse the popup to about one pixel.
-
-### List invariants
-
-- Current media and persisted history are one list, not separate `VideoList`/`HistoryList` views.
-- Media playing in any open tab is pinned above historical items and marked by `currentKeys`.
-- `groupByDomain=false` renders a flat list; `true` creates collapsible site groups.
-- Site ownership uses `domainOf(entry.pageUrl, entry.url)`: the top-level page is authoritative and the CDN URL is only a fallback.
-- A Rocketseat lesson served by `vz-*.b-cdn.net`, for example, must remain under/link to the exact `app.rocketseat.com.br/...` lesson page.
-- Only non-current, non-downloading history rows can be reordered.
-- Movable rows live in explicit `.reorder-zone` containers. In grouped mode a drop stays inside its site; in flat mode the zone has a 3px inline inset so its dashed border is not clipped.
-- Selection/delete, rename, search, quality expansion, single download, grouped download, and batch download all operate on the same entries.
-
-### Progress and concurrency
-
-- One download run owns the CoApp at a time. `DownloadRunGate` enforces this synchronously in the worker; popup disabling is feedback, not the lock.
-- `ProgressPanel` handles both single and batch runs.
-- The compact panel is two visual rows: summary/speed/ETA/percent/Stop, then the bar. The 2026-09-03 browser preview measured 44px high (previously 54px).
-- The active row shows a percentage; other batch rows show `Queued`.
-- `BatchRun` owns queue transitions. A cancelled item is not marked failed, and cancellation that arrives before a native ID is applied as soon as the ID appears.
+Ownership, the remote/UI state split, list and reorder invariants, progress rendering, the fixed-pixel sizing rule, and the happy-dom testing gaps are documented in **[extension/src/popup/AGENTS.md](extension/src/popup/AGENTS.md)**.
 
 ## Central refresh flow
 
-There is one user-facing refresh action: the always-visible **Refresh tabs** button.
+There is one user-facing refresh action: the always-visible **Refresh tabs** button. It spans all three contexts, so the message names must stay distinct: popup → background is `REFRESH_TABS`, background → content is the internal `RESCAN`. Do not collapse them into one ambiguous shared message.
 
-Popup → background uses `REFRESH_TABS`. Background → content script uses internal `RESCAN`. Do not collapse these into an ambiguous shared message.
-
-`refreshOpenTabs()` performs, in order:
-
-1. `restoreCurrentMediaToHistory()` re-inserts media still held in every live tab state. This restores a current item the user deleted from history, including network-only media that no DOM rescan can rediscover.
-2. `rescanAllTabs()` queries all tabs and sends `RESCAN` to every HTTP(S) tab.
-3. Each content script re-announces its cached detections, rescans the DOM, and resends page metadata.
-4. The background waits for queued history writes, then returns fresh `MEDIA_LIST` and `HISTORY_LIST` payloads.
-
-If a cold service worker receives `GET_MEDIA` with no tab media state, it automatically requests a rescan. Tabs without a compatible listener are skipped safely.
+The ordered steps and the cold-worker fallback are documented in **[extension/src/entrypoints/AGENTS.md](extension/src/entrypoints/AGENTS.md)**.
 
 ## Background state and lifecycle
 
-`extension/src/lib/tab-state.ts` owns all state tied to a browser tab in one `TabStateStore`, keyed by tab ID.
+All state tied to a browser tab lives in one `TabStateStore` (`extension/src/catalog/tab-state.ts`), keyed by tab ID, and `tabs.onRemoved` deletes the whole entry. Do not add a parallel per-tab map: single-point cleanup is the reason this store exists. Generations are globally monotonic for the service-worker lifetime, so a late async result cannot repopulate a reused tab ID.
 
-`TabState` contains:
+State with a different lifetime deliberately sits outside it: `DownloadTracker`, `DownloadRunGate`, `BatchRun`, popup ports, and the settings cache.
 
-- monotonic `pageGeneration`
-- optional detected `media`
-- intercepted manifest/media URL set
-- top-page metadata
-- last yt-dlp format URL
-- content/navigation generation
-- current top-level page URL
-- relay URL mappings and learned relay codecs
-
-`resetPage()` creates a fresh generation while preserving navigation identity. `tabs.onRemoved` deletes the complete state. Generations are globally monotonic for the service-worker lifetime so late async parser/yt-dlp results cannot repopulate a reused tab ID.
-
-State with a different lifetime remains outside `TabStateStore`: `DownloadTracker`, `DownloadRunGate`, `BatchRun`, popup ports, settings cache, and serialized history writes.
-
-### Persistent storage
-
-`chrome.storage.local` keys:
-
-| Key | Content | Limit/behavior |
-|---|---|---|
-| `settings` | `batchQuality`, `keepHistory`, `groupByDomain` | merged over defaults |
-| `mediaHistory` | detected `HistoryEntry[]` including source/media URLs and metadata | newest/current merge, max 50 |
-| `downloadedVideos` | stable media keys marked downloaded | max 500 |
-| `failedVideos` | stable media keys marked failed | max 500 |
-
-History read-modify-write operations are serialized through `historyWrites`; do not introduce parallel storage mutations that can overwrite each other. Turning `keepHistory` off is intentionally destructive and prunes persisted history to media currently present in open tabs.
+Tab state contents, the history write queue, and the storage-key table are documented in **[extension/src/catalog/AGENTS.md](extension/src/catalog/AGENTS.md)**.
 
 ## URL and source ownership rules
 
@@ -214,94 +140,39 @@ The manifest registers two scripts on `<all_urls>`, in all frames, at `document_
 | Script | World | Responsibilities |
 |---|---|---|
 | `dist/content.js` | isolated | DOM scanning, metadata, navigation generations, RESCAN cache, MAIN-world bridge |
-| `dist/mse-inject.js` | MAIN | MSE hooks plus fetch/XHR relay URL observation; communicates only through `window.postMessage` |
+| `dist/mse-inject.js` | MAIN | MSE hooks plus fetch/XHR relay observation; `window.postMessage` only |
 
-The service worker also observes `webRequest.onBeforeRequest` and `onHeadersReceived` for HTTP(S) HLS, DASH, MP4, and WebM candidates. It merges network, DOM, and MSE findings per tab.
+The service worker also observes `webRequest.onBeforeRequest` and `onHeadersReceived` for HTTP(S) HLS, DASH, MP4 and WebM candidates, and merges network, DOM and MSE findings per tab.
 
-Top-frame metadata owns page title/URL/thumbnail. Messages are checked against sender frame URL, sender tab URL, and content generation; stale navigation results are discarded. Child frames may contribute media but must not replace top-level source ownership. `content/dom-media.ts` performs normalized subtree collection and `content/mse-bridge.ts` validates/reduces page-world traffic before it mutates isolated-world state.
-
-`mse-inject.ts` is self-contained and guarded by `window.__FluxMSEHooked`. It has no extension API access. Content-script sends catch invalidated-extension errors because a loaded page can outlive an extension reload.
+Per-context constraints, message validation, and relay inference are documented in **[extension/src/detection/AGENTS.md](extension/src/detection/AGENTS.md)**.
 
 ## HLS and DASH parsing
 
-Both parsers are regex-based because `DOMParser` is not available in the MV3 service worker.
+Both parsers are regex-based because `DOMParser` is not available in the MV3 service worker. Always propagate the top page URL and referer from detection into manifest fetching and FFmpeg arguments; authenticated CDNs reject context-free requests.
 
-- `M3U8ParserWrapper.fetchAndParse(url, referer?)` and `DashParserWrapper.fetchAndParse(url, referer?)` pass source context as the fetch referrer.
-- Always propagate the top page URL/referer from detection into manifest fetching and FFmpeg arguments when available; authenticated CDNs can reject context-free requests.
-- Redirect-chain manifest deduplication intentionally compares pathname while ignoring hostname.
-- `VideoQuality.kind` is `video`, `audio`, or `subtitle`.
-- HLS preserves distinct same-resolution variants when their audio rendition groups differ, but deduplicates groups with equivalent rendition membership.
-- HLS variants record both `AUDIO` and `SUBTITLES` group IDs. `manifest-qualities.ts` projects parsed variants/renditions into typed popup/FFmpeg choices.
-- `hls-rewrite.ts` rewrites segment, key, and init-map URIs for learned browser relays and rejects a partial mapping.
-- `hls-arguments.ts` walks FFmpeg inputs without mutating the array under iteration and attaches local-manifest protocol options to every rewritten HTTP(S) input.
-- DASH inherits representation attributes from `AdaptationSet`, records DRM presence, extracts subtitle tracks, and parses ISO-8601 media durations.
-- DASH duration accepts full zero-year/month forms such as `P0Y0M0DT0H25M23.000S`, plus days/weeks. Non-zero years or months are rejected because they have no fixed duration.
-- Calling M3U8 `parse()` without a base URL cannot resolve/return relative variants; production `fetchAndParse()` supplies one.
+Deduplication rules, audio/subtitle group handling, the ISO-8601 duration rules, and the base-URL caveat are documented in **[extension/src/detection/AGENTS.md](extension/src/detection/AGENTS.md)**.
 
-Current parser coverage: 38 HLS tests and 39 DASH tests. The deleted `lib/quality-utils.ts` and `lib/mpd-parser.ts` were unreachable duplicates; do not reintroduce or import them.
+The deleted `lib/quality-utils.ts` and `lib/mpd-parser.ts` were unreachable duplicates; do not reintroduce or import them.
 
 ## YouTube
 
-YouTube tabs are handled exclusively as `VideoInfo.type='ytdlp'`.
+YouTube tabs are handled exclusively as `VideoInfo.type='ytdlp'`, downloaded through the `ytdlp` RPC with the same progress and cancellation model as every other download. yt-dlp behavior depends on the installed binary and upstream changes; do not implement a second signature parser in the extension.
 
-- Ordinary intercepted YouTube media entries are filtered out of the visible commit path.
-- Top-page metadata triggers `ytdlpFormats(pageUrl)` in the CoApp.
-- Returned qualities retain real yt-dlp `format_id` selectors and include video, MP3 audio, manual subtitles, and automatic subtitles when available.
-- Downloads use the `ytdlp` RPC and the same progress panel/cancellation model as other downloads.
-- yt-dlp behavior depends on the installed binary and upstream YouTube changes; do not implement a second signature parser in the extension.
+Details are in **[extension/src/detection/AGENTS.md](extension/src/detection/AGENTS.md)**.
 
 ## Native messaging and CoApp
 
-Native host ID: `com.fluxdownloader.coapp`.
+Native host ID: `com.fluxdownloader.coapp`. The browser side uses `chrome.runtime.connectNative`; at the process boundary, messages are 4-byte little-endian length-prefixed UTF-8 JSON, stdout is protocol-only, and logs go to stderr. On top of transport both sides speak bidirectional `weh#rpc`, and CoApp progress calls back into extension RPC methods rather than firing and forgetting.
 
-The browser-facing API uses `chrome.runtime.connectNative`. At the native process boundary, messages are 4-byte little-endian length-prefixed UTF-8 JSON. Stdout is protocol-only; logs go to stderr.
-
-On top of transport, both sides use bidirectional `weh#rpc`:
-
-```json
-{ "type": "weh#rpc", "_request": 1, "_method": "info", "_args": [] }
-{ "type": "weh#rpc", "_reply": 1, "_result": {} }
-{ "type": "weh#rpc", "_reply": 1, "_error": "message" }
-```
-
-CoApp progress is not a fire-and-forget notification: it calls extension RPC methods (`convertOutput`, `convertStartNotification`, `downloadComplete`, `downloadError`) and receives replies.
-
-Key CoApp handlers:
-
-- app: `ping`, `info`, `quit`
-- FFmpeg: `convert`, `abortConvert`, `probe`, `converter.info`
-- yt-dlp: `ytdlpFormats`, `ytdlp`, `abortYtdlp`
-- direct HTTP: `downloads.download`, `downloads.search`, `downloads.probeStatus`, `downloads.cancel`
-- filesystem: `file.uniquePath`, `file.ensureDir`
-
-`NativeClient` uses a 60-second timeout for ordinary RPC, no timeout for long-running `convert`/`ytdlp`, rejects pending calls on disconnect, and retries connection after five seconds. A synchronous initial `connectNative` failure is not cached; a later call must make a fresh attempt. Its extension-side lifecycle/RPC behavior has nine tests.
-
-### Runtime paths
-
-Release install roots:
-
-- Windows: `%LOCALAPPDATA%\Flux Downloader`
-- macOS: `~/Library/Application Support/FluxDownloader`
-- Linux: `$XDG_DATA_HOME/FluxDownloader` or `~/.local/share/FluxDownloader`
-
-`FLUX_INSTALL_DIR` overrides the install root. `FLUX_HOME` adds a runtime search root.
-
-Runtime binaries are searched under known roots using `ffmpeg/{win|darwin|linux}/`, `ytdlp/{win|darwin|linux}/`, then project/current-working-directory fallbacks, then system `PATH` command names. The tracked yt-dlp placeholder uses `coapp/ytdlp/mac`, while `paths.ts` derives `darwin`; there is currently no tracked `coapp/ffmpeg/` tree. Verify actual platform paths before changing discovery logic.
-
-The CoApp uses Node built-in HTTP/HTTPS streams so SEA builds do not depend on an ESM-only HTTP client.
+The handler list, RPC framing, runtime path discovery, install roots and SEA packaging rules are documented in **[coapp/src/AGENTS.md](coapp/src/AGENTS.md)**. The extension-side client lifecycle is in **[extension/src/download/AGENTS.md](extension/src/download/AGENTS.md)**.
 
 ## Download routing
 
-- HLS/DASH: FFmpeg `convert`, normally stream-copy/remux.
-- MSE: FFmpeg using captured/reconstructed input arguments where available.
-- YouTube: yt-dlp.
-- Direct MP4/WebM/other direct media: CoApp HTTP downloader; byte progress is polled while completion/errors are pushed.
-- Historical links are probed for expiration before download; current links skip that check.
-- Output names are sanitized and `file.uniquePath` appends `_1`, `_2`, etc. rather than overwriting.
-- Batch downloads are sequential and use a `Flux_<timestamp>` folder.
-- `DownloadRunGate` reserves the one native execution slot before the first await, across popup instances and the complete batch. `DownloadTracker` owns active IDs/outcomes/cancellation tombstones; one settlement path publishes process completion and releases ownership.
+HLS/DASH go through FFmpeg `convert`, MSE through FFmpeg with reconstructed inputs, YouTube through yt-dlp, and direct media through the CoApp HTTP downloader. Historical links are probed for expiration first; current links skip the check.
 
-FFmpeg `out_time_ms` is treated as nanoseconds in this integration and divided by `1_000_000` to produce seconds. Preserve the tested behavior even though the field name is misleading.
+One download run owns the CoApp at a time, reserved synchronously by `DownloadRunGate` before the first await. Popup button state is feedback, not the lock.
+
+Routing detail, the tracker/batch invariants, the FFmpeg `out_time_ms` nanosecond quirk, and output naming are documented in **[extension/src/download/AGENTS.md](extension/src/download/AGENTS.md)**.
 
 ## Release model
 
