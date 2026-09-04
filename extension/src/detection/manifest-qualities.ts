@@ -1,7 +1,7 @@
 import type { ParsedDash } from './dash-parser';
 import { getFfmpegHttpArgs } from './http-media';
 import type { MediaRendition, ParsedM3U8 } from './m3u8-parser';
-import type { VideoQuality } from './types';
+import type { VideoQuality } from '../shared/types';
 
 function renditionType(rendition: MediaRendition): string {
   return rendition.type.toUpperCase();

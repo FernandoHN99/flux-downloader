@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { VideoInfo } from '../../lib/types';
+import type { VideoInfo } from '../../shared/types';
 import { QualityPanel } from './QualityPanel';
 
 const video = (patch: Partial<VideoInfo> = {}): VideoInfo => ({

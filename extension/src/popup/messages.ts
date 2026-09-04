@@ -1,11 +1,11 @@
 // The popup's half of the port protocol, in one place so the message names
 // are not scattered as string literals across the UI.
 
-import type { PopupMessage, PopupRequest } from '../lib/popup-protocol';
+import type { PopupMessage, PopupRequest } from '../shared/popup-protocol';
 
 export type Incoming = PopupMessage;
 export type Outgoing = PopupRequest;
-export type { OutgoingVideo } from '../lib/popup-protocol';
+export type { OutgoingVideo } from '../shared/popup-protocol';
 
 /**
  * A typed wrapper over the port. It stays usable after a disconnect —

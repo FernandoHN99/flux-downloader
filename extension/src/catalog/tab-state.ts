@@ -1,5 +1,5 @@
-import { VideoInfo } from './types';
-import type { RelayCodec } from './relay-codec';
+import { VideoInfo } from '../shared/types';
+import type { RelayCodec } from '../detection/relay-codec';
 
 export interface PageMetadata {
   title?: string;

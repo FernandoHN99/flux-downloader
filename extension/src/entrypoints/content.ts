@@ -3,18 +3,18 @@
 
 import {
   announcedVideo, detectionReplayKey, emptyMseState, mseDetection
-} from './content/mse-media';
-import type { DetectedMedia, MseState } from './content/mse-media';
+} from '../detection/mse-media';
+import type { DetectedMedia, MseState } from '../detection/mse-media';
 import {
   isMseBridgeMessage, isMseStateMessage, reduceMseState
-} from './content/mse-bridge';
-import { collectDomMediaUrls } from './content/dom-media';
+} from '../detection/mse-bridge';
+import { collectDomMediaUrls } from '../detection/dom-media';
 import {
   collectPageMetadata, detectedTitle, pageDuration, pageThumbnail
-} from './content/page-metadata';
-import { isContentCommand } from './lib/content-protocol';
-import type { RuntimeRequest } from './lib/content-protocol';
-import { mediaTypeFromUrl, resolveMediaUrl } from './lib/media-url';
+} from '../detection/page-metadata';
+import { isContentCommand } from '../shared/content-protocol';
+import type { RuntimeRequest } from '../shared/content-protocol';
+import { mediaTypeFromUrl, resolveMediaUrl } from '../detection/media-url';
 
 class MediaDetector {
   private mediaUrls = new Set<string>();

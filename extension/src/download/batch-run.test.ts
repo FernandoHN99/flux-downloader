@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BatchRun } from './batch-run';
-import type { VideoInfo } from './types';
-import { videoKey } from './video-key';
+import type { VideoInfo } from '../shared/types';
+import { videoKey } from '../detection/video-key';
 
 function video(name: string): VideoInfo {
   return {

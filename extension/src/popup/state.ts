@@ -1,7 +1,7 @@
-import type { HistoryEntry } from '../lib/types';
-import type { BatchQuality, BatchStatus, ProgressDetail } from '../lib/popup-protocol';
+import type { HistoryEntry } from '../shared/types';
+import type { BatchQuality, BatchStatus, ProgressDetail } from '../shared/popup-protocol';
 
-export type { BatchQuality, BatchStatus, ProgressDetail } from '../lib/popup-protocol';
+export type { BatchQuality, BatchStatus, ProgressDetail } from '../shared/popup-protocol';
 
 /**
  * Everything the background owns. Replaced wholesale when a message arrives,

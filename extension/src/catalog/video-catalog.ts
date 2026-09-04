@@ -1,5 +1,5 @@
-import type { VideoInfo } from './types';
-import { isYouTubeUrl } from './media-url';
+import type { VideoInfo } from '../shared/types';
+import { isYouTubeUrl } from '../detection/media-url';
 
 export function mergeQualities(
   first: VideoInfo['qualities'] = [],

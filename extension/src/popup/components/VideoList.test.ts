@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { HistoryEntry } from '../../lib/types';
+import type { HistoryEntry } from '../../shared/types';
 import { VideoList, entriesForDomain, type VideoListState } from './VideoList';
 import type { VideoRowState } from './VideoRow';
 

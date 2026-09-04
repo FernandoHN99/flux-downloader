@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { HistoryEntry } from '../lib/types';
+import type { HistoryEntry } from '../shared/types';
 import { initialState, type AppState } from './state';
 import {
   busyLabel, canReorder, downloadInProgress, groupByDomain,

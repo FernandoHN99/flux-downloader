@@ -1,6 +1,6 @@
 // Turning a detected video's renditions into the list a row offers.
 
-import type { VideoInfo, VideoQuality } from '../lib/types';
+import type { VideoInfo, VideoQuality } from '../shared/types';
 import { formatBandwidth, formatFileSize, getQualityLabel, getSizeLabel } from './format';
 
 export interface QualityOption {

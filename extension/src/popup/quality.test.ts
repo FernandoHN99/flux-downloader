@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { VideoInfo } from '../lib/types';
+import type { VideoInfo } from '../shared/types';
 import { activeShortcut, buildQualityOptions, lowestQualityIndex, type QualityOption } from './quality';
 
 const video = (patch: Partial<VideoInfo>): VideoInfo =>

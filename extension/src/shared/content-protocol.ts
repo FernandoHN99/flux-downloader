@@ -1,4 +1,4 @@
-import type { PageMetadata } from './tab-state';
+import type { PageMetadata } from '../catalog/tab-state';
 import type { VideoInfo } from './types';
 
 export type DetectedVideo = VideoInfo & {

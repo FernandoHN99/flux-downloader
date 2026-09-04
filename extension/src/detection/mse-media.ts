@@ -1,5 +1,5 @@
-import type { UrlMediaType } from '../lib/media-url';
-import type { VideoInfo, VideoQuality } from '../lib/types';
+import type { UrlMediaType } from './media-url';
+import type { VideoInfo, VideoQuality } from '../shared/types';
 
 export interface DetectedMedia {
   type: UrlMediaType | 'mse';

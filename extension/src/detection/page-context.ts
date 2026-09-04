@@ -1,5 +1,5 @@
-import type { PageMetadata } from './tab-state';
-import type { VideoInfo } from './types';
+import type { PageMetadata } from '../catalog/tab-state';
+import type { VideoInfo } from '../shared/types';
 
 /**
  * Merge metadata while preserving top-frame ownership. Child frames may fill

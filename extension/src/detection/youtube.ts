@@ -1,5 +1,5 @@
-import type { PageMetadata } from './tab-state';
-import type { VideoInfo, VideoQuality } from './types';
+import type { PageMetadata } from '../catalog/tab-state';
+import type { VideoInfo, VideoQuality } from '../shared/types';
 
 export interface YtdlpInfo {
   title?: string;

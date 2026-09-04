@@ -1,4 +1,4 @@
-import { isMediaUrl, resolveMediaUrl } from '../lib/media-url';
+import { isMediaUrl, resolveMediaUrl } from './media-url';
 
 /**
  * Collect normalized media candidates from one DOM subtree. Media and source

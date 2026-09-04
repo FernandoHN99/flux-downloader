@@ -1,5 +1,5 @@
-import type { HistoryEntry, VideoInfo } from './types';
-import { videoKey } from './video-key';
+import type { HistoryEntry, VideoInfo } from '../shared/types';
+import { videoKey } from '../detection/video-key';
 
 export interface HistoryPageContext {
   pageUrl?: string;

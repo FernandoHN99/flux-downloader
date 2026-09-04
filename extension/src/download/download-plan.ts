@@ -1,4 +1,4 @@
-import type { VideoInfo, VideoQuality } from './types';
+import type { VideoInfo, VideoQuality } from '../shared/types';
 
 export type QualityPreference = 'best' | 'worst';
 

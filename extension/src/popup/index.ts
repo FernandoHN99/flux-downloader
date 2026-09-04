@@ -1,7 +1,7 @@
-import { loadSettings, updateSetting } from '../lib/settings';
-import { initTheme } from '../lib/theme';
-import type { HistoryEntry } from '../lib/types';
-import { videoKey } from '../lib/video-key';
+import { loadSettings, updateSetting } from '../shared/settings';
+import { initTheme } from '../shared/theme';
+import type { HistoryEntry } from '../shared/types';
+import { videoKey } from '../detection/video-key';
 import { ListHeader } from './components/ListHeader';
 import { ProgressPanel } from './components/ProgressPanel';
 import { RefreshButton } from './components/RefreshButton';

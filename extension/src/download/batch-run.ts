@@ -1,6 +1,6 @@
-import type { BatchStatus } from './popup-protocol';
-import type { VideoInfo } from './types';
-import { videoKey } from './video-key';
+import type { BatchStatus } from '../shared/popup-protocol';
+import type { VideoInfo } from '../shared/types';
+import { videoKey } from '../detection/video-key';
 
 /**
  * Owns the synchronous state transitions of one sequential batch. Effects

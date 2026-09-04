@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { VideoInfo, VideoQuality } from './types';
+import type { VideoInfo, VideoQuality } from '../shared/types';
 import {
   ensureFilenameExtension,
   formatFfmpegError,

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ConnectionError, TimeoutError } from './errors';
+import { ConnectionError, TimeoutError } from '../shared/errors';
 import { NativeClient } from './native-client';
 
 class EventHook<Args extends unknown[]> {

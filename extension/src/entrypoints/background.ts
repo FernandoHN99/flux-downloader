@@ -1,13 +1,13 @@
 // MediaGrabber Service Worker (Background Script)
 // Manifest V3 — webRequest, media detection, download orchestration.
 
-import { NativeClient } from './lib/native-client';
-import { VideoInfo, HistoryEntry } from './lib/types';
-import { M3U8ParserWrapper } from './lib/m3u8-parser';
-import { DashParserWrapper } from './lib/dash-parser';
-import { loadSettings, Settings, DEFAULT_SETTINGS } from './lib/settings';
-import { videoKey } from './lib/video-key';
-import { PageMetadata, TabStateStore } from './lib/tab-state';
+import { NativeClient } from '../download/native-client';
+import { VideoInfo, HistoryEntry } from '../shared/types';
+import { M3U8ParserWrapper } from '../detection/m3u8-parser';
+import { DashParserWrapper } from '../detection/dash-parser';
+import { loadSettings, Settings, DEFAULT_SETTINGS } from '../shared/settings';
+import { videoKey } from '../detection/video-key';
+import { PageMetadata, TabStateStore } from '../catalog/tab-state';
 import {
   decorateHistoryEntries,
   markHistoryDownloaded,
@@ -18,20 +18,20 @@ import {
   reorderHistoryEntries,
   retainHistoryEntries,
   sameHistoryContent
-} from './lib/history';
-import { isMediaUrl, isYouTubeUrl, mediaTypeFromUrl } from './lib/media-url';
+} from '../catalog/history';
+import { isMediaUrl, isYouTubeUrl, mediaTypeFromUrl } from '../detection/media-url';
 import {
   mergeChildUrls,
   mergeQualities,
   upsertDetectedVideo,
   visibleVideos
-} from './lib/video-catalog';
+} from '../catalog/video-catalog';
 import {
   getContentType,
   getFfmpegHttpArgs,
   getMediaTypeFromContentType,
   getRequestReferer
-} from './lib/http-media';
+} from '../detection/http-media';
 import {
   ensureFilenameExtension,
   formatFfmpegError,
@@ -39,30 +39,30 @@ import {
   joinOutputPath,
   pickBatchQuality,
   sanitizeFilename
-} from './lib/download-plan';
-import { isPopupRequest } from './lib/popup-protocol';
+} from '../download/download-plan';
+import { isPopupRequest } from '../shared/popup-protocol';
 import type {
   PopupMessage,
   PopupRequest
-} from './lib/popup-protocol';
-import { isRuntimeRequest } from './lib/content-protocol';
+} from '../shared/popup-protocol';
+import { isRuntimeRequest } from '../shared/content-protocol';
 import type {
   DetectedVideo,
   MediaUrlMapMessage,
   RuntimeRequest
-} from './lib/content-protocol';
-import { applyPageMetadataToVideos, mergePageMetadata } from './lib/page-context';
-import { buildYtdlpVideo, fallbackYtdlpQualities } from './lib/youtube';
-import { inferRelayCodec, mergeRelayCodecs, resolveRelayUrl } from './lib/relay-codec';
-import { DownloadTracker } from './lib/download-tracker';
-import type { ActiveDownload } from './lib/download-tracker';
-import { buildDashQualities, buildHlsQualities } from './lib/manifest-qualities';
-import { rewriteHlsManifestUris } from './lib/hls-rewrite';
-import { BatchRun } from './lib/batch-run';
-import { DownloadRunGate } from './lib/download-run-gate';
-import type { DownloadLease } from './lib/download-run-gate';
-import { prepareHlsInputArguments } from './lib/hls-arguments';
-import type { ManifestFile } from './lib/hls-arguments';
+} from '../shared/content-protocol';
+import { applyPageMetadataToVideos, mergePageMetadata } from '../detection/page-context';
+import { buildYtdlpVideo, fallbackYtdlpQualities } from '../detection/youtube';
+import { inferRelayCodec, mergeRelayCodecs, resolveRelayUrl } from '../detection/relay-codec';
+import { DownloadTracker } from '../download/download-tracker';
+import type { ActiveDownload } from '../download/download-tracker';
+import { buildDashQualities, buildHlsQualities } from '../detection/manifest-qualities';
+import { rewriteHlsManifestUris } from '../download/hls-rewrite';
+import { BatchRun } from '../download/batch-run';
+import { DownloadRunGate } from '../download/download-run-gate';
+import type { DownloadLease } from '../download/download-run-gate';
+import { prepareHlsInputArguments } from '../download/hls-arguments';
+import type { ManifestFile } from '../download/hls-arguments';
 
 const nativeClient = new NativeClient();
 

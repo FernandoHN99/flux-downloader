@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { VideoInfo, VideoQuality } from '../lib/types';
+import type { VideoInfo, VideoQuality } from '../shared/types';
 import {
   formatBandwidth, formatDuration, formatETA, formatFileSize,
   formatRelativeTime, formatSpeed, getQualityLabel, getSizeLabel, getTypeLabel

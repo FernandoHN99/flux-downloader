@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { HistoryEntry, VideoInfo } from './types';
+import type { HistoryEntry, VideoInfo } from '../shared/types';
 import {
   decorateHistoryEntries,
   markHistoryDownloaded,
@@ -11,7 +11,7 @@ import {
   retainHistoryEntries,
   sameHistoryContent
 } from './history';
-import { domainOf, videoKey } from './video-key';
+import { domainOf, videoKey } from '../detection/video-key';
 
 const lessonUrl = 'https://app.rocketseat.com.br/jornada/react-2025/aula/testando-com-babel-repl';
 const mediaUrl = 'https://vz-dc851587-83d.b-cdn.net/course/playlist.m3u8?token=new';

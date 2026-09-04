@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import type { HistoryEntry } from '../lib/types';
+import type { HistoryEntry } from '../shared/types';
 import { applyIncoming } from './incoming';
 import { Store } from './state';
 

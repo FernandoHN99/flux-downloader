@@ -2,7 +2,7 @@
 // Bidirectional weh#rpc over chrome.runtime.connectNative Port.
 // Both sides can send requests and receive responses.
 
-import { ConnectionError, TimeoutError, CoAppError } from './errors';
+import { ConnectionError, TimeoutError, CoAppError } from '../shared/errors';
 
 const APP_ID = 'com.mediagrabber.coapp';
 const DEFAULT_TIMEOUT = 60000;

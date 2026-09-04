@@ -10,9 +10,9 @@ const require = createRequire(import.meta.url);
 const tscPath = require.resolve('typescript/bin/tsc');
 
 const targets = [
-  ['src/background.ts', 'dist/background.js'],
-  ['src/content.ts', 'dist/content.js'],
-  ['src/mse-inject.ts', 'dist/mse-inject.js', 'iife'],
+  ['src/entrypoints/background.ts', 'dist/background.js'],
+  ['src/entrypoints/content.ts', 'dist/content.js'],
+  ['src/entrypoints/mse-inject.ts', 'dist/mse-inject.js', 'iife'],
   ['src/popup/index.ts', 'dist/popup.js'],
   ['src/popup/settings.ts', 'dist/settings.js'],
   ['src/popup/styles/index.css', 'dist/popup.css']

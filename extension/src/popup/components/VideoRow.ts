@@ -1,5 +1,5 @@
-import type { HistoryEntry } from '../../lib/types';
-import { videoKey } from '../../lib/video-key';
+import type { HistoryEntry } from '../../shared/types';
+import { videoKey } from '../../detection/video-key';
 import { formatDuration, formatRelativeTime, getTypeLabel } from '../format';
 import type { QualityOption } from '../quality';
 import { Component } from './base';

@@ -1,4 +1,4 @@
-import { titleFromMediaUrl } from '../lib/media-title';
+import { titleFromMediaUrl } from './media-title';
 
 const THUMBNAIL_META_SELECTORS = [
   'meta[property="og:image"]',

@@ -1,4 +1,4 @@
-import { videoKey } from '../lib/video-key';
+import { videoKey } from '../detection/video-key';
 import type { Incoming } from './messages';
 import type { Store } from './state';
 

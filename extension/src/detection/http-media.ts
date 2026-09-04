@@ -1,4 +1,4 @@
-import type { VideoInfo } from './types';
+import type { VideoInfo } from '../shared/types';
 
 export interface HttpHeaderLike {
   name: string;

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { HistoryEntry } from '../../lib/types';
+import type { HistoryEntry } from '../../shared/types';
 import { VideoRow, type VideoRowState } from './VideoRow';
 
 const entry = (patch: Partial<HistoryEntry> = {}): HistoryEntry => ({

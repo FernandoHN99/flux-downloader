@@ -1,4 +1,4 @@
-import type { VideoInfo } from './types';
+import type { VideoInfo } from '../shared/types';
 
 export type UrlMediaType = Extract<VideoInfo['type'], 'hls' | 'dash' | 'mp4' | 'webm' | 'direct'>;
 

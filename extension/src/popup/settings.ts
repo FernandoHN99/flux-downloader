@@ -1,5 +1,5 @@
-import { Settings, DEFAULT_SETTINGS, loadSettings, saveSettings, checkCoAppStatus } from '../lib/settings';
-import { initTheme } from '../lib/theme';
+import { Settings, DEFAULT_SETTINGS, loadSettings, saveSettings, checkCoAppStatus } from '../shared/settings';
+import { initTheme } from '../shared/theme';
 
 let currentSettings: Settings = { ...DEFAULT_SETTINGS };
 

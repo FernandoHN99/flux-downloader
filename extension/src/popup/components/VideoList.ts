@@ -1,5 +1,5 @@
-import type { HistoryEntry } from '../../lib/types';
-import { domainOf, videoKey } from '../../lib/video-key';
+import type { HistoryEntry } from '../../shared/types';
+import { domainOf, videoKey } from '../../detection/video-key';
 import { groupByDomain } from '../selectors';
 import { Component } from './base';
 import { VideoGroup } from './VideoGroup';

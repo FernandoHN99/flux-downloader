@@ -1,6 +1,6 @@
 // Turning raw numbers into the short strings the rows and panels show.
 
-import type { VideoInfo, VideoQuality } from '../lib/types';
+import type { VideoInfo, VideoQuality } from '../shared/types';
 
 export function getTypeLabel(type: string): string {
   switch (type) {

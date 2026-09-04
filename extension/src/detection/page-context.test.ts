@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { VideoInfo } from './types';
+import type { VideoInfo } from '../shared/types';
 import { applyPageMetadataToVideos, mergePageMetadata } from './page-context';
 
 function video(overrides: Partial<VideoInfo> = {}): VideoInfo {

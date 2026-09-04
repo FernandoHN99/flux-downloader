@@ -1,5 +1,5 @@
-import type { ProgressDetail } from './popup-protocol';
-import type { VideoInfo } from './types';
+import type { ProgressDetail } from '../shared/popup-protocol';
+import type { VideoInfo } from '../shared/types';
 
 export interface ActiveDownload {
   pid?: number;
