@@ -27,62 +27,51 @@ export class NativeClient {
   private replies = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
   private listeners: Record<string, RpcHandler> = {};
   private isConnected = false;
-  private connectingPromise: Promise<void> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private intentionalDisconnect = false;
 
   async connect(): Promise<void> {
     if (this.isConnected && this.port) return;
-    if (this.connectingPromise) return this.connectingPromise;
 
     this.intentionalDisconnect = false;
 
-    this.connectingPromise = new Promise<void>((resolve, reject) => {
-      let port: chrome.runtime.Port;
+    let port: chrome.runtime.Port;
+    try {
+      port = chrome.runtime.connectNative(APP_ID);
+    } catch (e: any) {
+      throw new ConnectionError(e?.message || String(e));
+    }
+
+    const send = (msg: RpcMessage): void => {
       try {
-        port = chrome.runtime.connectNative(APP_ID);
-      } catch (e: any) {
-        this.connectingPromise = null;
-        reject(new ConnectionError(e?.message || String(e)));
-        return;
+        port.postMessage(msg);
+      } catch (e) {
+        // port may have disconnected
       }
+    };
 
-      const send = (msg: RpcMessage): void => {
-        try {
-          port.postMessage(msg);
-        } catch (e) {
-          // port may have disconnected
-        }
-      };
-
-      port.onMessage.addListener((msg: RpcMessage) => {
-        this.receive(msg, send);
-      });
-
-      port.onDisconnect.addListener(() => {
-        const lastError = chrome.runtime.lastError?.message;
-        this.isConnected = false;
-        this.port = null;
-        this.connectingPromise = null;
-
-        // Reject all pending requests
-        for (const { reject: rej } of this.replies.values()) {
-          rej(new ConnectionError(lastError || 'Disconnected from CoApp'));
-        }
-        this.replies.clear();
-
-        if (!this.intentionalDisconnect) {
-          this.scheduleReconnect();
-        }
-      });
-
-      this.port = port;
-      this.isConnected = true;
-      this.connectingPromise = null;
-      resolve();
+    port.onMessage.addListener((msg: RpcMessage) => {
+      this.receive(msg, send);
     });
 
-    return this.connectingPromise;
+    port.onDisconnect.addListener(() => {
+      const lastError = chrome.runtime.lastError?.message;
+      this.isConnected = false;
+      this.port = null;
+
+      // Reject all pending requests
+      for (const { reject: rej } of this.replies.values()) {
+        rej(new ConnectionError(lastError || 'Disconnected from CoApp'));
+      }
+      this.replies.clear();
+
+      if (!this.intentionalDisconnect) {
+        this.scheduleReconnect();
+      }
+    });
+
+    this.port = port;
+    this.isConnected = true;
   }
 
   private receive(message: RpcMessage, send: (msg: RpcMessage) => void): void {
@@ -179,7 +168,6 @@ export class NativeClient {
       this.port = null;
     }
     this.isConnected = false;
-    this.connectingPromise = null;
   }
 
   get connected(): boolean { return this.isConnected; }
