@@ -8,12 +8,13 @@ import type { DetectedMedia, MseState } from './content/mse-media';
 import {
   isMseBridgeMessage, isMseStateMessage, reduceMseState
 } from './content/mse-bridge';
+import { collectDomMediaUrls } from './content/dom-media';
 import {
   collectPageMetadata, detectedTitle, pageDuration, pageThumbnail
 } from './content/page-metadata';
 import { isContentCommand } from './lib/content-protocol';
 import type { RuntimeRequest } from './lib/content-protocol';
-import { isMediaUrl, mediaTypeFromUrl, resolveMediaUrl } from './lib/media-url';
+import { mediaTypeFromUrl, resolveMediaUrl } from './lib/media-url';
 
 class MediaDetector {
   private mediaUrls = new Set<string>();
@@ -29,6 +30,7 @@ class MediaDetector {
     this.setupRescanListener();
     this.setupNavigationListener();
     this.setupMSEListener();
+    this.setupMediaMetadataListener();
     this.setupDOMObserver();
     this.scanExistingMedia();
     this.scheduleMetadataSend();
@@ -127,6 +129,15 @@ class MediaDetector {
     if (media) this.sendToBackground(media);
   }
 
+  /** `loadedmetadata` does not bubble, so one capture listener owns all media. */
+  private setupMediaMetadataListener(): void {
+    document.addEventListener('loadedmetadata', (event) => {
+      if (!(event.target instanceof HTMLMediaElement)) return;
+      this.scanMediaNode(event.target);
+      this.sendPageMetadata();
+    }, true);
+  }
+
   /**
    * Set up DOM observer for dynamically added media elements
    */
@@ -135,21 +146,8 @@ class MediaDetector {
     const observer = new MutationObserver((mutations) => {
       mutations.forEach(mutation => {
         mutation.addedNodes.forEach(node => {
-          if (node instanceof HTMLVideoElement || node instanceof HTMLAudioElement) {
-            this.handleMediaElement(node as HTMLVideoElement);
-          }
-          // Check if it's an element with src attribute
           if (node instanceof Element) {
-            const src = node.getAttribute('src');
-            if (src && isMediaUrl(src, window.location.href)) {
-              this.handleMediaUrl(src);
-            }
-            // Check for source elements inside video
-            const sources = node.querySelectorAll('source[src]');
-            sources.forEach(source => {
-              const sourceSrc = source.getAttribute('src');
-              if (sourceSrc) this.handleMediaUrl(sourceSrc);
-            });
+            this.scanMediaNode(node);
           }
         });
       });
@@ -182,51 +180,13 @@ class MediaDetector {
       return;
     }
 
-    // Check existing video elements
-    document.querySelectorAll('video, audio').forEach(el => {
-      this.handleMediaElement(el as HTMLVideoElement);
-    });
-
-    // Check for media source elements
-    document.querySelectorAll('source[src]').forEach(source => {
-      const src = source.getAttribute('src');
-      if (src) this.handleMediaUrl(src);
-    });
-
-    // Check for iframe elements that might contain media
-    document.querySelectorAll('iframe').forEach(iframe => {
-      try {
-        const src = iframe.getAttribute('src');
-        if (src && isMediaUrl(src, window.location.href)) {
-          this.handleMediaUrl(src);
-        }
-      } catch {
-        // Cross-origin iframe, ignore
-      }
-    });
+    this.scanMediaNode(document);
   }
 
-  /**
-   * Handle a media element (video/audio)
-   */
-  private handleMediaElement(el: HTMLVideoElement): void {
-    const src = el.currentSrc || el.src;
-    if (src) {
-      this.handleMediaUrl(src);
+  private scanMediaNode(root: ParentNode): void {
+    for (const url of collectDomMediaUrls(root, window.location.href)) {
+      this.handleMediaUrl(url);
     }
-
-    // Also check for source elements inside
-    el.querySelectorAll('source[src]').forEach(source => {
-      const sourceSrc = source.getAttribute('src');
-      if (sourceSrc) this.handleMediaUrl(sourceSrc);
-    });
-
-    // Listen for source changes
-    el.addEventListener('loadedmetadata', () => {
-      const currentSrc = el.currentSrc;
-      if (currentSrc) this.handleMediaUrl(currentSrc);
-      this.sendPageMetadata();
-    });
   }
 
   private scheduleMetadataSend(): void {
