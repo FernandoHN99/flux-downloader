@@ -37,6 +37,12 @@ import type {
   PopupRequest,
   ProgressDetail
 } from './lib/popup-protocol';
+import { isRuntimeRequest } from './lib/content-protocol';
+import type {
+  DetectedVideo,
+  MediaUrlMapMessage,
+  RuntimeRequest
+} from './lib/content-protocol';
 
 const nativeClient = new NativeClient();
 
@@ -1450,13 +1456,17 @@ async function handleCancelDownload(downloadId: string): Promise<any> {
 
 // Handle messages from content script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (!isRuntimeRequest(message)) {
+    sendResponse({ error: 'Unknown runtime message' });
+    return false;
+  }
   handleMessage(message, sender)
     .then(sendResponse)
     .catch((err) => sendResponse({ error: err.message }));
   return true;
 });
 
-async function handleMessage(message: any, sender: chrome.runtime.MessageSender): Promise<any> {
+async function handleMessage(message: RuntimeRequest, sender: chrome.runtime.MessageSender): Promise<unknown> {
   switch (message.type) {
     case 'VIDEO_DETECTED':
       return handleVideoDetected(sender.tab?.id, message.video, sender.frameId, sender.url, sender.tab?.url);
@@ -1492,8 +1502,6 @@ async function handleMessage(message: any, sender: chrome.runtime.MessageSender)
       return { success: true, timestamp: Date.now(), connected, version, error };
     }
 
-    default:
-      return { error: `Unknown message type: ${message.type}` };
   }
 }
 
@@ -1524,10 +1532,10 @@ function isCurrentContentGeneration(tabId: number, generation: unknown, isTopFra
   return generation === knownGeneration;
 }
 
-function handleVideoDetected(tabId: number | undefined, video: VideoInfo, frameId?: number, frameUrl?: string, senderTabUrl?: string): any {
+function handleVideoDetected(tabId: number | undefined, video: DetectedVideo, frameId?: number, frameUrl?: string, senderTabUrl?: string): any {
   if (tabId === undefined) return { error: 'No tabId' };
   const detectedPageUrl = video.pageUrl;
-  const generation = (video as VideoInfo & { generation?: number }).generation;
+  const generation = video.generation;
   const currentUrl = currentTopPageUrl(tabId, senderTabUrl);
   if (!detectedPageUrl || !frameUrl || detectedPageUrl !== frameUrl || !currentUrl) {
     return { success: true, stale: true };
@@ -1543,7 +1551,7 @@ function handleVideoDetected(tabId: number | undefined, video: VideoInfo, frameI
   return { success: true, count: (tabStates.get(tabId)?.media || []).length };
 }
 
-function handleMediaUrlMap(tabId: number | undefined, mapping: any, frameId?: number, frameUrl?: string, senderTabUrl?: string): any {
+function handleMediaUrlMap(tabId: number | undefined, mapping: MediaUrlMapMessage, frameId?: number, frameUrl?: string, senderTabUrl?: string): any {
   if (tabId === undefined) return { error: 'No tabId' };
   const currentUrl = currentTopPageUrl(tabId, senderTabUrl);
   if (!mapping.pageUrl || !frameUrl || mapping.pageUrl !== frameUrl || !currentUrl) {

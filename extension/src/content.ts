@@ -8,6 +8,8 @@ import type { DetectedMedia, MseState } from './content/mse-media';
 import {
   collectPageMetadata, detectedTitle, pageDuration, pageThumbnail
 } from './content/page-metadata';
+import { isContentCommand } from './lib/content-protocol';
+import type { RuntimeRequest } from './lib/content-protocol';
 import { isMediaUrl, mediaTypeFromUrl, resolveMediaUrl } from './lib/media-url';
 
 class MediaDetector {
@@ -39,7 +41,7 @@ class MediaDetector {
    */
   private setupRescanListener(): void {
     chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-      if (message?.type !== 'RESCAN') return undefined;
+      if (!isContentCommand(message)) return undefined;
       for (const media of this.announced.values()) this.sendToBackground(media);
       this.scanExistingMedia();
       this.lastMetadataKey = '';
@@ -70,8 +72,12 @@ class MediaDetector {
   }
 
   private sendNavigation(pageUrl: string, generation: number): void {
+    this.sendRuntime({ type: 'PAGE_NAVIGATION', pageUrl, generation });
+  }
+
+  private sendRuntime(message: RuntimeRequest): void {
     try {
-      chrome.runtime.sendMessage({ type: 'PAGE_NAVIGATION', pageUrl, generation }, () => {
+      chrome.runtime.sendMessage(message, () => {
         void chrome.runtime.lastError;
       });
     } catch {
@@ -124,17 +130,13 @@ class MediaDetector {
 
         case 'media-url-map':
           if (typeof msg.originalUrl === 'string' && typeof msg.relayUrl === 'string') {
-            try {
-              chrome.runtime.sendMessage({
-                type: 'MEDIA_URL_MAP',
-                originalUrl: msg.originalUrl,
-                relayUrl: msg.relayUrl,
-                pageUrl: this.pageUrl,
-                generation: this.pageGeneration
-              }, () => { void chrome.runtime.lastError; });
-            } catch {
-              // Extension context invalidated
-            }
+            this.sendRuntime({
+              type: 'MEDIA_URL_MAP',
+              originalUrl: msg.originalUrl,
+              relayUrl: msg.relayUrl,
+              pageUrl: this.pageUrl,
+              generation: this.pageGeneration
+            });
           }
           break;
 
@@ -266,13 +268,7 @@ class MediaDetector {
     if (key === this.lastMetadataKey) return;
     this.lastMetadataKey = key;
 
-    try {
-      chrome.runtime.sendMessage({ type: 'PAGE_METADATA', metadata }, () => {
-        void chrome.runtime.lastError;
-      });
-    } catch {
-      // Extension context invalidated (extension was reloaded)
-    }
+    this.sendRuntime({ type: 'PAGE_METADATA', metadata });
   }
 
   /**
@@ -310,16 +306,7 @@ class MediaDetector {
         thumbnail: pageThumbnail(document, media.pageUrl)
       }
     );
-    try {
-      chrome.runtime.sendMessage({
-        type: 'VIDEO_DETECTED',
-        video
-      }, () => {
-        void chrome.runtime.lastError;
-      });
-    } catch {
-      // Extension context invalidated (extension was reloaded)
-    }
+    this.sendRuntime({ type: 'VIDEO_DETECTED', video });
   }
 
   /**

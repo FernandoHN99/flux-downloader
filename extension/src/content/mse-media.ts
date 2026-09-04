@@ -20,7 +20,7 @@ export interface MseState {
   duration?: number;
 }
 
-export type AnnouncedVideo = VideoInfo & { generation: number };
+export type AnnouncedVideo = VideoInfo & { pageUrl: string; generation: number };
 
 export function emptyMseState(): MseState {
   return { totalBytes: 0, segmentUrls: [] };
