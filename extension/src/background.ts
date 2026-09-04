@@ -61,6 +61,8 @@ import { rewriteHlsManifestUris } from './lib/hls-rewrite';
 import { BatchRun } from './lib/batch-run';
 import { DownloadRunGate } from './lib/download-run-gate';
 import type { DownloadLease } from './lib/download-run-gate';
+import { prepareHlsInputArguments } from './lib/hls-arguments';
+import type { ManifestFile } from './lib/hls-arguments';
 
 const nativeClient = new NativeClient();
 
@@ -994,11 +996,6 @@ async function ensureCoAppConnected(): Promise<void> {
   }
 }
 
-interface ManifestFile {
-  placeholder: string;
-  content: string;
-}
-
 interface NativeProcessResult {
   exitCode: number;
   stderr: string;
@@ -1042,13 +1039,18 @@ function monitorNativeProcess(
   });
 }
 
-async function rewriteHlsInput(tabId: number, inputUrl: string, referer: string | undefined, manifestFiles: ManifestFile[]): Promise<string> {
+async function rewriteHlsInput(
+  tabId: number,
+  inputUrl: string,
+  referer: string | undefined,
+  manifestIndex: number
+): Promise<ManifestFile | null> {
   let origin: string;
-  try { origin = new URL(inputUrl).origin; } catch { return inputUrl; }
-  if (!tabStates.get(tabId)?.relayCodecs?.has(origin)) return inputUrl;
+  try { origin = new URL(inputUrl).origin; } catch { return null; }
+  if (!tabStates.get(tabId)?.relayCodecs?.has(origin)) return null;
 
   const parsed = await M3U8ParserWrapper.fetchAndParse(inputUrl, referer);
-  if (parsed.type !== 'media' || !parsed.manifest) return inputUrl;
+  if (parsed.type !== 'media' || !parsed.manifest) return null;
 
   const manifestUrl = parsed.manifestUrl || inputUrl;
   const rewritten = rewriteHlsManifestUris(
@@ -1060,27 +1062,10 @@ async function rewriteHlsInput(tabId: number, inputUrl: string, referer: string 
   if (rewritten.rewrittenCount === 0 || rewritten.unresolvedUrls.length > 0) {
     throw new Error('Browser relay mapping is incomplete. Start playback for a few seconds and retry the download.');
   }
-  const placeholder = `__MEDIA_GRABBER_HLS_MANIFEST_${manifestFiles.length}__`;
-  manifestFiles.push({ placeholder, content: rewritten.content });
-  return placeholder;
-}
-
-async function prepareHlsArguments(tabId: number, args: string[], referer?: string): Promise<{ args: string[]; manifestFiles: ManifestFile[] }> {
-  const prepared = [...args];
-  const manifestFiles: ManifestFile[] = [];
-  for (let i = 0; i < prepared.length - 1; i += 1) {
-    if (prepared[i] !== '-i' || !/^https?:\/\//i.test(prepared[i + 1])) continue;
-    const originalInput = prepared[i + 1];
-    const rewrittenInput = await rewriteHlsInput(tabId, originalInput, referer, manifestFiles);
-    prepared[i + 1] = rewrittenInput;
-    if (rewrittenInput !== originalInput) {
-      prepared.splice(i, 0,
-        '-protocol_whitelist', 'file,http,https,tcp,tls,crypto,data',
-        '-extension_picky', '0'
-      );
-    }
-  }
-  return { args: prepared, manifestFiles };
+  return {
+    placeholder: `__MEDIA_GRABBER_HLS_MANIFEST_${manifestIndex}__`,
+    content: rewritten.content
+  };
 }
 
 async function startDownload(
@@ -1128,7 +1113,15 @@ async function startDownload(
       ? [...formatArgs, '-y', outputPath]
       : [...inputArgs, ...codecArg, '-y', outputPath];
     const prepared = type === 'hls'
-      ? await prepareHlsArguments(tabId ?? -1, baseArgs, video.referer)
+      ? await prepareHlsInputArguments(
+        baseArgs,
+        (inputUrl, manifestIndex) => rewriteHlsInput(
+          tabId ?? -1,
+          inputUrl,
+          video.referer,
+          manifestIndex
+        )
+      )
       : { args: baseArgs, manifestFiles: [] };
 
     trackDownload(downloadKey, {
