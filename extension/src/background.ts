@@ -44,6 +44,7 @@ import type {
   RuntimeRequest
 } from './lib/content-protocol';
 import { applyPageMetadataToVideos, mergePageMetadata } from './lib/page-context';
+import { buildYtdlpVideo, fallbackYtdlpQualities } from './lib/youtube';
 
 const nativeClient = new NativeClient();
 
@@ -358,13 +359,6 @@ chrome.webRequest.onHeadersReceived.addListener(
   { urls: ['<all_urls>'] },
   ['responseHeaders']
 );
-
-function fallbackYtdlpQualities(url: string): VideoInfo['qualities'] {
-  return [
-    { label: 'Best', height: 0, url, bitrate: 0, formatArgs: ['-f', 'bv*+ba/b'] },
-    { label: 'Audio MP3', height: 0, url, bitrate: 0, formatArgs: ['-f', 'ba', '-x', '--audio-format', 'mp3', '--audio-quality', '0'] }
-  ];
-}
 
 function generateVideoId(url: string): string {
   // Safe base64 for non-ASCII URLs
@@ -1590,25 +1584,6 @@ function handlePageNavigation(tabId: number | undefined, pageUrl: string, genera
   return { success: true };
 }
 
-function normalizeYtdlpQualities(url: string, qualities: any[]): VideoInfo['qualities'] {
-  return (qualities || [])
-    .filter(q => Array.isArray(q?.formatArgs) && q.formatArgs.length > 0)
-    .map(q => ({
-      height: Number(q.height) || 0,
-      width: Number(q.width) || undefined,
-      bitrate: Number(q.bitrate) || 0,
-      url,
-      label: q.label,
-      formatArgs: q.formatArgs,
-      formatId: q.formatId,
-      ext: q.ext,
-      fps: Number(q.fps) || undefined,
-      fileSize: Number(q.fileSize) || undefined,
-      kind: q.kind,
-      language: q.language
-    }));
-}
-
 async function loadYouTubeFormats(tabId: number, url: string, videoId: string, metadata: PageMetadata, generation: number): Promise<void> {
   try {
     await ensureCoAppConnected();
@@ -1616,31 +1591,12 @@ async function loadYouTubeFormats(tabId: number, url: string, videoId: string, m
     const currentMetadata = tabStates.get(tabId)?.pageMetadata || metadata;
     if (!tabStates.isCurrentPageGeneration(tabId, generation) || currentMetadata.pageUrl !== url) return;
 
-    const qualities = normalizeYtdlpQualities(url, info.qualities);
-    upsertVideo(tabId, {
-      id: videoId,
-      title: info.title || currentMetadata.title || 'YouTube Video',
-      pageUrl: currentMetadata.pageUrl,
-      url,
-      type: 'ytdlp',
-      qualities: qualities.length ? qualities : fallbackYtdlpQualities(url),
-      thumbnail: info.thumbnail || currentMetadata.thumbnail,
-      duration: info.duration || currentMetadata.duration
-    });
+    upsertVideo(tabId, buildYtdlpVideo(videoId, url, currentMetadata, info));
   } catch (error) {
     console.warn('[MediaGrabber] Failed to load yt-dlp formats:', error);
     const currentMetadata = tabStates.get(tabId)?.pageMetadata || metadata;
     if (!tabStates.isCurrentPageGeneration(tabId, generation) || currentMetadata.pageUrl !== url) return;
-    upsertVideo(tabId, {
-      id: videoId,
-      title: currentMetadata.title || 'YouTube Video',
-      pageUrl: currentMetadata.pageUrl,
-      url,
-      type: 'ytdlp',
-      qualities: fallbackYtdlpQualities(url),
-      thumbnail: currentMetadata.thumbnail,
-      duration: currentMetadata.duration
-    });
+    upsertVideo(tabId, buildYtdlpVideo(videoId, url, currentMetadata));
   }
 }
 

@@ -141,7 +141,8 @@ function buildYtDlpQualities(info: any, url: string): any[] {
         formatId,
         ext: format.ext,
         fps: asNumber(format.fps),
-        fileSize
+        fileSize,
+        kind: 'video'
       };
     });
 
@@ -154,7 +155,8 @@ function buildYtDlpQualities(info: any, url: string): any[] {
       formatArgs: ['-f', 'ba', '-x', '--audio-format', 'mp3', '--audio-quality', '0'],
       formatId: String(bestAudio.format_id),
       ext: 'mp3',
-      fileSize: formatSize(bestAudio)
+      fileSize: formatSize(bestAudio),
+      kind: 'audio'
     });
   }
 

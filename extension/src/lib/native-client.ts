@@ -218,7 +218,7 @@ export class NativeClient {
     return this.call('ytdlp', url, args, options || {});
   }
 
-  async ytdlpFormats(url: string): Promise<{ title?: string; duration?: number; thumbnail?: string; qualities: any[] }> {
+  async ytdlpFormats(url: string): Promise<{ title?: string; duration?: number; thumbnail?: string; qualities: unknown[] }> {
     return this.call('ytdlpFormats', url);
   }
 
