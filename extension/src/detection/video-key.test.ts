@@ -38,3 +38,27 @@ describe('domainOf', () => {
     expect(domainOf(undefined, 'blob:whatever')).toBe('Other');
   });
 });
+
+describe('videoKey identity parameters', () => {
+  it('keeps YouTube videos apart even though the path is always /watch', () => {
+    const first = videoKey('https://www.youtube.com/watch?v=abc123');
+    const second = videoKey('https://www.youtube.com/watch?v=xyz789');
+
+    expect(first).not.toBe(second);
+  });
+
+  it('ignores the tracking noise YouTube appends to a share link', () => {
+    expect(videoKey('https://www.youtube.com/watch?v=abc123&t=42s&si=Xy'))
+      .toBe(videoKey('https://www.youtube.com/watch?v=abc123'));
+  });
+
+  it('keys the same video identically whatever order the params arrive in', () => {
+    expect(videoKey('https://www.youtube.com/watch?list=PL1&v=abc'))
+      .toBe(videoKey('https://www.youtube.com/watch?v=abc&list=PL1'));
+  });
+
+  it('still drops the whole query string on hosts that sign their links', () => {
+    expect(videoKey('https://cdn.test/media/lesson.m3u8?token=aaa'))
+      .toBe(videoKey('https://cdn.test/media/lesson.m3u8?token=bbb'));
+  });
+});

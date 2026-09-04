@@ -10,14 +10,47 @@ export function isCurrent(state: AppState, key: string): boolean {
 /**
  * Every known video, with the ones playing right now pinned to the top.
  * The stored order is otherwise the user's, set by dragging.
+ *
+ * The list is deduplicated here as well as at every producer: one video must
+ * never occupy two rows, and the row the user can see is the last place to
+ * catch it. Rows sharing an identity are the same video, so the first one wins
+ * and keeps the position the user dragged it to.
  */
 export function orderedEntries(state: AppState): HistoryEntry[] {
+  const unique = new Map<string, HistoryEntry>();
+  for (const entry of state.remote.history) {
+    const key = videoKey(entry.url);
+    if (!unique.has(key)) unique.set(key, entry);
+  }
+
+  const owned = childKeysOf(unique.values());
   const current: HistoryEntry[] = [];
   const rest: HistoryEntry[] = [];
-  for (const entry of state.remote.history) {
-    (isCurrent(state, videoKey(entry.url)) ? current : rest).push(entry);
+  for (const [key, entry] of unique) {
+    // A master playlist speaks for its variants; a variant row detected before
+    // the master arrived is the same video and must not show alongside it.
+    if (owned.has(key)) continue;
+    (isCurrent(state, key) ? current : rest).push(entry);
   }
   return [...current, ...rest];
+}
+
+/** Keys of every rendition and child manifest some other entry already owns. */
+function childKeysOf(entries: Iterable<HistoryEntry>): Set<string> {
+  const owned = new Set<string>();
+  for (const entry of entries) {
+    const ownerKey = videoKey(entry.url);
+    for (const url of [
+      ...(entry.childUrls || []),
+      ...(entry.qualities || []).map((quality) => quality.url)
+    ]) {
+      if (!url) continue;
+      const key = videoKey(url);
+      // An entry whose own URL is listed among its renditions still owns itself.
+      if (key !== ownerKey) owned.add(key);
+    }
+  }
+  return owned;
 }
 
 export function matchesSearch(entry: HistoryEntry, search: string): boolean {

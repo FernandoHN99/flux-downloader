@@ -202,3 +202,57 @@ describe('HistoryStore', () => {
     expect(decorated[1].failed).toBe(true);
   });
 });
+
+describe('HistoryStore duplicate repair', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    fakeStorage();
+  });
+
+  it('collapses duplicate rows an older build left in storage', async () => {
+    fakeStorage({
+      mediaHistory: [
+        entry('https://cdn.test/lesson.m3u8?token=aaa'),
+        entry('https://cdn.test/lesson.m3u8?token=bbb')
+      ]
+    });
+    const { store } = makeStore();
+
+    await expect(store.read()).resolves.toHaveLength(1);
+  });
+
+  it('writes the repaired list back so the fix happens once', async () => {
+    const { data } = fakeStorage({
+      mediaHistory: [
+        entry('https://cdn.test/lesson.m3u8?token=aaa'),
+        entry('https://cdn.test/lesson.m3u8?token=bbb')
+      ]
+    });
+    const { store } = makeStore();
+
+    await store.read();
+
+    expect((data.mediaHistory as HistoryEntry[])).toHaveLength(1);
+  });
+
+  it('does not rewrite storage when the stored list is already clean', async () => {
+    const { local } = fakeStorage({
+      mediaHistory: [entry('https://cdn.test/a.m3u8'), entry('https://cdn.test/b.m3u8')]
+    });
+    const { store } = makeStore();
+
+    await store.read();
+
+    expect(local.set).not.toHaveBeenCalled();
+  });
+
+  it('never records a second row for a video already stored', async () => {
+    const { data } = fakeStorage();
+    const { store } = makeStore();
+
+    await store.record([video('https://cdn.test/lesson.m3u8?token=aaa')], {});
+    await store.record([video('https://cdn.test/lesson.m3u8?token=bbb')], {});
+
+    expect((data.mediaHistory as HistoryEntry[])).toHaveLength(1);
+  });
+});

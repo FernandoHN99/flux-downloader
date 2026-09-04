@@ -21,25 +21,66 @@ export function mergeDetectedVideosIntoHistory(
 ): HistoryEntry[] {
   const previous = new Map(history.map((entry) => [videoKey(entry.url), entry]));
 
-  const incoming = videos.map((video): HistoryEntry => {
+  // Detection can report one video more than once in a single batch — the DOM
+  // and the network see it under different signed URLs. Keyed accumulation
+  // keeps the first row and folds the rest into it, rather than emitting two.
+  const incoming = new Map<string, HistoryEntry>();
+  for (const video of videos) {
     const key = videoKey(video.url);
     const existing = previous.get(key);
     previous.delete(key);
 
     // Content-script generations are transport metadata, not history data.
     const { generation: _generation, ...persistedVideo } = video as VideoInfo & { generation?: number };
-    return {
+    const entry: HistoryEntry = {
       ...persistedVideo,
       pageUrl: context.pageUrl || video.pageUrl || existing?.pageUrl,
       pageTitle: context.pageTitle || existing?.pageTitle,
       detectedAt: now
     };
-  });
+    const alreadyIncoming = incoming.get(key);
+    incoming.set(key, alreadyIncoming ? preferRicher(alreadyIncoming, entry) : entry);
+  }
 
   return [
-    ...incoming,
+    ...incoming.values(),
     ...history.filter((entry) => previous.has(videoKey(entry.url)))
   ].slice(0, limit);
+}
+
+/**
+ * Folds a second sighting of one video into the row already held. The first
+ * sighting owns the list position and the URL that was resolved for it; the
+ * later one only fills in facts the first was missing.
+ */
+function preferRicher(held: HistoryEntry, other: HistoryEntry): HistoryEntry {
+  return {
+    ...held,
+    title: held.title || other.title,
+    pageUrl: held.pageUrl || other.pageUrl,
+    pageTitle: held.pageTitle || other.pageTitle,
+    qualities: held.qualities?.length ? held.qualities : other.qualities,
+    childUrls: held.childUrls?.length ? held.childUrls : other.childUrls,
+    thumbnail: held.thumbnail || other.thumbnail,
+    duration: held.duration || other.duration,
+    fileSize: held.fileSize || other.fileSize
+  };
+}
+
+/**
+ * Collapses rows that describe the same video. Nothing should produce a
+ * duplicate any more, but a list persisted by an older build still holds them,
+ * so every read goes through here. Returns the same array when it was clean,
+ * which callers use to skip a write.
+ */
+export function dedupeHistoryEntries(history: HistoryEntry[]): HistoryEntry[] {
+  const byKey = new Map<string, HistoryEntry>();
+  for (const entry of history) {
+    const key = videoKey(entry.url);
+    const held = byKey.get(key);
+    byKey.set(key, held ? preferRicher(held, entry) : entry);
+  }
+  return byKey.size === history.length ? history : [...byKey.values()];
 }
 
 /**

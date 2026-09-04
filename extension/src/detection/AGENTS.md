@@ -19,6 +19,12 @@ query tokens so a re-signed CDN URL stays the same video. Use it everywhere an
 item is matched — history, current markers, active downloads, selection,
 downloaded/failed flags. Never key on the raw URL.
 
+It drops the query string, with one exception: hosts listed in
+`IDENTITY_PARAMS` keep the parameters that say *which* video the URL points at.
+YouTube needs this — every watch URL is `/watch`, so dropping `?v=` would
+collapse every YouTube video into a single entry. Add a host there only when the
+path alone cannot identify the media.
+
 `domainOf(pageUrl, fallbackUrl)` decides which site owns an item. The
 top-level page wins; the media host is only a fallback. A lesson on
 `app.rocketseat.com.br` served from `vz-*.b-cdn.net` must group under

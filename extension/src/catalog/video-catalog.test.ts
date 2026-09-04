@@ -126,3 +126,36 @@ describe('upsertDetectedVideo', () => {
       .toEqual([unrelated, master]);
   });
 });
+
+describe('upsertDetectedVideo identity', () => {
+  it('updates the existing row when a signed link comes back with a new token', () => {
+    const existing = [video({ url: 'https://cdn.test/lesson.mp4?token=aaa', title: 'Lesson' })];
+
+    const next = upsertDetectedVideo(
+      existing,
+      video({ url: 'https://cdn.test/lesson.mp4?token=bbb', duration: 120 })
+    );
+
+    expect(next).toHaveLength(1);
+    expect(next[0].duration).toBe(120);
+  });
+
+  it('keeps two genuinely different videos on the same host apart', () => {
+    const existing = [video({ url: 'https://cdn.test/one.mp4' })];
+
+    const next = upsertDetectedVideo(existing, video({ url: 'https://cdn.test/two.mp4' }));
+
+    expect(next).toHaveLength(2);
+  });
+
+  it('keeps two YouTube videos apart despite the shared /watch path', () => {
+    const existing = [video({ url: 'https://www.youtube.com/watch?v=aaa', type: 'ytdlp' })];
+
+    const next = upsertDetectedVideo(
+      existing,
+      video({ url: 'https://www.youtube.com/watch?v=bbb', type: 'ytdlp' })
+    );
+
+    expect(next).toHaveLength(2);
+  });
+});

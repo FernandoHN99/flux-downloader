@@ -2,6 +2,7 @@ import type { HistoryEntry, VideoInfo } from '../shared/types';
 import { videoKey } from '../detection/video-key';
 import {
   decorateHistoryEntries,
+  dedupeHistoryEntries,
   markHistoryDownloaded,
   markHistoryFailed,
   mergeDetectedVideosIntoHistory,
@@ -42,10 +43,21 @@ export class HistoryStore {
 
   constructor(private readonly deps: HistoryStoreDeps) {}
 
+  /**
+   * Reads the stored list, collapsing any duplicate rows a previous build
+   * persisted. The cleaned list is written back so the repair happens once
+   * rather than on every read.
+   */
   async read(): Promise<HistoryEntry[]> {
     const stored = await chrome.storage.local.get(HISTORY_KEY);
     const entries = stored[HISTORY_KEY];
-    return Array.isArray(entries) ? entries : [];
+    if (!Array.isArray(entries)) return [];
+
+    const deduped = dedupeHistoryEntries(entries);
+    if (deduped !== entries) {
+      await chrome.storage.local.set({ [HISTORY_KEY]: deduped });
+    }
+    return deduped;
   }
 
   /** Resolves once every queued write has run, so a read sees them. */

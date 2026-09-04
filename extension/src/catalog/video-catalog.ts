@@ -1,5 +1,6 @@
 import type { VideoInfo } from '../shared/types';
 import { isYouTubeUrl } from '../detection/media-url';
+import { videoKey } from '../detection/video-key';
 
 export function mergeQualities(
   first: VideoInfo['qualities'] = [],
@@ -72,7 +73,11 @@ export function upsertDetectedVideo(
     }
   }
 
-  const existingIndex = current.findIndex((existing) => existing.url === video.url);
+  // Identity is videoKey, not the raw URL: a signed CDN link comes back with a
+  // rotated token on every visit, and matching the exact string would append a
+  // second row for the same video.
+  const key = videoKey(video.url);
+  const existingIndex = current.findIndex((existing) => videoKey(existing.url) === key);
   if (existingIndex < 0) return [...current, video];
 
   const existing = current[existingIndex];

@@ -152,3 +152,61 @@ describe('canReorder', () => {
     expect(canReorder(stateWith({}, { selectionMode: true }), RS8)).toBe(false);
   });
 });
+
+describe('orderedEntries never shows one video twice', () => {
+  const signed = (token: string) => `https://cdn.rocketseat.com/l9/ep12.m3u8?token=${token}`;
+
+  it('renders one row when two history entries are the same signed video', () => {
+    const state = stateWith({
+      history: [entry('Lesson', signed('aaa')), entry('Lesson', signed('bbb'))]
+    });
+
+    expect(orderedEntries(state)).toHaveLength(1);
+  });
+
+  it('pins the single surviving row when that video is playing now', () => {
+    const state = stateWith({
+      history: [entry('older', UDEMY), entry('Lesson', signed('aaa')), entry('Lesson', signed('bbb'))],
+      currentKeys: new Set([RS9])
+    });
+
+    const rows = orderedEntries(state);
+    expect(rows.map((e) => e.title)).toEqual(['Lesson', 'older']);
+  });
+
+  it('hides a variant row once the master playlist that owns it is listed', () => {
+    const master = {
+      ...entry('Lesson', RS9),
+      childUrls: [RS8]
+    } as HistoryEntry;
+    const state = stateWith({ history: [master, entry('variant 720p', RS8)] });
+
+    expect(orderedEntries(state).map((e) => e.title)).toEqual(['Lesson']);
+  });
+
+  it('hides a variant listed as one of the master qualities', () => {
+    const master = {
+      ...entry('Lesson', RS9),
+      qualities: [{ url: RS8, height: 720, bitrate: 720_000 }]
+    } as HistoryEntry;
+    const state = stateWith({ history: [master, entry('variant', RS8)] });
+
+    expect(orderedEntries(state)).toHaveLength(1);
+  });
+
+  it('keeps an entry that lists its own url among its qualities', () => {
+    const single = {
+      ...entry('Lesson', RS9),
+      qualities: [{ url: RS9, height: 1080, bitrate: 1_000_000 }]
+    } as HistoryEntry;
+    const state = stateWith({ history: [single] });
+
+    expect(orderedEntries(state)).toHaveLength(1);
+  });
+
+  it('leaves genuinely different videos alone', () => {
+    const state = stateWith({ history: [entry('a', RS9), entry('b', RS8), entry('c', UDEMY)] });
+
+    expect(orderedEntries(state)).toHaveLength(3);
+  });
+});

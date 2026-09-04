@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { HistoryEntry, VideoInfo } from '../shared/types';
 import {
   decorateHistoryEntries,
+  dedupeHistoryEntries,
   markHistoryDownloaded,
   markHistoryFailed,
   mergeDetectedVideosIntoHistory,
@@ -157,5 +158,84 @@ describe('history download markers', () => {
       .toEqual({ downloaded: [], failed: [key] });
     const markers = { downloaded: [], failed: [key] };
     expect(markHistoryFailed(markers, key, 10)).toBe(markers);
+  });
+});
+
+describe('duplicate rows', () => {
+  it('emits one row when detection reports the same video twice in one batch', () => {
+    const next = mergeDetectedVideosIntoHistory(
+      [],
+      [
+        video({ url: 'https://cdn.test/lesson.m3u8?token=aaa', title: 'Lesson' }),
+        video({ url: 'https://cdn.test/lesson.m3u8?token=bbb', title: 'Lesson' })
+      ],
+      {},
+      1_000,
+      50
+    );
+
+    expect(next).toHaveLength(1);
+  });
+
+  it('fills gaps in the first sighting from the second instead of adding a row', () => {
+    const next = mergeDetectedVideosIntoHistory(
+      [],
+      [
+        video({ url: 'https://cdn.test/lesson.m3u8?token=aaa', title: 'Lesson', duration: undefined }),
+        video({ url: 'https://cdn.test/lesson.m3u8?token=bbb', title: 'Lesson', duration: 300 })
+      ],
+      {},
+      1_000,
+      50
+    );
+
+    expect(next).toHaveLength(1);
+    expect(next[0].duration).toBe(300);
+  });
+
+  it('does not merge two different videos that share a page', () => {
+    const next = mergeDetectedVideosIntoHistory(
+      [],
+      [
+        video({ url: 'https://cdn.test/one.m3u8' }),
+        video({ url: 'https://cdn.test/two.m3u8' })
+      ],
+      {},
+      1_000,
+      50
+    );
+
+    expect(next).toHaveLength(2);
+  });
+});
+
+describe('dedupeHistoryEntries', () => {
+  function entry(url: string, patch: Partial<HistoryEntry> = {}): HistoryEntry {
+    return { ...video({ url }), detectedAt: 1_000, ...patch };
+  }
+
+  it('collapses rows a previous build persisted for the same video', () => {
+    const next = dedupeHistoryEntries([
+      entry('https://cdn.test/lesson.m3u8?token=aaa'),
+      entry('https://cdn.test/lesson.m3u8?token=bbb')
+    ]);
+
+    expect(next).toHaveLength(1);
+  });
+
+  it('keeps the first row position and fills its gaps from the later one', () => {
+    const next = dedupeHistoryEntries([
+      entry('https://cdn.test/a.m3u8?token=aaa', { title: 'First', duration: undefined }),
+      entry('https://cdn.test/a.m3u8?token=bbb', { title: 'Second', duration: 42 })
+    ]);
+
+    expect(next[0].title).toBe('First');
+    expect(next[0].duration).toBe(42);
+  });
+
+  it('returns the same array when the list is already clean', () => {
+    const clean = [entry('https://cdn.test/a.m3u8'), entry('https://cdn.test/b.m3u8')];
+
+    expect(dedupeHistoryEntries(clean)).toBe(clean);
   });
 });

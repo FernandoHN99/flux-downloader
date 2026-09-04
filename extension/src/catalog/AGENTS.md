@@ -29,6 +29,26 @@ State with a *different* lifetime deliberately lives outside the store:
 
 ## History
 
+### One video, one row
+
+A video occupies exactly one row, everywhere. Identity is `videoKey(entry.url)`
+— never the raw URL, which carries a signed token that rotates on every visit.
+Four layers enforce this, and all four are load-bearing:
+
+1. `upsertDetectedVideo` matches an existing tab entry by key, so a re-signed
+   link updates the row instead of appending a second one.
+2. `mergeDetectedVideosIntoHistory` accumulates incoming videos into a keyed
+   map: one detection batch can report the same media twice, from the DOM and
+   from the network, under different URLs.
+3. `dedupeHistoryEntries` runs on every `HistoryStore.read()` and repairs lists
+   persisted by older builds, writing the cleaned version back once.
+4. `orderedEntries` in the popup deduplicates again at render, and also hides a
+   variant row whose URL another entry already lists among its `childUrls` or
+   `qualities` — a master playlist speaks for its variants.
+
+When two rows collapse, the first keeps its position (the user may have dragged
+it there) and only takes fields the later row can fill in.
+
 `history.ts` is pure and returns the **same array reference** when nothing
 changed. Callers rely on that identity check to skip a storage write and a
 broadcast — preserve it in any new rule.
