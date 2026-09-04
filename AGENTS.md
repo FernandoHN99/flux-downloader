@@ -44,11 +44,12 @@ npm run build              # extension tsc + bundles, then CoApp tsc
 npm run build:extension
 npm run build:coapp
 npm run package:extension  # extension/MediaGrabber-extension.zip
+npm run dev:extension      # extension tsc --noEmit + six esbuild watchers
 npm run dev:coapp          # CoApp tsc --watch
 cd coapp && npm start      # node dist/main.js
 ```
 
-`npm run dev:extension` is currently broken because the extension package has no `watch` script. Re-run the build after extension changes.
+`npm run dev:extension` watches all six extension outputs (`background`, `content`, `mse-inject`, popup JS/CSS, and settings) while a parallel TypeScript checker runs with `--noEmit`. It writes rebuilt bundles to `extension/dist/`, but it does not reload the unpacked extension or already-open pages in Chrome/Edge; do those reloads manually when their execution context must change.
 
 Native registration after a CoApp build:
 
@@ -350,6 +351,7 @@ These commits are the context future work must preserve:
 | `d1e8be5` | Enforced one native download run in the service worker |
 | `9c3a496` | Centralized FFmpeg/MSE/yt-dlp process settlement |
 | `60d3d56` | Isolated multi-input HLS FFmpeg argument preparation |
+| `16de619` | Added the TypeScript + six-bundle extension watch workflow |
 
 Structural regressions this refactor prevents:
 

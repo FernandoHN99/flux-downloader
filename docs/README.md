@@ -4,7 +4,7 @@ This directory documents the implementation in this repository. It no longer des
 
 The product name displayed in the browser is **Flux**. Internal packages, the native host, install paths, GitHub repository, and release artifacts continue to use **MediaGrabber**.
 
-Documentation baseline: **2026-09-03**, version `1.1.1`, including the component popup, pure content/background boundaries, `TabStateStore`, central all-tab refresh, source-page attribution, parser/manifest projection, download lifecycle/concurrency, native reconnect coverage, package validation, compact progress panel, and flat-list reorder inset.
+Documentation baseline: **2026-09-03**, version `1.1.1`, including the component popup, pure content/background boundaries, `TabStateStore`, central all-tab refresh, source-page attribution, parser/manifest projection, download lifecycle/concurrency, native reconnect coverage, package validation, the extension watch workflow, compact progress panel, and flat-list reorder inset.
 
 ## Start here
 
@@ -36,6 +36,7 @@ Documentation baseline: **2026-09-03**, version `1.1.1`, including the component
 - Vitest + happy-dom: 39 files / 505 passing tests at this baseline.
 - Content-side DOM/MSE transformations and background catalog/history/download rules live in focused tested modules rather than anonymous service-worker blocks.
 - One `DownloadRunGate` in the worker—not popup timing—enforces the single native run.
+- `npm run dev:extension` watches all six browser bundles plus TypeScript; Chrome/Edge reloads remain manual.
 - Full verification: `npm test`, then `npm run build`.
 - Tagged release automation currently builds Windows x64 only.
 

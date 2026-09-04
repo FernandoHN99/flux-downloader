@@ -192,12 +192,13 @@ npm run build               # full extension + CoApp verification
 npm run build:extension
 npm run build:coapp
 npm run package:extension
+npm run dev:extension
 npm run dev:coapp
 ```
 
 Tests use Vitest with happy-dom and live under `extension/src/**/*.test.ts`. They cover popup components, pure content/background rules, parsers, download lifecycle, and the extension-side native client. There are currently no process-side CoApp tests and no linter.
 
-`npm run dev:extension` is currently broken because no extension `watch` script exists. Re-run the extension or full build after edits.
+`npm run dev:extension` keeps the six extension bundles in `extension/dist/` rebuilt while TypeScript checks in parallel. It does not reload the unpacked extension or pages in Chrome/Edge; reload those manually when needed. Use `npm run build` for final extension + CoApp verification.
 
 ### Important source files
 

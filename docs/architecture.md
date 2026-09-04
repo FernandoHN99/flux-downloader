@@ -93,6 +93,8 @@ The action popup uses `src/popup/popup.html` plus the bundled `dist/popup.js` an
 
 Chrome action popups need explicit pixel dimensions; viewport-relative sizing can collapse them.
 
+For local development, `npm run dev:extension` owns six esbuild watch contexts—one for each manifest/HTML output—and a parallel `tsc --noEmit --watch` process. The watcher updates `extension/dist/` and disposes all child/context resources on `SIGINT` or `SIGTERM`; browser reloads are deliberately outside that process.
+
 ## Domain models
 
 ### Video and quality

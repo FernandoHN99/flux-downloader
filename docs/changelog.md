@@ -111,6 +111,7 @@ At this baseline:
 - Vitest 3 + happy-dom;
 - full extension and CoApp build passes;
 - no linter and no CoApp test suite yet.
+- `npm run dev:extension` now runs a parallel no-emit TypeScript checker and watch contexts for all six extension bundles; browser reloads remain manual.
 
 ### Documentation
 
@@ -163,6 +164,9 @@ At this baseline:
 | `d1e8be5` | global native-run gate |
 | `9c3a496` | native process settlement |
 | `60d3d56` | HLS input argument preparation |
+| `c0d9183` | complete documentation rewrite/audit |
+| `f05c530` | HLS argument documentation and 505-test baseline |
+| `16de619` | extension TypeScript/six-bundle watch workflow |
 
 ### Resolved release check
 

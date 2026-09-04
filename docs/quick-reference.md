@@ -24,11 +24,12 @@ npm run build
 npm run build:extension
 npm run build:coapp
 npm run package:extension
+npm run dev:extension
 npm run dev:coapp
 cd coapp && npm start
 ```
 
-`npm run dev:extension` does not work: the extension has no `watch` script.
+`npm run dev:extension` runs one no-emit TypeScript checker plus esbuild watchers for `background.js`, `content.js`, `mse-inject.js`, `popup.js`, `settings.js`, and `popup.css`. Bundles update in `extension/dist/`; browser extension/page reloads remain manual.
 
 Verification baseline: 39 extension test files, 505 tests, no process-side CoApp tests, no linter.
 
