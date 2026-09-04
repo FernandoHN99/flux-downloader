@@ -130,7 +130,7 @@ The installer embeds **gzip-compressed CoApp bytes**. Do not directly inject an 
 
 The release installer:
 
-- installs under `%LOCALAPPDATA%\Flux Downloader` on Windows;
+- installs under `%LOCALAPPDATA%\FluxDownloader` on Windows;
 - extracts/copies `coapp.exe`;
 - downloads each runtime from the same GitHub Release over HTTPS;
 - verifies each pinned SHA-256;

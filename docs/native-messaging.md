@@ -206,7 +206,7 @@ Representative generated manifest:
 {
   "name": "com.fluxdownloader.coapp",
   "description": "Flux Downloader companion application",
-  "path": "C:\\Users\\name\\AppData\\Local\\Flux Downloader\\coapp.exe",
+  "path": "C:\\Users\\name\\AppData\\Local\\FluxDownloader\\coapp.exe",
   "type": "stdio",
   "allowed_origins": [
     "chrome-extension://igephdkobpgbfgdjmehckbhffbimgkii/"

@@ -10,14 +10,14 @@ export function getInstallDir(): string {
   }
 
   if (process.platform === 'win32') {
-    return path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'Flux Downloader');
+    return path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'FluxDownloader');
   }
 
   if (process.platform === 'darwin') {
-    return path.join(os.homedir(), 'Library', 'Application Support', 'Flux Downloader');
+    return path.join(os.homedir(), 'Library', 'Application Support', 'FluxDownloader');
   }
 
-  return path.join(process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share'), 'Flux Downloader');
+  return path.join(process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share'), 'FluxDownloader');
 }
 
 export function getRuntimeRoots(): string[] {

@@ -129,7 +129,7 @@ The older VDH-style broad `fs.*` surface is not part of this CoApp.
 
 | OS | Install root |
 |---|---|
-| Windows | `%LOCALAPPDATA%\Flux Downloader` |
+| Windows | `%LOCALAPPDATA%\FluxDownloader` |
 | macOS | `~/Library/Application Support/FluxDownloader` |
 | Linux | `$XDG_DATA_HOME/FluxDownloader` or `~/.local/share/FluxDownloader` |
 

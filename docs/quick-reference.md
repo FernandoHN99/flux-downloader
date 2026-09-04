@@ -187,7 +187,7 @@ Historical links are probed for common expiration responses. Output collision su
 
 | OS | Root |
 |---|---|
-| Windows | `%LOCALAPPDATA%\Flux Downloader` |
+| Windows | `%LOCALAPPDATA%\FluxDownloader` |
 | macOS | `~/Library/Application Support/FluxDownloader` |
 | Linux | `$XDG_DATA_HOME/FluxDownloader` or `~/.local/share/FluxDownloader` |
 

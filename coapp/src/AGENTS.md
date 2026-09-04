@@ -52,7 +52,7 @@ life of the process.
 
 Install roots:
 
-- Windows: `%LOCALAPPDATA%\Flux Downloader`
+- Windows: `%LOCALAPPDATA%\FluxDownloader`
 - macOS: `~/Library/Application Support/FluxDownloader`
 - Linux: `$XDG_DATA_HOME/FluxDownloader` or `~/.local/share/FluxDownloader`
 
