@@ -38,6 +38,8 @@ export interface VideoQuality {
 export interface VideoInfo {
   id: string;
   title: string;
+  /** The page that exposed this media; its own URL may belong to a CDN. */
+  pageUrl?: string;
   url: string;
   type: 'm3u8' | 'mpd' | 'direct' | 'hls' | 'dash' | 'mp4' | 'webm' | 'ytdlp' | 'mse';
   qualities: VideoQuality[];
@@ -46,6 +48,17 @@ export interface VideoInfo {
   thumbnail?: string;
   duration?: number;
   fileSize?: number;
+}
+
+// A video kept in the global detection history, with the page it came from.
+export interface HistoryEntry extends VideoInfo {
+  pageTitle?: string;
+  /** When this video was last detected. */
+  detectedAt: number;
+  /** Set when broadcasting: this video was downloaded at least once. */
+  downloaded?: boolean;
+  /** Set when broadcasting: the last download attempt failed. */
+  failed?: boolean;
 }
 
 export interface DownloadProgress {

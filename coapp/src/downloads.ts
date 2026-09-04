@@ -150,6 +150,36 @@ rpc.listen({
     return [];
   },
 
+  // Cheap liveness check for a media URL — the extension uses it to tell an
+  // expired link apart from a real download failure. Body is never read.
+  'downloads.probeStatus': (url: string, referer?: string) => {
+    return new Promise((resolve) => {
+      let settled = false;
+      const done = (value: any) => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+      };
+
+      const headers: Record<string, string> = {};
+      if (referer) {
+        headers.Referer = referer;
+        try { headers.Origin = new URL(referer).origin; } catch { /* referer isn't a URL */ }
+      }
+
+      const stream = requestStream(url, { headers });
+      stream.on('response', (response: any) => {
+        done({ status: response.statusCode });
+        stream.destroy();
+      });
+      stream.on('error', (error: any) => {
+        const match = /HTTP (\d{3})/.exec(error?.message || '');
+        done(match ? { status: Number(match[1]) } : { error: error?.message || String(error) });
+      });
+      setTimeout(() => done({ error: 'Probe timed out' }), 10000);
+    });
+  },
+
   'downloads.cancel': (downloadId: number) => {
     const entry = downloads[downloadId];
     if (entry && entry.state === 'in_progress') {

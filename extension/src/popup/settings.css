@@ -1,8 +1,8 @@
 /* ═══════════════════════════════════════════════════════
-   MediaGrabber — Settings Styles
+   Flux — Settings Styles
    ═══════════════════════════════════════════════════════ */
 
-/* ── Theme: Dark ── */
+/* Flux is dark-only. */
 :root,
 [data-theme="dark"] {
   color-scheme: dark;
@@ -23,31 +23,6 @@
   --success-soft:  rgba(52, 211, 153, 0.12);
   --error:         #f87171;
   --error-soft:    rgba(248, 113, 113, 0.12);
-  --radius:        10px;
-  --radius-sm:     6px;
-  --focus-ring:    0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
-}
-
-/* ── Theme: Light ── */
-[data-theme="light"] {
-  color-scheme: light;
-  --bg:            #f7f8fa;
-  --bg-elevated:   #ffffff;
-  --bg-hover:      #f0f1f5;
-  --bg-active:     #e7e9ee;
-  --border:        #e4e6ec;
-  --border-soft:   #eef0f4;
-  --text:          #1a1d24;
-  --text-muted:    #6b7180;
-  --text-dim:      #687080;
-  --accent:        #5b3df5;
-  --accent-hover:  #4c2ee8;
-  --accent-soft:   rgba(91, 61, 245, 0.08);
-  --accent-text:   #4c2ee8;
-  --success:       #047857;
-  --success-soft:  rgba(16, 185, 129, 0.08);
-  --error:         #b91c1c;
-  --error-soft:    rgba(239, 68, 68, 0.06);
   --radius:        10px;
   --radius-sm:     6px;
   --focus-ring:    0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
@@ -74,7 +49,7 @@ body {
   height: auto;
   min-height: 420px;
   max-height: 600px;
-  font-size: 14px;
+  font-size: 12px;
   color: var(--text);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
@@ -101,12 +76,12 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 14px 16px;
+  padding: 7px 12px;
   border-bottom: 1px solid var(--border-soft);
 }
 
 .settings-header h1 {
-  font-size: 15px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: -0.01em;
   color: var(--text);
@@ -117,7 +92,7 @@ body {
   background: none;
   border: none;
   cursor: pointer;
-  padding: 6px;
+  padding: 4px;
   color: var(--text-muted);
   border-radius: var(--radius-sm);
   transition: background-color 0.15s, color 0.15s;
@@ -142,7 +117,7 @@ body {
   flex: 1;
   min-height: 0;
   min-width: 0;
-  padding: 16px;
+  padding: 10px 12px;
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
@@ -164,7 +139,7 @@ body {
 }
 
 .setting-item {
-  margin-bottom: 22px;
+  margin-bottom: 10px;
 }
 
 .setting-item:last-child {
@@ -173,64 +148,39 @@ body {
 
 .setting-label {
   display: block;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-dim);
-  margin-bottom: 8px;
+  margin-bottom: 5px;
 }
 
 .setting-item > label:not(.setting-label):not(.checkbox-label) {
   display: block;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-dim);
-  margin-bottom: 8px;
-}
-
-.setting-item select {
-  width: 100%;
-  padding: 9px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  font-size: 13px;
-  color: var(--text);
-  background-color: var(--bg-elevated);
-  cursor: pointer;
-  transition: border-color 0.15s;
-  font-family: inherit;
-  appearance: none;
-  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238b919e' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 12px center;
-  padding-right: 32px;
+  margin-bottom: 5px;
 }
 
 .setting-item select:focus,
-.setting-item select:focus-visible {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.setting-item select:focus-visible {
-  box-shadow: var(--focus-ring);
-}
 
 .setting-help {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-dim);
-  margin-top: 5px;
+  margin-top: 3px;
   line-height: 1.4;
   overflow-wrap: anywhere;
 }
 
 /* ═══ Theme Selector (Segmented Control) ═══ */
-.theme-segmented {
+
+/* Batch quality and the history switch reuse the theme picker's shape. */
+.segmented {
   display: flex;
-  flex-wrap: wrap;
   gap: 0;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
@@ -238,73 +188,46 @@ body {
   padding: 3px;
 }
 
-.theme-option {
+.segmented-option {
   flex: 1;
   min-width: 0;
-  padding: 7px 8px;
+  padding: 4px 7px;
   border: none;
   background: none;
   border-radius: 4px;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 500;
   color: var(--text-muted);
   cursor: pointer;
   transition: background-color 0.15s, color 0.15s;
   font-family: inherit;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
 }
 
-.theme-option:hover:not(.active) {
-  background: var(--bg-hover);
+.segmented-option:hover:not(.active) {
   color: var(--text);
 }
 
-.theme-option.active {
+.segmented-option.active {
   background: var(--accent);
   color: #fff;
 }
 
-.theme-option:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+.segmented-option:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
-.theme-option svg {
-  width: 13px;
-  height: 13px;
+/* Shown while "Only current" is picked but not yet saved. */
+.setting-help.error {
+  color: var(--error);
+  margin-top: 5px;
+}
+
+.hidden {
+  display: none !important;
 }
 
 /* ═══ Checkbox ═══ */
-.checkbox-label {
-  display: flex;
-  align-items: center;
-  cursor: pointer;
-  gap: 0;
-}
-
-.checkbox-label input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  margin-right: 10px;
-  accent-color: var(--accent);
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.checkbox-label input[type="checkbox"]:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-  border-radius: 3px;
-}
-
-.checkbox-text {
-  font-weight: 500;
-  font-size: 13px;
-  color: var(--text);
-}
 
 /* ═══ Status Display ═══ */
 .status-display {
@@ -312,7 +235,7 @@ body {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  padding: 9px 12px;
+  padding: 6px 9px;
   background: var(--bg-elevated);
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-sm);
@@ -342,7 +265,7 @@ body {
 }
 
 .version-text {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-dim);
   font-family: ui-monospace, 'Cascadia Code', 'SF Mono', monospace;
   min-width: 0;
@@ -350,92 +273,10 @@ body {
 }
 
 /* ═══ Footer ═══ */
-.settings-footer {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 12px 16px;
-  border-top: 1px solid var(--border-soft);
-  background: var(--bg);
-}
 
 /* ═══ Buttons ═══ */
-.btn {
-  min-width: 0;
-  padding: 9px 18px;
-  border: none;
-  border-radius: var(--radius-sm);
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background-color 0.15s, color 0.15s, transform 0.1s;
-  font-family: inherit;
-  letter-spacing: 0.01em;
-}
-
-.btn-primary {
-  background: var(--accent);
-  color: #fff;
-}
-
-.btn-primary:hover {
-  background: var(--accent-hover);
-}
-
-.btn-primary:active {
-  transform: scale(0.98);
-}
-
-.btn-primary:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
-.btn-secondary {
-  background: var(--bg-hover);
-  color: var(--text);
-  border: 1px solid var(--border-soft);
-}
-
-.btn-secondary:hover {
-  background: var(--bg-active);
-  border-color: var(--border);
-}
-
-.btn-secondary:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
 
 /* ═══ Notification Toast ═══ */
-.notification {
-  position: fixed;
-  bottom: 56px;
-  left: 16px;
-  right: 16px;
-  padding: 9px 12px;
-  border-radius: var(--radius-sm);
-  font-size: 12px;
-  z-index: 1000;
-  text-align: center;
-  font-weight: 500;
-  backdrop-filter: blur(8px);
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
-  animation: notification-slide 0.2s ease-out;
-}
-
-.notification.success {
-  background: var(--success-soft);
-  color: var(--success);
-  border: 1px solid var(--success);
-}
-
-.notification.error {
-  background: var(--error-soft);
-  color: var(--error);
-  border: 1px solid var(--error);
-}
 
 @keyframes notification-slide {
   from {

@@ -13,12 +13,15 @@
     "setup": "node dist/installer.js",
     "register": "node dist/native-autoinstall-cli.js register",
     "unregister": "node dist/native-autoinstall-cli.js unregister",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
     "@types/node": "^22.19.17",
     "typescript": "^6.0.2",
     "esbuild": "^0.28.0",
-    "postject": "^1.0.0-alpha.6"
+    "postject": "^1.0.0-alpha.6",
+    "vitest": "^3.2.7"
   }
 }

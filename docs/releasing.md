@@ -1,44 +1,178 @@
-# Releasing MediaGrabber
+# Releasing Flux / MediaGrabber
 
-## Distribution model
+Updated: 2026-09-03.
 
-MediaGrabber is distributed through GitHub Releases. The extension is not published in the Chrome Web Store.
+Flux is currently distributed through GitHub Releases. The extension is sideloaded with **Load unpacked** and is not published in the Chrome Web Store.
 
-The release contains:
+## Current scope
 
-- `MediaGrabber-extension.zip` for manual sideloading
-- `MediaGrabber-Setup-win-x64.exe` for the native companion
-- FFmpeg, ffprobe, and yt-dlp runtime binaries
-- `SHA256SUMS.txt`
+The automated workflow builds **Windows x64 only**. Source code supports Chrome/Edge and contains cross-platform CoApp registration/runtime paths, but tagged macOS/Linux installer artifacts are not produced.
+
+Release naming retains MediaGrabber:
+
+- `MediaGrabber-extension.zip`
+- `MediaGrabber-CoApp-win-x64.exe`
+- `MediaGrabber-Setup-win-x64.exe`
+- `ffmpeg-win-x64.exe`
+- `ffprobe-win-x64.exe`
+- `yt-dlp-win-x64.exe`
 - `THIRD_PARTY_NOTICES.txt`
+- `SHA256SUMS.txt`
 
-## User installation
+## Source of truth
 
-1. Download the extension ZIP and Windows setup from the release page.
-2. Run the setup executable. It installs CoApp and registers native messaging.
-3. Extract the extension ZIP to a permanent folder.
-4. Open `chrome://extensions`.
-5. Enable **Developer mode**.
-6. Click **Load unpacked** and select the extracted extension folder containing `manifest.json`.
-7. Reload the extension after the setup finishes.
+- Workflow: `.github/workflows/release.yml`
+- Extension packager: `extension/scripts/package-extension.mjs`
+- Extension ID derivation: `extension/scripts/get-extension-id.mjs`
+- Runtime config: `coapp/scripts/create-release-config.mjs`
+- SEA builder: `coapp/scripts/build-sea.mjs`
+- Installer: `coapp/src/installer.ts`
+- Checksums: `coapp/scripts/create-checksums.mjs`
+- Notices: `THIRD_PARTY_NOTICES.md`
 
-The public key in `extension/manifest.json` fixes the extension ID as `igephdkobpgbfgdjmehckbhffbimgkii`. The installer uses this ID automatically, so users do not need to copy or enter it.
+## Pre-release checklist
 
-Chrome requires Developer mode and Load unpacked for extensions distributed outside the Chrome Web Store. This manual browser step cannot be replaced by a GitHub installer on normal Windows/macOS installations.
-
-## Release workflow
-
-Push a tag such as `v1.1.1`. GitHub Actions builds the Windows x64 release without repository secrets:
+1. Ensure the intended commit is on the release branch and the worktree is clean.
+2. Choose a semantic version and update every checked-in version:
+   - root `package.json`;
+   - `extension/package.json`;
+   - `extension/manifest.json`;
+   - `coapp/package.json`;
+   - hard-coded `coapp/src/main.ts` `info().version`;
+   - `package-lock.json` via npm.
+3. Update `docs/changelog.md` and move relevant Unreleased items under that version.
+4. Review `README.md`, `docs/PRIVACY.md`, `docs/STORE_LISTING.md`, and this guide for changed behavior.
+5. If runtime versions changed, update workflow URLs and `THIRD_PARTY_NOTICES.md`.
+6. Run:
 
 ```bash
-git tag v1.1.1
-git push origin v1.1.1
+npm ci
+npm test
+npm run build
+npm run package:extension
 ```
 
-The workflow derives the extension ID from the public manifest key and embeds it in the native host configuration.
+7. Inspect the extension ZIP contents and test the extracted package in a clean browser profile.
+8. Test CoApp registration, Settings connectivity, one direct download, one HLS/DASH download, progress, cancellation, and unique naming.
+9. Verify `Refresh tabs`, source-page grouping/linking, and history restoration in the packaged build.
 
-## Runtime assets
+The GitHub workflow currently runs `npm ci` and `npm run build` but **does not run `npm test`**. Passing local tests is therefore a maintainer responsibility until CI is changed.
 
-The installer downloads FFmpeg, ffprobe, and yt-dlp from the matching GitHub Release. Each binary is pinned by URL and SHA-256 checksum in the embedded release configuration.
+## Package validation
 
-FFmpeg is distributed as a separate GPLv3 runtime program. Keep `THIRD_PARTY_NOTICES.txt` with every binary release.
+The popup-CSS packaging blocker is resolved. `extension/scripts/package-extension.mjs` copies:
+
+```text
+dist/background.js
+dist/content.js
+dist/mse-inject.js
+dist/popup.js
+dist/popup.css
+dist/settings.js
+```
+
+Before creating the archive, the script parses local `src` and `href` references in packaged `popup.html` and `settings.html`. It fails when an asset is missing or resolves outside staging. This protects the split `dist/popup.css` and future local HTML assets by construction.
+
+Unpacked development can still hide package-only errors. Keep `unzip -t`, file-list inspection, and a clean extracted-browser smoke test in release preflight.
+
+## Fixed extension ID
+
+The public key in `extension/manifest.json` derives:
+
+```text
+igephdkobpgbfgdjmehckbhffbimgkii
+```
+
+The workflow computes this with `get-extension-id.mjs` and embeds it into release configuration. The installer writes only that exact origin into `allowed_origins`.
+
+Do not remove/change the manifest key casually: it changes the extension ID and breaks native registration for installed users.
+
+## Tagging
+
+After preflight:
+
+```bash
+git tag vX.Y.Z
+git push origin vX.Y.Z
+```
+
+Every `v*` tag triggers the `Release` workflow on `windows-latest` with Node 22.x.
+
+The workflow sets `MEDIA_GRABBER_VERSION` from the tag for the packaged manifest. This override does **not** update the checked-in packages or CoApp's hard-coded `info` version; that is why manual version synchronization remains required.
+
+## Workflow sequence
+
+1. Checkout and install dependencies with `npm ci`.
+2. Set packaged extension version from the tag.
+3. Build extension/CoApp and package the extension.
+4. Download pinned runtime binaries:
+   - FFmpeg/ffprobe GyanD Essentials 8.1.2;
+   - yt-dlp 2026.07.04.
+5. Rename/copy runtimes into the release directory.
+6. Derive fixed extension ID.
+7. Generate `release-config.json` with GitHub asset URLs and SHA-256 hashes.
+8. Bundle CoApp and installer as CommonJS.
+9. Build a Node SEA CoApp executable.
+10. Build a Node SEA installer embedding:
+    - `release-config.json`;
+    - gzip-compressed CoApp bytes as `coapp.bin.gz`.
+11. Copy extension ZIP and third-party notice.
+12. Generate `SHA256SUMS.txt` for every release file.
+13. Publish a GitHub Release with generated notes.
+
+## SEA rule
+
+`build-sea.mjs` copies the current Node executable, creates a SEA blob, and injects it with postject.
+
+The installer embeds **gzip-compressed CoApp bytes**. Do not directly inject an already SEA-injected executable as a raw nested SEA payload; duplicate Node SEA sentinels can make postject target the wrong sentinel.
+
+## Installer behavior
+
+The release installer:
+
+- installs under `%LOCALAPPDATA%\MediaGrabber` on Windows;
+- extracts/copies `coapp.exe`;
+- downloads each runtime from the same GitHub Release over HTTPS;
+- verifies each pinned SHA-256;
+- writes `com.mediagrabber.coapp.json`;
+- registers Chrome and Edge HKCU keys;
+- allowlists the fixed extension origin.
+
+Users still need to extract the extension ZIP, enable Developer mode, and choose **Load unpacked**. A normal GitHub installer cannot silently install an unpacked Chrome/Edge extension.
+
+## Artifact verification
+
+Recommended checks:
+
+```bash
+unzip -l extension/MediaGrabber-extension.zip
+sha256sum -c SHA256SUMS.txt
+```
+
+On Windows use `Get-FileHash` or a compatible checksum utility.
+
+Confirm:
+
+- ZIP root contains `manifest.json`;
+- every manifest/popup-referenced asset exists;
+- manifest version matches tag without a leading `v`;
+- extension ID derivation matches the installer origin;
+- installer rejects a modified runtime checksum;
+- CoApp `info` reports the release version;
+- runtime executables launch;
+- notices match exact runtime pins.
+
+## Publishing corrections
+
+Do not silently move an existing version tag to different binaries. Prefer a new patch version. If a release is unusable, mark it clearly, fix the source/workflow, and issue a new tag.
+
+## User installation summary
+
+1. Download setup + extension ZIP.
+2. Verify checksums if desired.
+3. Run setup.
+4. Extract ZIP permanently.
+5. Open `chrome://extensions` / `edge://extensions`.
+6. Enable Developer mode.
+7. Load the extracted directory containing `manifest.json`.
+8. Reload Flux and already-open media pages.

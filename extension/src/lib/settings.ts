@@ -1,19 +1,20 @@
 // Settings Management
 // Handles loading, saving, and managing extension settings
 
-export type ThemeMode = 'dark' | 'light' | 'system';
-
 export interface Settings {
-  defaultQuality: 'best' | 'worst' | 'ask';
-  showNotifications: boolean;
-  theme: ThemeMode;
+  /** Which rendition "Download all" picks for every video in the run. */
+  batchQuality: 'best' | 'worst';
+  /** Off means the list only ever shows what the open tabs are playing. */
+  keepHistory: boolean;
+  /** Collect videos under the site they came from instead of one flat list. */
+  groupByDomain: boolean;
   coappPath?: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  defaultQuality: 'ask',
-  showNotifications: true,
-  theme: 'system'
+  batchQuality: 'best',
+  keepHistory: true,
+  groupByDomain: false
 };
 
 /**
@@ -77,14 +78,14 @@ export async function updateSetting<K extends keyof Settings>(
 /**
  * Check if CoApp is connected and working
  */
-export async function checkCoAppStatus(): Promise<{ connected: boolean; version?: string }> {
+export async function checkCoAppStatus(): Promise<{ connected: boolean; version?: string; error?: string }> {
   try {
     const response = await chrome.runtime.sendMessage({ type: 'PING' });
-    if (response && response.success) {
+    if (response?.connected) {
       return { connected: true, version: response.version };
     }
-    return { connected: false };
-  } catch {
-    return { connected: false };
+    return { connected: false, error: response?.error };
+  } catch (error: any) {
+    return { connected: false, error: error?.message || String(error) };
   }
 }

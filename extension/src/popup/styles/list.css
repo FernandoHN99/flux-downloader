@@ -1,0 +1,338 @@
+/* The list around the rows: actions bar, search, site folders. */
+
+.media-group {
+  margin-bottom: 6px;
+}
+
+.group-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: background-color 0.15s;
+}
+
+.group-head:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.group-head:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.group-icon:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.group-favicon {
+  width: 15px;
+  height: 15px;
+  border-radius: 3px;
+  transition: opacity 0.12s;
+}
+
+.group-download {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 15px;
+  height: 15px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.group-head:hover .group-icon:not(:disabled) .group-favicon,
+.group-head:hover .group-icon:not(:disabled) .group-folder {
+  opacity: 0;
+}
+
+.group-head:hover .group-icon:not(:disabled) .group-download,
+.group-icon:focus-visible .group-download {
+  opacity: 1;
+}
+
+.group-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-count {
+  flex-shrink: 0;
+  padding: 0 5px;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 14px;
+  color: var(--text-dim);
+  background: var(--bg-active);
+  border-radius: 999px;
+}
+
+.group-chevron {
+  flex-shrink: 0;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid currentColor;
+  opacity: 0.6;
+  transform: rotate(-90deg);
+  transition: transform 0.15s;
+}
+
+.group-chevron.open {
+  transform: rotate(0deg);
+}
+
+.group-body {
+  padding: 4px 0 0 10px;
+}
+
+.history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px 6px;
+}
+
+.history-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  color: var(--text-dim);
+  font-family: ui-monospace, 'Cascadia Code', 'SF Mono', monospace;
+}
+
+.history-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.media-group {
+  margin-bottom: 6px;
+}
+
+.group-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: background-color 0.15s;
+}
+
+.group-head:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.group-head:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.group-icon:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.group-favicon {
+  width: 15px;
+  height: 15px;
+  border-radius: 3px;
+  transition: opacity 0.12s;
+}
+
+.group-download {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 15px;
+  height: 15px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.group-head:hover .group-icon:not(:disabled) .group-favicon,
+.group-head:hover .group-icon:not(:disabled) .group-folder {
+  opacity: 0;
+}
+
+.group-head:hover .group-icon:not(:disabled) .group-download,
+.group-icon:focus-visible .group-download {
+  opacity: 1;
+}
+
+.group-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-count {
+  flex-shrink: 0;
+  padding: 0 5px;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 14px;
+  color: var(--text-dim);
+  background: var(--bg-active);
+  border-radius: 999px;
+}
+
+.group-chevron {
+  flex-shrink: 0;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid currentColor;
+  opacity: 0.6;
+  transform: rotate(-90deg);
+  transition: transform 0.15s;
+}
+
+.group-chevron.open {
+  transform: rotate(0deg);
+}
+
+.group-body {
+  padding: 4px 0 0 10px;
+}
+
+.history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px 6px;
+}
+
+.history-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  color: var(--text-dim);
+  font-family: ui-monospace, 'Cascadia Code', 'SF Mono', monospace;
+}
+
+.history-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+#history-list {
+  max-height: min(430px, 68vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+#history-list::-webkit-scrollbar {
+  width: 5px;
+}
+
+#history-list::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+#history-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* The flat list reaches both edges of its scroll box. Leave enough room for
+   the drop outline; grouped zones already get this space from `.group-body`. */
+#history-list > .reorder-zone {
+  margin-inline: 3px;
+}
+
+.reorder-zone.drop-target {
+  outline: 1px dashed var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius);
+}
+
+.quality-toggle {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg-active);
+  border-radius: 999px;
+}
+
+.quality-badge {
+  padding: 2px 8px;
+  font-size: 10px;
+  font-family: inherit;
+  font-weight: 600;
+  color: var(--text-dim);
+  background: none;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.quality-badge:hover {
+  color: var(--text);
+}
+
+.quality-badge.selected {
+  color: #fff;
+  background: var(--accent);
+}
+
+.quality-badge:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.history-search {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0 0 6px;
+  padding: 5px 8px;
+  font-size: 11px;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+}
+
+.history-search::placeholder {
+  color: var(--text-dim);
+}
+
+.history-search:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+
+.history-empty {
+  margin: 8px 2px;
+  font-size: 11px;
+  color: var(--text-dim);
+  text-align: center;
+}

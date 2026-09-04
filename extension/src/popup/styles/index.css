@@ -1,0 +1,10 @@
+/* Flux popup styles, one file per component. Bundled by esbuild. */
+
+@import './tokens.css';
+@import './shell.css';
+@import './list.css';
+@import './row.css';
+@import './quality.css';
+@import './progress.css';
+@import './misc.css';
+@import './animations.css';

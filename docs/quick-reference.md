@@ -1,118 +1,210 @@
-# Video DownloadHelper — Quick Reference
+# Flux / MediaGrabber quick reference
 
-## Extension IDs
+Updated: 2026-09-03.
 
-| Browser | Extension ID |
-|---------|-------------|
-| Firefox | `video-downloadhelper@downloadhelper.net` |
-| Chrome | `lmjnegcaeklhafolokijcfjliaokphfk` |
-| Edge | `jmkaglaafmhbcpleggkmaliipiilhldn` |
+## Identity
 
-## CoApp Details
+| Item | Value |
+|---|---|
+| UI/product name | Flux |
+| Repository/package/release prefix | MediaGrabber |
+| Version | `1.1.1` |
+| Browsers | Chrome/Edge 102+, Manifest V3 |
+| Native host | `com.mediagrabber.coapp` |
+| Fixed release extension ID | `igephdkobpgbfgdjmehckbhffbimgkii` |
+| License | MIT for project source |
+| Distribution | GitHub Release + unpacked extension |
 
-| Property | Value |
-|----------|-------|
-| **Native Messaging Name** | `net.downloadhelper.coapp` |
-| **Repository** | https://github.com/aclap-dev/vdhcoapp |
-| **License** | GPL-2.0 |
-| **Language** | Node.js |
-
-## Key RPC Methods
-
-| Method | Purpose |
-|--------|---------|
-| `ping` | Test connectivity |
-| `info` | Get version, ffmpeg path |
-| `convert` | Run ffmpeg conversion |
-| `probe` | Get media info |
-| `downloads.download` | Start download |
-| `fs.write` | Write file to disk |
-| `filepicker` | Open native file dialog |
-
-## File Locations
-
-### Windows CoApp Default
-```
-C:\Users\<user>\AppData\Local\DownloadHelper CoApp\
-```
-
-### Windows Downloads Default
-```
-C:\Users\<user>\dwhelper\
-```
-
-### Linux CoApp
-```
-~/.vdhcoapp/
-```
-
-### macOS CoApp
-```
-/Applications/DownloadHelper CoApp/
-```
-
-## Supported Stream Types
-
-| Type | Format | Detection | Download |
-|------|--------|-----------|----------|
-| **HLS** | .m3u8 | ✓ | FFmpeg |
-| **DASH** | .mpd | ✓ | FFmpeg |
-| **MP4** | .mp4 | ✓ | Browser or FFmpeg |
-| **WebM** | .webm | ✓ | Browser or FFmpeg |
-| **YouTube** | HLS/DASH | ✓ (FF/Edge) | FFmpeg |
-| **DRM** | Widevine | ✗ | Not possible |
-
-## Common FFmpeg Commands
+## Commands
 
 ```bash
-# Download HLS stream
-ffmpeg -i "http://example.com/stream.m3u8" -c copy output.mp4
-
-# Download DASH stream
-ffmpeg -i "http://example.com/manifest.mpd" -c copy output.mp4
-
-# Merge video + audio
-ffmpeg -i video.mp4 -i audio.m4a -c copy -map 0:v -map 1:a output.mp4
-
-# Re-encode to MP4
-ffmpeg -i input.avi -c:v libx264 -c:a aac output.mp4
-
-# Extract audio only
-ffmpeg -i input.mp4 -vn -c:a copy output.aac
+npm install
+npm test
+npm run build
+npm run build:extension
+npm run build:coapp
+npm run package:extension
+npm run dev:extension
+npm run dev:coapp
+cd coapp && npm start
 ```
 
-## Troubleshooting
+`npm run dev:extension` runs one no-emit TypeScript checker plus esbuild watchers for `background.js`, `content.js`, `mse-inject.js`, `popup.js`, `settings.js`, and `popup.css`. Bundles update in `extension/dist/`; browser extension/page reloads remain manual.
 
-### "CoApp not recognized"
+Verification baseline: 39 extension test files, 505 tests, no process-side CoApp tests, no linter.
 
-1. Close browser
-2. Reinstall CoApp
-3. Restart browser
-4. Check: `about:addons` → VDH → Preferences → Companion app installed
+## Load and register
 
-### "No video detected"
+- Load `extension/` from `chrome://extensions` / `edge://extensions`.
+- Do not load `extension/dist/`.
+- Reload the extension after each build.
+- Reload existing pages after an extension reload if their old content scripts were invalidated.
 
-1. Check extension has `<all_urls>` permission
-2. Try refreshing page
-3. Some sites block detection
-4. Use Network panel (F12) to find media URLs manually
+```bash
+cd coapp
+node dist/native-autoinstall-cli.js register <extension-id>
+node dist/native-autoinstall-cli.js unregister
+```
 
-### "Downloaded file has no audio"
+## Main entry points
 
-- Video and audio may be separate streams
-- VDH should merge automatically via FFmpeg
-- Check if CoApp is installed and licensed
+| Source | Built output |
+|---|---|
+| `extension/src/background.ts` | `extension/dist/background.js` |
+| `extension/src/content.ts` | `extension/dist/content.js` |
+| `extension/src/mse-inject.ts` | `extension/dist/mse-inject.js` |
+| `extension/src/popup/index.ts` | `extension/dist/popup.js` |
+| `extension/src/popup/settings.ts` | `extension/dist/settings.js` |
+| `extension/src/popup/styles/index.css` | `extension/dist/popup.css` |
+| `coapp/src/main.ts` | `coapp/dist/main.js` |
 
-### "YouTube not working in Chrome"
+Focused source owners (not separate bundles):
 
-- This is **expected** — Google blocks it in Chrome
-- Use Firefox or Edge instead
+- `extension/src/content/{dom-media,page-metadata,mse-bridge,mse-media}.ts`
+- `extension/src/lib/{popup-protocol,content-protocol,video-catalog,page-context,history}.ts`
+- `extension/src/lib/{manifest-qualities,hls-rewrite,hls-arguments,relay-codec}.ts`
+- `extension/src/lib/{download-plan,download-tracker,download-run-gate,batch-run}.ts`
 
-## Links
+## Popup
 
-- **Main Site**: https://www.downloadhelper.net/
-- **Firefox Add-on**: https://addons.mozilla.org/firefox/addon/video-downloadhelper
-- **Chrome Extension**: https://chrome.google.com/webstore/detail/video-downloadhelper
-- **GitHub (CoApp)**: https://github.com/aclap-dev/vdhcoapp
-- **GitHub Discussions**: https://github.com/aclap-dev/video-downloadhelper/discussions
-- **License Purchase**: https://www.downloadhelper.net/premium
+- `App`: store, messenger, top-level components.
+- `RemoteState`: history, current keys, batch, active/manual download, progress.
+- `UiState`: search, refreshing, selection, expanded/renaming key, groups, drag, quality, status/error.
+- `Component.update()` preserves marked focus/caret/selection via `data-focus-id`.
+- Current rows are pinned and not draggable.
+- Movable history rows live in `.reorder-zone`; grouped zones cannot exchange rows.
+- Flat reorder zone has `margin-inline: 3px` so the dashed border stays visible.
+- Progress UI is one compact two-row panel for single and batch runs.
+- `DownloadRunGate` in the service worker is the real concurrency lock; popup disabled state is feedback only.
+
+## Refresh
+
+User action: **Refresh tabs**.
+
+```text
+popup REFRESH_TABS
+  → restore current in-memory media to history
+  → query all tabs
+  → background sends RESCAN to each HTTP(S) content script
+  → content scripts re-announce cache + DOM + metadata
+  → wait for serialized history writes
+  → return MEDIA_LIST + HISTORY_LIST
+```
+
+`REFRESH_TABS` is popup/background protocol. `RESCAN` is background/content protocol.
+
+## URL meanings
+
+| Field | Meaning |
+|---|---|
+| `VideoInfo.url` | media/manifest/rendition/CDN URL |
+| `VideoInfo.pageUrl` | exact top-level page that exposed it |
+| `HistoryEntry.pageTitle` | source page title |
+| `VideoInfo.referer` | request context used for manifests/FFmpeg when available |
+
+Grouping and source links prefer `pageUrl`. The media URL is only a fallback. Never group a Rocketseat lesson under its `b-cdn.net` host when `app.rocketseat.com.br` is known.
+
+## Per-tab state
+
+`TabStateStore` owns one `TabState` per tab:
+
+- page generation
+- detected media
+- intercepted URLs
+- page metadata
+- yt-dlp format URL
+- navigation generation/current page URL
+- relay URL mappings/codecs
+
+Tab removal calls `delete`. Page reset gets a globally monotonic generation so stale async work cannot resurrect old media.
+
+## Storage
+
+| Key | Purpose | Limit |
+|---|---|---|
+| `settings` | batch quality, keep history, group by domain | none |
+| `mediaHistory` | local detected media + source metadata | 50 |
+| `downloadedVideos` | stable downloaded media keys | 500 |
+| `failedVideos` | stable failed media keys | 500 |
+
+History writes are serialized through `historyWrites`.
+
+## Detection
+
+- Service-worker `webRequest`: HLS, DASH, MP4, WebM by URL/content type.
+- Isolated content script: normalized DOM subtree collection, metadata, SPA navigation, validated MSE bridge, cached rescan.
+- MAIN-world hook: MediaSource/SourceBuffer plus fetch/XHR relay observations.
+- YouTube: top-page metadata → CoApp `ytdlpFormats`; raw YouTube media is not shown.
+- HLS/DASH parsers are regex-based.
+- Parser baseline: 38 M3U8 tests + 39 DASH tests, plus manifest-quality projection tests.
+
+## Popup messages
+
+Popup → background:
+
+`GET_MEDIA`, `GET_HISTORY`, `GET_BATCH_STATUS`, `GET_ACTIVE_DOWNLOAD`, `REFRESH_TABS`, `DOWNLOAD`, `DOWNLOAD_ALL`, `CANCEL_DOWNLOAD`, `CANCEL_BATCH`, `RENAME_HISTORY_ITEM`, `RENAME_VIDEO`, `REORDER_HISTORY`, `DELETE_HISTORY_ITEMS`, `CLEAR_HISTORY`.
+
+Background → popup:
+
+`MEDIA_LIST`, `HISTORY_LIST`, `BATCH_STATUS`, `DOWNLOAD_STARTED`, `DOWNLOAD_PROGRESS`, `DOWNLOAD_COMPLETE`, `DOWNLOAD_ERROR`, `ACTIVE_DOWNLOAD`, `NO_ACTIVE_DOWNLOAD`, `ERROR`.
+
+## Native RPC
+
+Transport at the native process: 4-byte little-endian payload length + UTF-8 JSON.
+
+Envelope: `type: "weh#rpc"` with request (`_request`, `_method`, `_args`) or reply (`_reply` plus `_result`/`_error`).
+
+CoApp handlers:
+
+- `ping`, `info`, `quit`
+- `convert`, `abortConvert`, `probe`, `converter.info`
+- `ytdlpFormats`, `ytdlp`, `abortYtdlp`
+- `downloads.download`, `downloads.search`, `downloads.probeStatus`, `downloads.cancel`
+- `file.uniquePath`, `file.ensureDir`
+
+CoApp → extension callbacks are also RPC requests: `convertOutput`, `convertStartNotification`, `downloadComplete`, `downloadError`.
+
+`NativeClient`: ordinary timeout 60 seconds; `convert`/`ytdlp` untimed; pending calls reject on disconnect; unexpected reconnect delay 5 seconds; a synchronous initial connection failure is not cached. Nine extension tests cover the lifecycle.
+
+## Download routing
+
+| Type | Engine |
+|---|---|
+| HLS/DASH | FFmpeg stream copy/remux |
+| MSE | FFmpeg with captured/reconstructed input |
+| YouTube | yt-dlp |
+| Direct MP4/WebM | CoApp Node HTTP/HTTPS stream |
+
+Historical links are probed for common expiration responses. Output collision suffix is `_1`, `_2`, etc. Batch folder is `Flux_<timestamp>`.
+
+`DownloadTracker` owns active IDs/outcomes/waiters/cancellation tombstones. `BatchRun` owns queue transitions and late-start cancellation. A cancelled item is not marked failed.
+
+## Extension package
+
+`npm run package:extension` copies all six bundles, including `dist/popup.css`, then validates local `src`/`href` references in popup/settings HTML before creating `extension/MediaGrabber-extension.zip`.
+
+## Install roots
+
+| OS | Root |
+|---|---|
+| Windows | `%LOCALAPPDATA%\MediaGrabber` |
+| macOS | `~/Library/Application Support/MediaGrabber` |
+| Linux | `$XDG_DATA_HOME/MediaGrabber` or `~/.local/share/MediaGrabber` |
+
+Overrides: `MEDIAGRABBER_INSTALL_DIR` and `MEDIAGRABBER_HOME`.
+
+## Current release pins
+
+- FFmpeg/ffprobe: GyanD Essentials 8.1.2.
+- yt-dlp: 2026.07.04.
+- Release runner: Windows + Node 22.
+
+## Fast troubleshooting
+
+- Empty list: click **Refresh tabs**; reload the page if the extension itself was reloaded.
+- CoApp disconnected: verify native manifest, path, allowlisted extension ID, and reload the extension.
+- Expired item: reopen/play its exact source page, then **Refresh tabs**.
+- CDN shown as site: inspect where `pageUrl` was lost; do not patch the domain formatter.
+- Parser result appears after navigation: inspect page/content generations.
+- Search/rename loses focus: ensure the field retains a stable `data-focus-id`.
+- Popup collapses in Chrome: restore explicit pixel dimensions.

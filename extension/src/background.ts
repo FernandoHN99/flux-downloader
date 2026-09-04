@@ -2,183 +2,160 @@
 // Manifest V3 — webRequest, media detection, download orchestration.
 
 import { NativeClient } from './lib/native-client';
-import { VideoInfo } from './lib/types';
+import { VideoInfo, HistoryEntry } from './lib/types';
 import { M3U8ParserWrapper } from './lib/m3u8-parser';
 import { DashParserWrapper } from './lib/dash-parser';
-import { loadSettings, Settings } from './lib/settings';
-
-interface PageMetadata {
-  title?: string;
-  thumbnail?: string;
-  duration?: number;
-  pageUrl?: string;
-  generation?: number;
-}
+import { loadSettings, Settings, DEFAULT_SETTINGS } from './lib/settings';
+import { videoKey } from './lib/video-key';
+import { PageMetadata, TabStateStore } from './lib/tab-state';
+import {
+  decorateHistoryEntries,
+  markHistoryDownloaded,
+  markHistoryFailed,
+  mergeDetectedVideosIntoHistory,
+  removeHistoryEntries,
+  renameHistoryTitle,
+  reorderHistoryEntries,
+  retainHistoryEntries,
+  sameHistoryContent
+} from './lib/history';
+import { isMediaUrl, isYouTubeUrl, mediaTypeFromUrl } from './lib/media-url';
+import {
+  mergeChildUrls,
+  mergeQualities,
+  upsertDetectedVideo,
+  visibleVideos
+} from './lib/video-catalog';
+import {
+  getContentType,
+  getFfmpegHttpArgs,
+  getMediaTypeFromContentType,
+  getRequestReferer
+} from './lib/http-media';
+import {
+  ensureFilenameExtension,
+  formatFfmpegError,
+  getDefaultExtension,
+  joinOutputPath,
+  pickBatchQuality,
+  sanitizeFilename
+} from './lib/download-plan';
+import { isPopupRequest } from './lib/popup-protocol';
+import type {
+  PopupMessage,
+  PopupRequest
+} from './lib/popup-protocol';
+import { isRuntimeRequest } from './lib/content-protocol';
+import type {
+  DetectedVideo,
+  MediaUrlMapMessage,
+  RuntimeRequest
+} from './lib/content-protocol';
+import { applyPageMetadataToVideos, mergePageMetadata } from './lib/page-context';
+import { buildYtdlpVideo, fallbackYtdlpQualities } from './lib/youtube';
+import { inferRelayCodec, mergeRelayCodecs, resolveRelayUrl } from './lib/relay-codec';
+import { DownloadTracker } from './lib/download-tracker';
+import type { ActiveDownload } from './lib/download-tracker';
+import { buildDashQualities, buildHlsQualities } from './lib/manifest-qualities';
+import { rewriteHlsManifestUris } from './lib/hls-rewrite';
+import { BatchRun } from './lib/batch-run';
+import { DownloadRunGate } from './lib/download-run-gate';
+import type { DownloadLease } from './lib/download-run-gate';
+import { prepareHlsInputArguments } from './lib/hls-arguments';
+import type { ManifestFile } from './lib/hls-arguments';
 
 const nativeClient = new NativeClient();
 
-// Media storage by tabId
-const mediaByTab = new Map<number, VideoInfo[]>();
-const interceptedMediaByTab = new Map<number, Set<string>>();
-const pageMetadataByTab = new Map<number, PageMetadata>();
-const ytdlpFormatUrlByTab = new Map<number, string>();
-const pageGenerationByTab = new Map<number, number>();
-const navigationGenerationByTab = new Map<number, number>();
-const currentPageUrlByTab = new Map<number, string | null>();
-const relayMappingsByTab = new Map<number, Map<string, string>>();
-const relayCodecsByTab = new Map<number, Map<string, RelayCodec>>();
-
-interface RelayCodec {
-  hour: number;
-  prefix: string;
-  relayOrigin: string;
-  mapping: Record<string, string>;
-}
-
-const relayAlphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
-
-function getPageGeneration(tabId: number): number {
-  return pageGenerationByTab.get(tabId) || 0;
-}
+const tabStates = new TabStateStore();
 
 function resetTabState(tabId: number): void {
-  pageGenerationByTab.set(tabId, getPageGeneration(tabId) + 1);
-  mediaByTab.delete(tabId);
-  interceptedMediaByTab.delete(tabId);
-  pageMetadataByTab.delete(tabId);
-  ytdlpFormatUrlByTab.delete(tabId);
-  relayMappingsByTab.delete(tabId);
-  relayCodecsByTab.delete(tabId);
+  tabStates.resetPage(tabId);
   chrome.action.setBadgeText({ tabId, text: '' }, () => { void chrome.runtime.lastError; });
 }
 
 function learnRelayCodec(tabId: number, originalUrl: string, relayUrl: string): void {
-  let original: URL;
-  let relay: URL;
-  try {
-    original = new URL(originalUrl);
-    relay = new URL(relayUrl);
-  } catch {
-    return;
-  }
-  if (!/^https?:$/.test(original.protocol) || !/^https?:$/.test(relay.protocol)) return;
+  const learned = inferRelayCodec(originalUrl, relayUrl);
+  if (!learned) return;
 
-  const separator = relay.pathname.lastIndexOf('/');
-  const token = separator >= 0 ? relay.pathname.slice(separator + 1) : '';
-  if (!token) return;
+  const state = tabStates.ensure(tabId);
+  const mappings = state.relayMappings || new Map<string, string>();
+  mappings.set(learned.originalUrl, learned.relayUrl);
+  state.relayMappings = mappings;
 
-  const candidateHours = new Set<number>();
-  const currentHour = Math.round(Date.now() / 1000 / 60 / 60);
-  for (let offset = -48; offset <= 48; offset += 1) candidateHours.add(currentHour + offset);
-  const queryTime = Number(original.searchParams.get('t'));
-  if (Number.isFinite(queryTime) && queryTime > 0) {
-    const queryHour = Math.round(queryTime / 1000 / 60 / 60);
-    for (let offset = -2; offset <= 2; offset += 1) candidateHours.add(queryHour + offset);
-  }
-
-  let best: { hour: number; mapping: Record<string, string>; mapped: number } | undefined;
-  for (const hour of candidateHours) {
-    let encoded: string;
-    try {
-      encoded = btoa(`${hour}/${original.pathname}${original.search}`);
-    } catch {
-      continue;
-    }
-    if (encoded.length !== token.length) continue;
-
-    const mapping: Record<string, string> = {};
-    let valid = true;
-    for (let i = 0; i < encoded.length; i += 1) {
-      const source = encoded[i];
-      const target = token[i];
-      if (relayAlphabet.includes(source)) {
-        if (mapping[source] && mapping[source] !== target) {
-          valid = false;
-          break;
-        }
-        mapping[source] = target;
-      } else if (source !== target) {
-        valid = false;
-        break;
-      }
-    }
-    if (valid && (!best || Object.keys(mapping).length > best.mapped)) {
-      best = { hour, mapping, mapped: Object.keys(mapping).length };
-    }
-  }
-  if (!best) return;
-
-  const mappings = relayMappingsByTab.get(tabId) || new Map<string, string>();
-  mappings.set(original.href, relay.href);
-  relayMappingsByTab.set(tabId, mappings);
-
-  const codecs = relayCodecsByTab.get(tabId) || new Map<string, RelayCodec>();
-  const existing = codecs.get(original.origin);
-  if (existing && (existing.hour !== best.hour || existing.prefix !== relay.pathname.slice(0, separator + 1))) return;
-
-  const mapping = existing?.mapping || {};
-  for (const [source, target] of Object.entries(best.mapping)) {
-    if (!mapping[source]) mapping[source] = target;
-  }
-  codecs.set(original.origin, {
-    hour: best.hour,
-    prefix: relay.pathname.slice(0, separator + 1),
-    relayOrigin: relay.origin,
-    mapping
-  });
-  relayCodecsByTab.set(tabId, codecs);
+  const codecs = state.relayCodecs || new Map();
+  const merged = mergeRelayCodecs(codecs.get(learned.originalOrigin), learned.codec);
+  if (!merged) return;
+  codecs.set(learned.originalOrigin, merged);
+  state.relayCodecs = codecs;
 }
 
 function getRelayUrl(tabId: number, originalUrl: string): string | undefined {
-  const mappings = relayMappingsByTab.get(tabId);
-  if (mappings?.has(originalUrl)) return mappings.get(originalUrl);
-
-  let original: URL;
-  try { original = new URL(originalUrl); } catch { return undefined; }
-  const codec = relayCodecsByTab.get(tabId)?.get(original.origin);
-  if (!codec) return undefined;
-
-  let encoded: string;
-  try {
-    encoded = btoa(`${codec.hour}/${original.pathname}${original.search}`);
-  } catch {
-    return undefined;
-  }
-  if ([...encoded].some((char) => relayAlphabet.includes(char) && !codec.mapping[char])) return undefined;
-  const token = [...encoded].map((char) => relayAlphabet.includes(char) ? codec.mapping[char] : char).join('');
-  return `${codec.relayOrigin}${codec.prefix}${token}`;
+  const state = tabStates.get(tabId);
+  return resolveRelayUrl(originalUrl, state?.relayMappings, state?.relayCodecs);
 }
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.url !== undefined) {
-    currentPageUrlByTab.set(tabId, changeInfo.url);
+    tabStates.ensure(tabId).currentPageUrl = changeInfo.url;
   }
   if (changeInfo.status === 'loading' || changeInfo.url !== undefined) {
-    navigationGenerationByTab.delete(tabId);
+    tabStates.ensure(tabId).navigationGeneration = undefined;
     resetTabState(tabId);
+    // An open popup should stop showing that tab's videos as current.
+    notifyPopups();
   }
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  currentPageUrlByTab.set(tabId, null);
-  navigationGenerationByTab.delete(tabId);
-  resetTabState(tabId);
+  tabStates.delete(tabId);
+  notifyPopups();
 });
 
-// Active downloads: key = downloadKey, value = tracking info
-const activeDownloads = new Map<string, {
-  pid?: number;
-  downloadId?: number;
-  type: 'convert' | 'direct' | 'ytdlp';
-  video?: VideoInfo;
-  directory: string;
-  filename: string;
-  tabId?: number;
-  lastProgress?: { percent: number; speed?: string; bytesReceived?: number; totalBytes?: number; eta?: number };
-}>();
+const activeDownloads = new DownloadTracker();
+const downloadRunGate = new DownloadRunGate();
+
+interface DownloadRunContext {
+  lease: DownloadLease;
+  releaseOnFinish: boolean;
+}
+
+const downloadRunByKey = new Map<string, DownloadRunContext>();
+
+function trackDownload(
+  key: string,
+  download: ActiveDownload,
+  run: DownloadRunContext
+): void {
+  activeDownloads.set(key, download);
+  downloadRunByKey.set(key, run);
+}
+
+function finishDownload(key: string, succeeded: boolean): void {
+  const tracked = activeDownloads.finish(key, succeeded);
+  if (!tracked) return;
+  const run = downloadRunByKey.get(key);
+  downloadRunByKey.delete(key);
+  if (run?.releaseOnFinish) downloadRunGate.release(run.lease);
+  const sourceUrl = tracked?.sourceUrl || tracked?.video?.url;
+  if (succeeded && sourceUrl) {
+    markDownloaded(sourceUrl).catch(() => { /* marker is best-effort */ });
+  }
+}
+
+function waitForDownload(key: string): Promise<boolean> {
+  return activeDownloads.wait(key);
+}
 
 // Popup connections
 const popupPorts = new Set<chrome.runtime.Port>();
+
+function postPopup(port: chrome.runtime.Port, message: PopupMessage): void {
+  try {
+    port.postMessage(message);
+  } catch {
+    popupPorts.delete(port);
+  }
+}
 
 // Default download directory (sent by CoApp or fallback)
 let defaultDownloadDir = '';
@@ -194,20 +171,20 @@ async function getSettings(): Promise<Settings> {
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes.settings) {
-    cachedSettings = changes.settings.newValue || null;
+    // Merge over the defaults: a settings object saved by an older build has
+    // no keepHistory, and an undefined flag must not read as "off".
+    cachedSettings = changes.settings.newValue
+      ? { ...DEFAULT_SETTINGS, ...changes.settings.newValue }
+      : null;
   }
 });
 
 function notify(title: string, message: string): void {
-  getSettings().then(settings => {
-    if (settings.showNotifications) {
-      chrome.notifications.create({
-        type: 'basic',
-        iconUrl: chrome.runtime.getURL('public/icons/icon-128.png'),
-        title: `MediaGrabber — ${title}`,
-        message
-      });
-    }
+  chrome.notifications.create({
+    type: 'basic',
+    iconUrl: chrome.runtime.getURL('public/icons/icon-128.png'),
+    title: `Flux — ${title}`,
+    message
   });
 }
 
@@ -216,6 +193,7 @@ nativeClient.listen({
   // FFmpeg progress push: (progressTime, currentSeconds, info)
   convertOutput: (progressTime: number, currentSeconds: number, info: any) => {
     for (const [key, dl] of activeDownloads) {
+      if (!activeDownloads.isRunning(key)) continue;
       if (!dl.video) continue;
       if (dl.type !== 'convert' && dl.type !== 'ytdlp') continue;
       const duration = dl.video.duration || 0;
@@ -224,7 +202,7 @@ nativeClient.listen({
         : duration > 0 ? Math.min(100, (currentSeconds / duration) * 100) : 0;
       dl.lastProgress = { percent, speed: info?.speed || '', eta: info?.eta };
       popupPorts.forEach(port => {
-        port.postMessage({
+        postPopup(port, {
           type: 'DOWNLOAD_PROGRESS',
           downloadId: key,
           progress: { percent, currentSeconds, speed: info?.speed || '', eta: info?.eta, bitrate: info?.bitrate || '' }
@@ -235,11 +213,27 @@ nativeClient.listen({
 
   // CoApp tells us the ffmpeg PID for a convert operation
   convertStartNotification: (startHandler: any, pid: number) => {
-    const keyedDownload = activeDownloads.get(String(startHandler));
+    const key = String(startHandler);
+    const keyedDownload = activeDownloads.get(key);
     if (keyedDownload && keyedDownload.type === 'convert') {
       keyedDownload.pid = pid;
+      if (activeDownloads.cancelledType(key)) {
+        void nativeClient.abortConvert(pid).finally(() => finishDownload(key, false));
+      }
       return;
     }
+    if (keyedDownload && keyedDownload.type === 'ytdlp') {
+      keyedDownload.pid = pid;
+      if (activeDownloads.cancelledType(key)) {
+        void nativeClient.abortYtdlp(pid).finally(() => finishDownload(key, false));
+      }
+      return;
+    }
+
+    // Stop a process whose PID arrived just after an early cancellation.
+    const cancelledType = activeDownloads.cancelledType(key);
+    if (cancelledType === 'convert') void nativeClient.abortConvert(pid).catch(() => {});
+    if (cancelledType === 'ytdlp') void nativeClient.abortYtdlp(pid).catch(() => {});
 
     // Fallback for older CoApp calls without startHandler.
     for (const dl of activeDownloads.values()) {
@@ -253,22 +247,22 @@ nativeClient.listen({
   // Direct download complete (pushed by CoApp)
   downloadComplete: (downloadId: number, outputPath: string) => {
     const key = `direct_${downloadId}`;
-    const dl = activeDownloads.get(key);
-    if (dl) {
+    if (activeDownloads.isRunning(key)) {
       popupPorts.forEach(port => {
-        port.postMessage({ type: 'DOWNLOAD_COMPLETE', downloadId: key, outputPath });
+        postPopup(port, { type: 'DOWNLOAD_COMPLETE', downloadId: key, outputPath });
       });
-      activeDownloads.delete(key);
+      finishDownload(key, true);
     }
   },
 
   // Direct download error (pushed by CoApp)
   downloadError: (downloadId: number, error: string) => {
     const key = `direct_${downloadId}`;
+    if (!activeDownloads.isRunning(key)) return;
     popupPorts.forEach(port => {
-      port.postMessage({ type: 'DOWNLOAD_ERROR', downloadId: key, error });
+      postPopup(port, { type: 'DOWNLOAD_ERROR', downloadId: key, error });
     });
-    activeDownloads.delete(key);
+    finishDownload(key, false);
   }
 });
 
@@ -314,91 +308,6 @@ chrome.webRequest.onHeadersReceived.addListener(
   ['responseHeaders']
 );
 
-function getContentType(headers?: chrome.webRequest.HttpHeader[]): string {
-  const header = headers?.find((item) => item.name.toLowerCase() === 'content-type');
-  return (header?.value || '').split(';', 1)[0].trim().toLowerCase();
-}
-
-function getMediaTypeFromContentType(contentType: string): VideoInfo['type'] | undefined {
-  if (
-    contentType === 'application/vnd.apple.mpegurl' ||
-    contentType === 'application/x-mpegurl' ||
-    contentType === 'audio/mpegurl' ||
-    contentType === 'audio/x-mpegurl'
-  ) {
-    return 'hls';
-  }
-
-  if (contentType === 'application/dash+xml') return 'dash';
-  return undefined;
-}
-
-function getRequestReferer(initiator?: string): string | undefined {
-  if (!initiator || initiator === 'null') return undefined;
-  try {
-    const url = new URL(initiator);
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') return undefined;
-    return `${url.origin}/`;
-  } catch {
-    return undefined;
-  }
-}
-
-function getFfmpegHttpArgs(referer?: string): string[] {
-  if (!referer) return [];
-  try {
-    return ['-referer', referer, '-headers', `Origin: ${new URL(referer).origin}\r\n`];
-  } catch {
-    return ['-referer', referer];
-  }
-}
-
-function isMediaUrl(url: URL): boolean {
-  // Only http(s) — exclude blob:, data:, chrome-extension:, ws:, etc.
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
-
-  const path = url.pathname.toLowerCase();
-
-  // HLS
-  if (path.endsWith('.m3u8') || path.includes('.m3u8')) return true;
-  // DASH
-  if (path.endsWith('.mpd') || path.includes('.mpd')) return true;
-  // Direct video files
-  if (path.endsWith('.mp4')) return true;
-  if (path.endsWith('.webm')) return true;
-
-  // Do NOT match .ts (TypeScript files) or /manifest (web app manifests)
-  return false;
-}
-
-function getMediaType(url: string): VideoInfo['type'] {
-  const path = new URL(url).pathname.toLowerCase();
-  if (path.includes('.m3u8')) return 'hls';
-  if (path.includes('.mpd')) return 'dash';
-  if (path.endsWith('.mp4')) return 'mp4';
-  if (path.endsWith('.webm')) return 'webm';
-  return 'direct';
-}
-
-function isYouTubeUrl(url: string): boolean {
-  try {
-    const u = new URL(url);
-    const h = u.hostname;
-    return h === 'youtube.com' || h === 'www.youtube.com' ||
-           h === 'm.youtube.com' || h === 'youtu.be' ||
-           h === 'youtube-nocookie.com' || h === 'www.youtube-nocookie.com';
-  } catch {
-    return false;
-  }
-}
-
-function fallbackYtdlpQualities(url: string): VideoInfo['qualities'] {
-  return [
-    { label: 'Best', height: 0, url, bitrate: 0, formatArgs: ['-f', 'bv*+ba/b'] },
-    { label: 'Audio MP3', height: 0, url, bitrate: 0, formatArgs: ['-f', 'ba', '-x', '--audio-format', 'mp3', '--audio-quality', '0'] }
-  ];
-}
-
 function generateVideoId(url: string): string {
   // Safe base64 for non-ASCII URLs
   try {
@@ -408,94 +317,338 @@ function generateVideoId(url: string): string {
   }
 }
 
-function mergeQualities(a: VideoInfo['qualities'] = [], b: VideoInfo['qualities'] = []): VideoInfo['qualities'] {
-  const merged = new Map<string, VideoInfo['qualities'][number]>();
-  [...a, ...b].forEach((quality) => {
-    if (quality?.url && !merged.has(quality.url)) {
-      merged.set(quality.url, quality);
-    }
-  });
-  return Array.from(merged.values());
-}
-
-function mergeChildUrls(a?: string[], b?: string[]): string[] | undefined {
-  const merged = Array.from(new Set([...(a || []), ...(b || [])]));
-  return merged.length > 0 ? merged : undefined;
-}
-
 function commitVideos(tabId: number, videos: VideoInfo[]): void {
-  mediaByTab.set(tabId, videos);
-  const visibleCount = getVisibleVideosForTab(tabId).length;
+  tabStates.ensure(tabId).media = videos;
+  const visible = getVisibleVideosForTab(tabId);
+  const visibleCount = visible.length;
   chrome.action.setBadgeText({ tabId, text: visibleCount > 0 ? String(visibleCount) : '' });
   if (visibleCount > 0) {
     chrome.action.setBadgeBackgroundColor({ tabId, color: '#4CAF50' });
   }
+  recordHistory(tabId, visible);
   notifyPopups(tabId);
 }
 
-function getVisibleVideosForTab(tabId: number): VideoInfo[] {
-  const videos = mediaByTab.get(tabId) || [];
-  const metadata = pageMetadataByTab.get(tabId);
-  if (metadata?.pageUrl && isYouTubeUrl(metadata.pageUrl)) {
-    return videos.filter(video => video.type === 'ytdlp');
-  }
-  const timedVideos = videos.filter(video =>
-    typeof video.duration === 'number' && isFinite(video.duration) && video.duration > 0
-  );
-  return timedVideos.length > 0 ? timedVideos : videos;
+// --- Detection history (global, persisted across reloads and restarts) ---
+
+// Switching history off is destructive by design — the user asked for the
+// list to hold only what is playing — so react the moment it is saved.
+let lastKeepHistory: boolean | null = null;
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local' || !changes.settings) return;
+  const keep = changes.settings.newValue?.keepHistory !== false;
+  if (keep === lastKeepHistory) return;
+  lastKeepHistory = keep;
+  if (!keep) schedulePruneIfHistoryOff();
+});
+
+const HISTORY_KEY = 'mediaHistory';
+const HISTORY_LIMIT = 50;
+
+// chrome.storage read-modify-write must not interleave — commitVideos fires often.
+let historyWrites: Promise<void> = Promise.resolve();
+
+async function readHistory(): Promise<HistoryEntry[]> {
+  const stored = await chrome.storage.local.get(HISTORY_KEY);
+  const entries = stored[HISTORY_KEY];
+  return Array.isArray(entries) ? entries : [];
 }
 
-function upsertVideo(tabId: number, video: VideoInfo): void {
-  let videos = mediaByTab.get(tabId) || [];
+function recordHistory(tabId: number, videos: VideoInfo[]): Promise<void> {
+  if (videos.length === 0) return historyWrites;
+  const state = tabStates.get(tabId);
+  const metadata = state?.pageMetadata;
+  const pageUrl = metadata?.pageUrl || state?.currentPageUrl || undefined;
+  const snapshot = videos.map((video) => ({ ...video }));
+  historyWrites = historyWrites
+    .then(() => mergeIntoHistory(snapshot, pageUrl, metadata?.title))
+    .catch((error) => console.warn('[MediaGrabber] Failed to record history:', error));
+  return historyWrites;
+}
 
-  if (video.type === 'hls') {
-    const childUrls = new Set([
-      ...(video.qualities || []).map((q) => q.url),
-      ...(video.childUrls || [])
-    ]);
+async function mergeIntoHistory(videos: VideoInfo[], pageUrl?: string, pageTitle?: string): Promise<void> {
+  const history = await readHistory();
+  const next = mergeDetectedVideosIntoHistory(
+    history,
+    videos,
+    { pageUrl, pageTitle },
+    Date.now(),
+    HISTORY_LIMIT
+  );
+  if (sameHistoryContent(next, history)) return;
 
-    // Variant playlists are implementation details of a master HLS playlist.
-    // Keep only the master entry that owns the quality list.
-    const belongsToExistingMaster = videos.some((existing) =>
-      existing.type === 'hls' &&
-      existing.url !== video.url &&
-      (
-        existing.qualities?.some((quality) => quality.url === video.url) ||
-        existing.childUrls?.includes(video.url)
-      )
-    );
+  await chrome.storage.local.set({ [HISTORY_KEY]: next });
+  await broadcastHistory(next);
+}
 
-    if (belongsToExistingMaster) {
+/**
+ * With history switched off the stored list is not allowed to outlive the
+ * tabs: anything no longer playing somewhere is dropped. Called whenever the
+ * current set changes, and once when the setting is turned off.
+ */
+async function pruneHistoryToCurrent(): Promise<void> {
+  const history = await readHistory();
+  const next = retainHistoryEntries(history, currentMediaPayload().currentKeys);
+  if (next === history) return;
+  await chrome.storage.local.set({ [HISTORY_KEY]: next });
+  await broadcastHistory(next);
+}
+
+// Fire-and-forget prune, queued behind any write already in flight.
+function schedulePruneIfHistoryOff(): void {
+  historyWrites = historyWrites
+    .then(async () => {
+      const settings = await getSettings();
+      if (settings.keepHistory) return;
+      await pruneHistoryToCurrent();
+    })
+    .catch((error) => console.warn('[MediaGrabber] Failed to prune history:', error));
+}
+
+async function clearHistory(): Promise<void> {
+  await chrome.storage.local.remove(HISTORY_KEY);
+  await broadcastHistory([]);
+}
+
+async function deleteHistoryEntries(keys: string[]): Promise<void> {
+  const history = await readHistory();
+  const next = removeHistoryEntries(history, keys);
+  if (next === history) return;
+  await chrome.storage.local.set({ [HISTORY_KEY]: next });
+  await broadcastHistory(next);
+}
+
+async function renameHistoryEntry(key: string, title: string): Promise<void> {
+  const history = await readHistory();
+  const next = renameHistoryTitle(history, key, title);
+  if (next === history) return;
+  await chrome.storage.local.set({ [HISTORY_KEY]: next });
+  await broadcastHistory(next);
+}
+
+// `keys` is the order the popup shows; entries it filtered out (the current
+// page's videos) keep their data and land after them.
+async function reorderHistory(keys: string[]): Promise<void> {
+  const history = await readHistory();
+  const next = reorderHistoryEntries(history, keys);
+  await chrome.storage.local.set({ [HISTORY_KEY]: next });
+  await broadcastHistory(next);
+}
+
+function renameDetectedVideo(tabId: number | undefined, key: string, title: string): void {
+  const trimmed = title.trim();
+  if (typeof tabId !== 'number' || !trimmed) return;
+  const videos = tabStates.get(tabId)?.media;
+  if (!videos?.length) return;
+
+  let changed = false;
+  const next = videos.map((video) => {
+    if (videoKey(video.url) !== key || video.title === trimmed) return video;
+    changed = true;
+    return { ...video, title: trimmed };
+  });
+  if (changed) commitVideos(tabId, next);
+}
+
+async function broadcastHistory(entries: HistoryEntry[]): Promise<void> {
+  const decorated = await decorateHistory(entries);
+  popupPorts.forEach((port) => {
+    postPopup(port, { type: 'HISTORY_LIST', entries: decorated });
+  });
+}
+
+// --- Downloaded videos (drives the "already downloaded" marker) ---
+
+const DOWNLOADED_KEY = 'downloadedVideos';
+const FAILED_KEY = 'failedVideos';
+const DOWNLOADED_LIMIT = 500;
+
+async function readDownloadedKeys(): Promise<string[]> {
+  const stored = await chrome.storage.local.get(DOWNLOADED_KEY);
+  const keys = stored[DOWNLOADED_KEY];
+  return Array.isArray(keys) ? keys : [];
+}
+
+async function readFailedKeys(): Promise<string[]> {
+  const stored = await chrome.storage.local.get(FAILED_KEY);
+  const keys = stored[FAILED_KEY];
+  return Array.isArray(keys) ? keys : [];
+}
+
+async function markDownloaded(url: string): Promise<void> {
+  const key = videoKey(url);
+  const downloaded = await readDownloadedKeys();
+  const failed = await readFailedKeys();
+  const markers = { downloaded, failed };
+  const next = markHistoryDownloaded(markers, key, DOWNLOADED_LIMIT);
+  if (next === markers) return;
+
+  await chrome.storage.local.set({
+    [DOWNLOADED_KEY]: next.downloaded,
+    [FAILED_KEY]: next.failed
+  });
+  await broadcastHistory(await readHistory());
+}
+
+async function markFailed(url: string): Promise<void> {
+  const key = videoKey(url);
+  const failed = await readFailedKeys();
+  const markers = { downloaded: [], failed };
+  const next = markHistoryFailed(markers, key, DOWNLOADED_LIMIT);
+  if (next === markers) return;
+  await chrome.storage.local.set({ [FAILED_KEY]: next.failed });
+  await broadcastHistory(await readHistory());
+}
+
+async function decorateHistory(entries: HistoryEntry[]): Promise<HistoryEntry[]> {
+  const [downloaded, failed] = await Promise.all([readDownloadedKeys(), readFailedKeys()]);
+  return decorateHistoryEntries(entries, downloaded, failed);
+}
+
+// Statuses a signed CDN returns once a link's token has expired.
+const EXPIRED_LINK_STATUSES = new Set([401, 403, 404, 410]);
+
+// Returns undefined when the check itself couldn't run — never block a
+// download because the probe failed.
+async function probeLinkStatus(url: string, referer?: string): Promise<number | undefined> {
+  try {
+    const result = await nativeClient.probeStatus(url, referer);
+    return typeof result?.status === 'number' ? result.status : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// --- Batch download ("Download all" from history) ---
+
+let batch: BatchRun | null = null;
+
+function broadcastBatch(): void {
+  popupPorts.forEach((port) => {
+    postPopup(port, { type: 'BATCH_STATUS', batch: batch?.snapshot() || null });
+  });
+}
+
+// Downloads run one at a time: ffmpeg is network-bound and parallel pulls from
+// the same CDN tend to get throttled.
+async function runBatchDownload(videos: VideoInfo[], tabId?: number, quality?: 'best' | 'worst'): Promise<void> {
+  if (batch) return;
+  const lease = downloadRunGate.acquire('batch');
+  if (!lease) {
+    popupPorts.forEach((port) => postPopup(port, {
+      type: 'ERROR',
+      message: 'Another download is already running.'
+    }));
+    return;
+  }
+  const run: DownloadRunContext = { lease, releaseOnFinish: false };
+
+  // Each run drops its files in its own folder, stamped with the epoch
+  // milliseconds so two runs in the same second can't collide.
+  const folder = `Flux_${Date.now()}`;
+  const state = new BatchRun(videos, folder);
+  // Reserve the batch before the first await so two requests cannot both pass
+  // the guard while settings or directory creation is pending.
+  batch = state;
+  broadcastBatch();
+
+  let result: ReturnType<BatchRun['snapshot']> | undefined;
+  try {
+    const settings = await getSettings();
+    const preference = quality || settings.batchQuality;
+    const directory = joinOutputPath(defaultDownloadDir, folder, coappPlatform);
+    try {
+      await nativeClient.ensureDir(directory);
+    } catch (error: any) {
+      popupPorts.forEach((port) => postPopup(port, { type: 'ERROR', message: `Could not create ${folder}: ${error?.message || error}` }));
       return;
     }
 
-    if (childUrls.size > 0) {
-      videos = videos.filter((existing) =>
-        !(existing.type === 'hls' && existing.url !== video.url && childUrls.has(existing.url))
-      );
+    for (const video of videos) {
+      if (state.cancelled) break;
+      const chosen = pickBatchQuality(video, preference);
+      if (!chosen) {
+        state.skip(video);
+        broadcastBatch();
+        continue;
+      }
+
+      state.begin(video);
+      broadcastBatch();
+
+      try {
+        const started = await startDownload(
+          { ...video, url: chosen.url, qualities: [chosen] },
+          run,
+          video.title,
+          tabId,
+          video.url,
+          true,
+          directory
+        );
+        const downloadId = started?.downloadId;
+        const cancelLateStart = state.attachDownload(downloadId);
+        if (cancelLateStart && downloadId) {
+          await handleCancelDownload(downloadId).catch(() => { /* already finished */ });
+        }
+        const succeeded = downloadId ? await waitForDownload(downloadId) : false;
+        const outcome = state.complete(video, succeeded);
+        if (outcome.markFailed) {
+          await markFailed(video.url).catch(() => { /* badge is best-effort */ });
+        }
+      } catch (error: any) {
+        const outcome = state.complete(video, false);
+        if (outcome.markFailed) {
+          await markFailed(video.url).catch(() => { /* badge is best-effort */ });
+        }
+        const message = error?.message || String(error);
+        popupPorts.forEach((port) => {
+          postPopup(port, { type: 'ERROR', message: `${video.title}: ${message}` });
+        });
+      }
+      broadcastBatch();
     }
 
+    result = state.snapshot();
+  } finally {
+    if (batch === state) batch = null;
+    downloadRunGate.release(lease);
+    broadcastBatch();
   }
 
-  const existingIndex = videos.findIndex((v) => v.url === video.url);
+  if (!result) return;
+  notify(
+    result.cancelled ? 'Batch download cancelled' : 'Batch download finished',
+    `${result.completed} downloaded, ${result.failed} failed`
+  );
+}
 
-  if (existingIndex >= 0) {
-    const existing = videos[existingIndex];
-    videos[existingIndex] = {
-      ...existing,
-      ...video,
-      title: video.title || existing.title,
-      qualities: video.qualities?.length ? video.qualities : videos[existingIndex].qualities,
-      childUrls: video.childUrls?.length ? video.childUrls : videos[existingIndex].childUrls,
-      thumbnail: video.thumbnail || existing.thumbnail,
-      duration: video.duration || existing.duration,
-      fileSize: video.fileSize || existing.fileSize
-    };
-  } else {
-    videos.push(video);
+// Cancels only the batch's own download — a manually started one keeps running.
+async function cancelBatchDownload(): Promise<void> {
+  if (!batch) return;
+  const key = batch.cancel();
+  broadcastBatch();
+  if (key) {
+    try { await handleCancelDownload(key); } catch { /* already finished */ }
   }
+}
 
-  commitVideos(tabId, videos);
+function getVisibleVideosForTab(tabId: number): VideoInfo[] {
+  const state = tabStates.get(tabId);
+  return visibleVideos(state?.media || [], state?.pageMetadata?.pageUrl);
+}
+
+function upsertVideo(tabId: number, video: VideoInfo): void {
+  const state = tabStates.ensure(tabId);
+  // A media URL often belongs to a CDN or embedded player. Ownership always
+  // follows the top-level page whose tab exposed it.
+  const previous = state.media || [];
+  const videos = upsertDetectedVideo(
+    previous,
+    video,
+    state.pageMetadata?.pageUrl || state.currentPageUrl || video.pageUrl || undefined
+  );
+  if (videos !== previous) commitVideos(tabId, videos);
 }
 
 async function getTabTitle(tabId: number): Promise<string> {
@@ -512,23 +665,24 @@ async function handleInterceptedMedia(
   forcedType?: VideoInfo['type'],
   requestReferer?: string
 ): Promise<void> {
-  const generation = getPageGeneration(tabId);
-  const seen = interceptedMediaByTab.get(tabId) || new Set<string>();
+  const state = tabStates.ensure(tabId);
+  const generation = state.pageGeneration;
+  const seen = state.interceptedMedia || new Set<string>();
   if (seen.has(url)) return;
   seen.add(url);
-  interceptedMediaByTab.set(tabId, seen);
+  state.interceptedMedia = seen;
 
-  const metadata = pageMetadataByTab.get(tabId);
+  const metadata = state.pageMetadata;
   const title = metadata?.title || await getTabTitle(tabId);
-  if (generation !== getPageGeneration(tabId)) return;
-  const type = forcedType || getMediaType(url);
+  if (!tabStates.isCurrentPageGeneration(tabId, generation)) return;
+  const type = forcedType || mediaTypeFromUrl(url);
   const referer = requestReferer || metadata?.pageUrl;
 
   // Deduplicate HLS/DASH manifests from redirect chains (same path, different CDN host)
   if (type === 'hls' || type === 'dash') {
     let urlPath: string;
     try { urlPath = new URL(url).pathname; } catch { urlPath = url; }
-    const existing = (mediaByTab.get(tabId) || []).find(v =>
+    const existing = (tabStates.get(tabId)?.media || []).find(v =>
       v.type === type && (() => { try { return new URL(v.url).pathname === urlPath; } catch { return false; } })()
     );
     if (existing) return;
@@ -544,72 +698,7 @@ async function handleInterceptedMedia(
       const parsed = await M3U8ParserWrapper.fetchAndParse(url, referer);
       duration = parsed.duration;
       childUrls = parsed.childUrls;
-
-      const audioRenditions = (parsed.mediaRenditions || [])
-        .filter((r) => r.type.toUpperCase() === 'AUDIO');
-      const activeAudioGroups = new Set(
-        parsed.variants.map((variant) => variant.audioGroupId).filter(Boolean)
-      );
-
-      for (const variant of parsed.variants) {
-        const matchingAudio = audioRenditions
-          .filter((r) => r.groupId === variant.audioGroupId && r.uri)
-          .sort((a, b) => Number(Boolean(b.default)) - Number(Boolean(a.default)) ||
-            Number(Boolean(b.autoselect)) - Number(Boolean(a.autoselect)));
-
-        if (matchingAudio.length === 0) {
-          qualities.push({
-            height: variant.height || 0,
-            width: variant.width,
-            bitrate: variant.bandwidth,
-            url: variant.url,
-            label: variant.name,
-            kind: 'video' as const
-          });
-        } else {
-          for (const audio of matchingAudio) {
-            const audioLabel = audio.name || audio.language || 'Audio';
-            qualities.push({
-              height: variant.height || 0,
-              width: variant.width,
-              bitrate: variant.bandwidth,
-              url: variant.url,
-              label: `${variant.name} - ${audioLabel}`,
-              kind: 'video' as const,
-              language: audio.language,
-              formatArgs: [
-                ...getFfmpegHttpArgs(referer),
-                '-i', variant.url,
-                ...getFfmpegHttpArgs(referer),
-                '-i', audio.uri!,
-                '-map', '0:v:0',
-                '-map', '1:a:0',
-                '-c', 'copy'
-              ]
-            });
-          }
-        }
-      }
-
-      for (const r of parsed.mediaRenditions || []) {
-        if (!r.uri || r.type === 'CLOSED-CAPTIONS') continue;
-        if (r.groupId && !activeAudioGroups.has(r.groupId)) continue;
-        const kind = r.type === 'AUDIO' ? 'audio' as const : r.type === 'SUBTITLES' ? 'subtitle' as const : undefined;
-        if (!kind) continue;
-        const labelParts: string[] = [];
-        if (r.type === 'AUDIO') labelParts.push('Audio');
-        else if (r.type === 'SUBTITLES') labelParts.push('Subtitles');
-        if (r.name) labelParts.push(r.name);
-        else if (r.language) labelParts.push(r.language);
-        qualities.push({
-          height: 0,
-          url: r.uri,
-          bitrate: 0,
-          label: labelParts.join(' — ') || 'Alternate track',
-          kind,
-          language: r.language
-        });
-      }
+      qualities = buildHlsQualities(parsed, referer);
 
       // Fallback: fetch media playlist for duration if master had none
       if (!duration && parsed.variants.length > 0) {
@@ -632,26 +721,7 @@ async function handleInterceptedMedia(
       const parsed = await DashParserWrapper.fetchAndParse(url, referer);
       duration = parsed.duration;
       childUrls = parsed.childUrls;
-      qualities = parsed.variants.map((variant) => ({
-        height: variant.height || 0,
-        width: variant.width,
-        bitrate: variant.bandwidth,
-        url: variant.url,
-        label: variant.name
-      }));
-
-      for (const s of parsed.subtitleTracks || []) {
-        const labelParts = ['Subtitles'];
-        if (s.lang) labelParts.push(s.lang);
-        qualities.push({
-          height: 0,
-          url: s.url,
-          bitrate: 0,
-          label: labelParts.join(' — '),
-          kind: 'subtitle' as const,
-          language: s.lang
-        });
-      }
+      qualities = buildDashQualities(parsed);
     } catch (error) {
       console.warn('[MediaGrabber] Failed to parse DASH manifest:', error);
     }
@@ -692,7 +762,7 @@ async function handleInterceptedMedia(
     }
   }
 
-  if (generation !== getPageGeneration(tabId)) return;
+  if (!tabStates.isCurrentPageGeneration(tabId, generation)) return;
   upsertVideo(tabId, {
     id: generateVideoId(url),
     title,
@@ -701,6 +771,7 @@ async function handleInterceptedMedia(
     qualities,
     childUrls,
     referer,
+    pageUrl: metadata?.pageUrl || state.currentPageUrl || undefined,
     duration: duration || metadata?.duration,
     thumbnail: metadata?.thumbnail,
     fileSize
@@ -715,8 +786,8 @@ chrome.runtime.onConnect.addListener((port) => {
   if (port.name === 'popup') {
     popupPorts.add(port);
 
-    port.onMessage.addListener((msg) => {
-      handlePopupMessage(port, msg);
+    port.onMessage.addListener((message) => {
+      if (isPopupRequest(message)) handlePopupMessage(port, message);
     });
 
     port.onDisconnect.addListener(() => {
@@ -725,59 +796,186 @@ chrome.runtime.onConnect.addListener((port) => {
   }
 });
 
-function handlePopupMessage(port: chrome.runtime.Port, msg: any): void {
+function handlePopupMessage(port: chrome.runtime.Port, msg: PopupRequest): void {
   switch (msg.type) {
     case 'GET_MEDIA':
-      if (typeof msg.tabId === 'number') {
-        const videos = getVisibleVideosForTab(msg.tabId);
-        port.postMessage({ type: 'MEDIA_LIST', videos });
-      } else {
-        chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
-          const videos = tabs[0]?.id ? getVisibleVideosForTab(tabs[0].id) : [];
-          port.postMessage({ type: 'MEDIA_LIST', videos });
-        });
-      }
+      postPopup(port, { type: 'MEDIA_LIST', ...currentMediaPayload() });
+      // Nothing known usually means this worker was restarted and lost the
+      // map, not that the tabs are empty — ask them to say again.
+      if (!tabStates.hasMediaState()) void rescanAllTabs();
+      break;
+
+    case 'REFRESH_TABS':
+      refreshOpenTabs()
+        .catch((error) => console.warn('[MediaGrabber] Failed to refresh open tabs:', error))
+        .then(() => {
+          postPopup(port, { type: 'MEDIA_LIST', ...currentMediaPayload() });
+          return historyWrites
+            .then(() => readHistory())
+            .then((entries) => decorateHistory(entries))
+            .then((entries) => postPopup(port, { type: 'HISTORY_LIST', entries }));
+        })
+        .catch((error) => console.warn('[MediaGrabber] Failed to send refreshed history:', error));
       break;
 
     case 'DOWNLOAD':
-      startDownload(msg.video, msg.filename, msg.tabId)
-        .then(result => port.postMessage({ type: 'DOWNLOAD_STARTED', ...result }))
-        .catch(err => port.postMessage({ type: 'ERROR', message: err.message }));
+      {
+        const lease = downloadRunGate.acquire('single');
+        if (!lease) {
+          postPopup(port, { type: 'ERROR', message: 'Another download is already running.' });
+          break;
+        }
+        const run: DownloadRunContext = { lease, releaseOnFinish: true };
+        startDownload(msg.video, run, msg.filename, msg.tabId, msg.sourceUrl, msg.checkFreshness)
+          .then(result => postPopup(port, { type: 'DOWNLOAD_STARTED', ...result }))
+          .catch(err => {
+            downloadRunGate.release(lease);
+            postPopup(port, { type: 'ERROR', message: err.message });
+          });
+      }
       break;
 
     case 'CANCEL_DOWNLOAD':
       handleCancelDownload(msg.downloadId)
-        .then(result => port.postMessage({ type: 'DOWNLOAD_CANCELLED', ...result }))
-        .catch(err => port.postMessage({ type: 'ERROR', message: err.message }));
+        .then(result => postPopup(port, { type: 'DOWNLOAD_CANCELLED', ...result }))
+        .catch(err => postPopup(port, { type: 'ERROR', message: err.message }));
+      break;
+
+    case 'GET_HISTORY':
+      schedulePruneIfHistoryOff();
+      historyWrites
+        .then(() => readHistory())
+        .then((entries) => decorateHistory(entries))
+        .then((entries) => postPopup(port, { type: 'HISTORY_LIST', entries }))
+        .catch(() => postPopup(port, { type: 'HISTORY_LIST', entries: [] }));
+      break;
+
+    case 'RENAME_HISTORY_ITEM':
+      historyWrites = historyWrites
+        .then(() => renameHistoryEntry(msg.key, msg.title || ''))
+        .catch((error) => console.warn('[MediaGrabber] Failed to rename history entry:', error));
+      break;
+
+    case 'REORDER_HISTORY':
+      historyWrites = historyWrites
+        .then(() => reorderHistory(msg.keys || []))
+        .catch((error) => console.warn('[MediaGrabber] Failed to reorder history:', error));
+      break;
+
+    case 'RENAME_VIDEO':
+      renameDetectedVideo(msg.tabId, msg.key, msg.title || '');
+      break;
+
+    case 'DELETE_HISTORY_ITEMS':
+      historyWrites = historyWrites
+        .then(() => deleteHistoryEntries(msg.keys || []))
+        .catch((error) => console.warn('[MediaGrabber] Failed to delete history entries:', error));
+      break;
+
+    case 'CLEAR_HISTORY':
+      historyWrites = historyWrites
+        .then(() => clearHistory())
+        .catch((error) => console.warn('[MediaGrabber] Failed to clear history:', error));
+      break;
+
+    case 'DOWNLOAD_ALL':
+      runBatchDownload(msg.videos || [], msg.tabId, msg.quality)
+        .catch((err) => postPopup(port, { type: 'ERROR', message: err.message }));
+      break;
+
+    case 'CANCEL_BATCH':
+      cancelBatchDownload().catch(() => { /* nothing left to cancel */ });
+      break;
+
+    case 'GET_BATCH_STATUS':
+      postPopup(port, { type: 'BATCH_STATUS', batch: batch?.snapshot() || null });
       break;
 
     case 'GET_ACTIVE_DOWNLOAD': {
       const tabId = msg.tabId;
-      const entry = [...activeDownloads.entries()].find(([, dl]) => dl.tabId === tabId);
+      const entry = activeDownloads.findForTab(tabId);
       if (entry) {
         const [key, dl] = entry;
-        port.postMessage({
+        postPopup(port, {
           type: 'ACTIVE_DOWNLOAD',
           downloadId: key,
           video: dl.video,
+          sourceUrl: dl.sourceUrl || dl.video?.url,
           filename: dl.filename,
           progress: dl.lastProgress || { percent: 0 }
         });
       } else {
-        port.postMessage({ type: 'NO_ACTIVE_DOWNLOAD' });
+        postPopup(port, { type: 'NO_ACTIVE_DOWNLOAD' });
       }
       break;
     }
   }
 }
 
-function notifyPopups(tabId: number): void {
-  const videos = getVisibleVideosForTab(tabId);
-  if (videos) {
-    popupPorts.forEach(port => {
-      port.postMessage({ type: 'MEDIA_LIST', videos });
-    });
+function notifyPopups(_tabId?: number): void {
+  schedulePruneIfHistoryOff();
+  const payload = currentMediaPayload();
+  popupPorts.forEach(port => {
+    postPopup(port, { type: 'MEDIA_LIST', ...payload });
+  });
+}
+
+/**
+ * Reinsert anything still playing before asking pages to scan again. Network-
+ * only streams may no longer have a discoverable DOM node, but the background
+ * still owns their current tab state and can restore a deleted history row.
+ */
+async function restoreCurrentMediaToHistory(): Promise<void> {
+  for (const [tabId] of tabStates.mediaEntries()) {
+    void recordHistory(tabId, getVisibleVideosForTab(tabId));
   }
+  await historyWrites;
+}
+
+/** The single refresh path used by the popup for every open browser tab. */
+async function refreshOpenTabs(): Promise<void> {
+  await restoreCurrentMediaToHistory();
+  await rescanAllTabs();
+  await historyWrites;
+}
+
+/**
+ * Ask every http(s) tab's content script to re-announce what it has found.
+ * Tabs without the content script (chrome:// pages, the web store, tabs open
+ * from before an extension reload) simply do not answer.
+ */
+async function rescanAllTabs(): Promise<void> {
+  let tabs: chrome.tabs.Tab[] = [];
+  try {
+    tabs = await chrome.tabs.query({});
+  } catch {
+    return;
+  }
+
+  await Promise.all(tabs.map(async (tab) => {
+    if (typeof tab.id !== 'number' || !tab.url || !/^https?:/i.test(tab.url)) return;
+    try {
+      await chrome.tabs.sendMessage(tab.id, { type: 'RESCAN' });
+    } catch {
+      // No listener in that tab; nothing to collect from it.
+    }
+  }));
+}
+
+// Every video any open tab is showing right now. The popup uses this to pin
+// and badge them, so switching tabs needs no reload.
+function currentMediaPayload(): { videos: VideoInfo[]; currentKeys: string[] } {
+  const videos: VideoInfo[] = [];
+  const seen = new Set<string>();
+  for (const [tabId] of tabStates.mediaEntries()) {
+    for (const video of getVisibleVideosForTab(tabId)) {
+      const key = videoKey(video.url);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      videos.push(video);
+    }
+  }
+  return { videos, currentKeys: [...seen] };
 }
 
 // --- Download orchestration ---
@@ -798,112 +996,109 @@ async function ensureCoAppConnected(): Promise<void> {
   }
 }
 
-function sanitizeFilename(name: string): string {
-  const sanitized = name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').trim();
-  return sanitized || `video_${Date.now()}`;
+interface NativeProcessResult {
+  exitCode: number;
+  stderr: string;
 }
 
-function ensureFilenameExtension(filename: string, extension: string): string {
-  const baseName = filename.replace(/\.(mp4|webm|mkv|mov|m4v|avi|ts|m3u8|mp3|m4a|aac|opus|wav|flac|vtt|srt|ttml)$/i, '');
-  return `${baseName}.${extension.replace(/^\./, '')}`;
+function monitorNativeProcess(
+  downloadKey: string,
+  filename: string,
+  operation: Promise<NativeProcessResult>,
+  failureMessage: (result: NativeProcessResult) => string,
+  outputPath?: string
+): void {
+  operation.then((result) => {
+    if (!activeDownloads.isRunning(downloadKey)) return;
+    const succeeded = result.exitCode === 0;
+    notify(succeeded ? 'Download complete' : 'Download failed', filename);
+    popupPorts.forEach((port) => {
+      if (succeeded) {
+        postPopup(port, {
+          type: 'DOWNLOAD_COMPLETE',
+          downloadId: downloadKey,
+          ...(outputPath ? { outputPath } : {})
+        });
+      } else {
+        postPopup(port, {
+          type: 'DOWNLOAD_ERROR',
+          downloadId: downloadKey,
+          error: failureMessage(result)
+        });
+      }
+    });
+    finishDownload(downloadKey, succeeded);
+  }).catch((error) => {
+    if (!activeDownloads.isRunning(downloadKey)) return;
+    const message = error?.message || String(error);
+    notify('Download failed', message);
+    popupPorts.forEach((port) => {
+      postPopup(port, { type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: message });
+    });
+    finishDownload(downloadKey, false);
+  });
 }
 
-function getDefaultExtension(video: VideoInfo, type: VideoInfo['type']): string {
-  if (video.qualities[0]?.kind === 'subtitle') return video.qualities[0]?.ext || 'vtt';
-  if (video.qualities[0]?.kind === 'audio') return video.qualities[0]?.ext || 'm4a';
-  if (type === 'webm') return 'webm';
-  if (video.qualities[0]?.ext === 'mp3') return 'mp3';
-  return 'mp4';
-}
-
-function formatFfmpegError(exitCode: number | null, stderr: string): string {
-  const details = stderr.trim();
-  if (/HTTP error (401|403|410)|Server returned 4XX/i.test(details)) {
-    return 'Ссылка на поток недоступна или устарела. Запустите плеер заново и повторите загрузку.';
-  }
-  if (/Invalid data found|Error opening input/i.test(details)) {
-    return 'FFmpeg не смог открыть поток. Запустите плеер на несколько секунд и повторите загрузку.';
-  }
-  return `FFmpeg exit code ${exitCode}: ${details.slice(-1000)}`;
-}
-
-interface ManifestFile {
-  placeholder: string;
-  content: string;
-}
-
-async function rewriteHlsInput(tabId: number, inputUrl: string, referer: string | undefined, manifestFiles: ManifestFile[]): Promise<string> {
+async function rewriteHlsInput(
+  tabId: number,
+  inputUrl: string,
+  referer: string | undefined,
+  manifestIndex: number
+): Promise<ManifestFile | null> {
   let origin: string;
-  try { origin = new URL(inputUrl).origin; } catch { return inputUrl; }
-  if (!relayCodecsByTab.get(tabId)?.has(origin)) return inputUrl;
+  try { origin = new URL(inputUrl).origin; } catch { return null; }
+  if (!tabStates.get(tabId)?.relayCodecs?.has(origin)) return null;
 
   const parsed = await M3U8ParserWrapper.fetchAndParse(inputUrl, referer);
-  if (parsed.type !== 'media' || !parsed.manifest) return inputUrl;
+  if (parsed.type !== 'media' || !parsed.manifest) return null;
 
   const manifestUrl = parsed.manifestUrl || inputUrl;
-  let rewrittenCount = 0;
-  let unresolvedUri = false;
-  const rewriteUri = (value: string): string => {
-    const absolute = M3U8ParserWrapper.resolveUrl(value, manifestUrl);
-    const relayUrl = getRelayUrl(tabId, absolute);
-    if (!relayUrl) {
-      unresolvedUri = true;
-      return value;
-    }
-    rewrittenCount += 1;
-    return relayUrl;
-  };
+  const rewritten = rewriteHlsManifestUris(
+    parsed.manifest,
+    manifestUrl,
+    (absoluteUrl) => getRelayUrl(tabId, absoluteUrl)
+  );
 
-  const lines = parsed.manifest.split(/\r?\n/).map((line) => {
-    const trimmed = line.trim();
-    if (!trimmed) return line;
-    if (trimmed.startsWith('#')) {
-      return line.replace(/URI="([^"]+)"/g, (_match, uri: string) => `URI="${rewriteUri(uri)}"`);
-    }
-    return line.replace(trimmed, rewriteUri(trimmed));
-  });
-
-  if (rewrittenCount === 0 || unresolvedUri) {
+  if (rewritten.rewrittenCount === 0 || rewritten.unresolvedUrls.length > 0) {
     throw new Error('Browser relay mapping is incomplete. Start playback for a few seconds and retry the download.');
   }
-  const placeholder = `__MEDIA_GRABBER_HLS_MANIFEST_${manifestFiles.length}__`;
-  manifestFiles.push({ placeholder, content: lines.join('\n') });
-  return placeholder;
+  return {
+    placeholder: `__MEDIA_GRABBER_HLS_MANIFEST_${manifestIndex}__`,
+    content: rewritten.content
+  };
 }
 
-async function prepareHlsArguments(tabId: number, args: string[], referer?: string): Promise<{ args: string[]; manifestFiles: ManifestFile[] }> {
-  const prepared = [...args];
-  const manifestFiles: ManifestFile[] = [];
-  for (let i = 0; i < prepared.length - 1; i += 1) {
-    if (prepared[i] !== '-i' || !/^https?:\/\//i.test(prepared[i + 1])) continue;
-    const originalInput = prepared[i + 1];
-    const rewrittenInput = await rewriteHlsInput(tabId, originalInput, referer, manifestFiles);
-    prepared[i + 1] = rewrittenInput;
-    if (rewrittenInput !== originalInput) {
-      prepared.splice(i, 0,
-        '-protocol_whitelist', 'file,http,https,tcp,tls,crypto,data',
-        '-extension_picky', '0'
-      );
-    }
-  }
-  return { args: prepared, manifestFiles };
-}
-
-function joinOutputPath(directory: string, filename: string): string {
-  if (!directory) return filename;
-  const separator = coappPlatform === 'win32' ? '\\' : '/';
-  return `${directory.replace(/[\\/]$/, '')}${separator}${filename}`;
-}
-
-async function startDownload(video: VideoInfo, filename?: string, tabId?: number): Promise<any> {
+async function startDownload(
+  video: VideoInfo,
+  run: DownloadRunContext,
+  filename?: string,
+  tabId?: number,
+  sourceUrl?: string,
+  checkFreshness = false,
+  directoryOverride?: string
+): Promise<any> {
   await ensureCoAppConnected();
 
+  // History links are often hours old; a dead one fails deep inside ffmpeg
+  // with an opaque error, so check before starting.
+  if (checkFreshness) {
+    const status = await probeLinkStatus(video.url, video.referer);
+    if (status !== undefined && EXPIRED_LINK_STATUSES.has(status)) {
+      throw new Error(`Link expired (HTTP ${status}) — reopen the page to refresh it.`);
+    }
+  }
+
   const type = video.type === 'm3u8' ? 'hls' : video.type === 'mpd' ? 'dash' : video.type;
-  const outFilename = ensureFilenameExtension(
+  const directory = directoryOverride || defaultDownloadDir;
+  let outFilename = ensureFilenameExtension(
     sanitizeFilename(filename || `${video.title || 'video'}`),
     getDefaultExtension(video, type)
   );
-  const directory = defaultDownloadDir;
+  try {
+    outFilename = await nativeClient.uniquePath(directory, outFilename);
+  } catch {
+    // CoApp unreachable for this check — keep the original name rather than blocking the download.
+  }
 
   if (type === 'hls' || type === 'dash') {
     // FFmpeg convert path
@@ -911,91 +1106,75 @@ async function startDownload(video: VideoInfo, filename?: string, tabId?: number
     const codecArg = isSubtitle ? ['-c:s', 'copy'] : ['-c', 'copy'];
     const formatArgs = video.qualities[0]?.formatArgs;
     const downloadKey = `convert_${Date.now()}`;
-    const outputPath = joinOutputPath(directory, outFilename);
+    const outputPath = joinOutputPath(directory, outFilename, coappPlatform);
 
     const inputArgs = [...getFfmpegHttpArgs(video.referer), '-i', video.url];
     const baseArgs = formatArgs && formatArgs.length > 0
       ? [...formatArgs, '-y', outputPath]
       : [...inputArgs, ...codecArg, '-y', outputPath];
     const prepared = type === 'hls'
-      ? await prepareHlsArguments(tabId ?? -1, baseArgs, video.referer)
+      ? await prepareHlsInputArguments(
+        baseArgs,
+        (inputUrl, manifestIndex) => rewriteHlsInput(
+          tabId ?? -1,
+          inputUrl,
+          video.referer,
+          manifestIndex
+        )
+      )
       : { args: baseArgs, manifestFiles: [] };
 
-    activeDownloads.set(downloadKey, {
+    trackDownload(downloadKey, {
+      sourceUrl,
       type: 'convert',
       video,
       directory,
       filename: outFilename,
       tabId
-    });
+    }, run);
 
-    // Start ffmpeg asynchronously — progress comes via convertOutput push
-    nativeClient.convert(
-      prepared.args,
-      { progressTime: 1000, startHandler: downloadKey, manifestFiles: prepared.manifestFiles }
-    ).then(result => {
-      if (result.exitCode === 0) {
-        notify('Download complete', outFilename);
-        popupPorts.forEach(port => {
-          port.postMessage({ type: 'DOWNLOAD_COMPLETE', downloadId: downloadKey, outputPath });
-        });
-      } else {
-        notify('Download failed', outFilename);
-        popupPorts.forEach(port => {
-          port.postMessage({ type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: formatFfmpegError(result.exitCode, result.stderr) });
-        });
-      }
-      activeDownloads.delete(downloadKey);
-    }).catch(err => {
-      notify('Download failed', err.message);
-      popupPorts.forEach(port => {
-        port.postMessage({ type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: err.message });
-      });
-      activeDownloads.delete(downloadKey);
-    });
+    // Start ffmpeg asynchronously — progress comes via convertOutput push.
+    monitorNativeProcess(
+      downloadKey,
+      outFilename,
+      nativeClient.convert(
+        prepared.args,
+        { progressTime: 1000, startHandler: downloadKey, manifestFiles: prepared.manifestFiles }
+      ),
+      (result) => formatFfmpegError(result.exitCode, result.stderr),
+      outputPath
+    );
 
     return { success: true, downloadId: downloadKey };
   } else if (video.type === 'mse') {
     // MSE stream — use FFmpeg with captured segment URLs if available
     const downloadKey = `convert_${Date.now()}`;
-    const outputPath = joinOutputPath(directory, outFilename);
+    const outputPath = joinOutputPath(directory, outFilename, coappPlatform);
     const formatArgs = video.qualities[0]?.formatArgs;
 
-    activeDownloads.set(downloadKey, {
+    trackDownload(downloadKey, {
+      sourceUrl,
       type: 'convert',
       video,
       directory,
       filename: outFilename,
       tabId
-    });
+    }, run);
 
     const ffmpegArgs = formatArgs && formatArgs.length > 0
       ? [...formatArgs, '-y', outputPath]
       : ['-i', video.url, '-c', 'copy', '-y', outputPath];
 
-    nativeClient.convert(
-      ffmpegArgs,
-      { progressTime: 1000, startHandler: downloadKey }
-    ).then(result => {
-      if (result.exitCode === 0) {
-        notify('Download complete', outFilename);
-        popupPorts.forEach(port => {
-          port.postMessage({ type: 'DOWNLOAD_COMPLETE', downloadId: downloadKey, outputPath });
-        });
-      } else {
-        notify('Download failed', outFilename);
-        popupPorts.forEach(port => {
-          port.postMessage({ type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: formatFfmpegError(result.exitCode, result.stderr) });
-        });
-      }
-      activeDownloads.delete(downloadKey);
-    }).catch(err => {
-      notify('Download failed', err.message);
-      popupPorts.forEach(port => {
-        port.postMessage({ type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: err.message });
-      });
-      activeDownloads.delete(downloadKey);
-    });
+    monitorNativeProcess(
+      downloadKey,
+      outFilename,
+      nativeClient.convert(
+        ffmpegArgs,
+        { progressTime: 1000, startHandler: downloadKey }
+      ),
+      (result) => formatFfmpegError(result.exitCode, result.stderr),
+      outputPath
+    );
 
     return { success: true, downloadId: downloadKey };
   } else if (video.type === 'ytdlp') {
@@ -1003,38 +1182,25 @@ async function startDownload(video: VideoInfo, filename?: string, tabId?: number
     const downloadKey = `ytdlp_${Date.now()}`;
     const formatArgs = video.qualities[0]?.formatArgs || fallbackYtdlpQualities(video.url)[0].formatArgs;
 
-    activeDownloads.set(downloadKey, {
+    trackDownload(downloadKey, {
+      sourceUrl,
       type: 'ytdlp',
       video,
       directory,
       filename: outFilename,
       tabId
-    });
+    }, run);
 
-    nativeClient.ytdlp(
-      video.url,
-      formatArgs,
-      { progressTime: 1000, startHandler: downloadKey, outputDir: directory || undefined, filename: outFilename.replace(/\.[^.]+$/, '.%(ext)s') }
-    ).then(result => {
-      if (result.exitCode === 0) {
-        notify('Download complete', outFilename);
-        popupPorts.forEach(port => {
-          port.postMessage({ type: 'DOWNLOAD_COMPLETE', downloadId: downloadKey });
-        });
-      } else {
-        notify('Download failed', outFilename);
-        popupPorts.forEach(port => {
-          port.postMessage({ type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: `yt-dlp exit code ${result.exitCode}: ${result.stderr}` });
-        });
-      }
-      activeDownloads.delete(downloadKey);
-    }).catch(err => {
-      notify('Download failed', err.message);
-      popupPorts.forEach(port => {
-        port.postMessage({ type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: err.message });
-      });
-      activeDownloads.delete(downloadKey);
-    });
+    monitorNativeProcess(
+      downloadKey,
+      outFilename,
+      nativeClient.ytdlp(
+        video.url,
+        formatArgs,
+        { progressTime: 1000, startHandler: downloadKey, outputDir: directory || undefined, filename: outFilename.replace(/\.[^.]+$/, '.%(ext)s') }
+      ),
+      (result) => `yt-dlp exit code ${result.exitCode}: ${result.stderr}`
+    );
 
     return { success: true, downloadId: downloadKey };
   } else {
@@ -1046,14 +1212,15 @@ async function startDownload(video: VideoInfo, filename?: string, tabId?: number
     });
 
     const downloadKey = `direct_${downloadId}`;
-    activeDownloads.set(downloadKey, {
+    trackDownload(downloadKey, {
+      sourceUrl,
       type: 'direct',
       downloadId,
       video,
       directory,
       filename: outFilename,
       tabId
-    });
+    }, run);
 
     // Poll for direct download progress (CoApp pushes complete/error, but we poll for bytes)
     startDirectProgressPolling(downloadKey, downloadId, video.duration);
@@ -1064,8 +1231,16 @@ async function startDownload(video: VideoInfo, filename?: string, tabId?: number
 
 function startDirectProgressPolling(downloadKey: string, downloadId: number, duration?: number): void {
   const timer = setInterval(async () => {
+    if (!activeDownloads.isRunning(downloadKey)) {
+      clearInterval(timer);
+      return;
+    }
     try {
       const results = await nativeClient.searchDownloads(downloadId);
+      if (!activeDownloads.isRunning(downloadKey)) {
+        clearInterval(timer);
+        return;
+      }
       if (!results || results.length === 0) {
         clearInterval(timer);
         return;
@@ -1080,7 +1255,7 @@ function startDirectProgressPolling(downloadKey: string, downloadId: number, dur
       }
 
       popupPorts.forEach(port => {
-        port.postMessage({
+        postPopup(port, {
           type: 'DOWNLOAD_PROGRESS',
           downloadId: downloadKey,
           progress: { percent, bytesReceived: dl.bytesReceived, totalBytes: dl.totalBytes }
@@ -1089,13 +1264,13 @@ function startDirectProgressPolling(downloadKey: string, downloadId: number, dur
 
       if (dl.state === 'complete') {
         clearInterval(timer);
-        activeDownloads.delete(downloadKey);
+        finishDownload(downloadKey, true);
       } else if (dl.state === 'interrupted') {
         clearInterval(timer);
         popupPorts.forEach(port => {
-          port.postMessage({ type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: dl.error || 'Download interrupted' });
+          postPopup(port, { type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: dl.error || 'Download interrupted' });
         });
-        activeDownloads.delete(downloadKey);
+        finishDownload(downloadKey, false);
       }
     } catch {
       // Single poll failure — don't abort, just skip this tick
@@ -1104,32 +1279,38 @@ function startDirectProgressPolling(downloadKey: string, downloadId: number, dur
 }
 
 async function handleCancelDownload(downloadId: string): Promise<any> {
-  const dl = activeDownloads.get(downloadId);
+  const dl = activeDownloads.beginCancel(downloadId);
   if (!dl) {
     return { success: false, error: 'Download not found' };
   }
 
-  if (dl.type === 'convert' && dl.pid !== undefined) {
-    await nativeClient.abortConvert(dl.pid);
-  } else if (dl.type === 'ytdlp' && dl.pid !== undefined) {
-    await nativeClient.abortYtdlp(dl.pid);
-  } else if (dl.type === 'direct' && dl.downloadId !== undefined) {
-    await nativeClient.cancelDownload(dl.downloadId);
+  try {
+    if (dl.type === 'convert' && dl.pid !== undefined) {
+      await nativeClient.abortConvert(dl.pid);
+    } else if (dl.type === 'ytdlp' && dl.pid !== undefined) {
+      await nativeClient.abortYtdlp(dl.pid);
+    } else if (dl.type === 'direct' && dl.downloadId !== undefined) {
+      await nativeClient.cancelDownload(dl.downloadId);
+    }
+  } finally {
+    finishDownload(downloadId, false);
   }
-
-  activeDownloads.delete(downloadId);
   return { success: true };
 }
 
 // Handle messages from content script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (!isRuntimeRequest(message)) {
+    sendResponse({ error: 'Unknown runtime message' });
+    return false;
+  }
   handleMessage(message, sender)
     .then(sendResponse)
     .catch((err) => sendResponse({ error: err.message }));
   return true;
 });
 
-async function handleMessage(message: any, sender: chrome.runtime.MessageSender): Promise<any> {
+async function handleMessage(message: RuntimeRequest, sender: chrome.runtime.MessageSender): Promise<unknown> {
   switch (message.type) {
     case 'VIDEO_DETECTED':
       return handleVideoDetected(sender.tab?.id, message.video, sender.frameId, sender.url, sender.tab?.url);
@@ -1149,28 +1330,33 @@ async function handleMessage(message: any, sender: chrome.runtime.MessageSender)
     case 'PING': {
       let connected = false;
       let version: string | undefined;
+      let error: string | undefined;
       try {
+        // A cold service worker has no connection yet, so a plain "is it
+        // connected" check would report a working CoApp as down.
+        if (!nativeClient.connected) await nativeClient.connect();
         connected = nativeClient.connected;
         if (connected) {
           const info = await nativeClient.info();
           version = info?.version || 'unknown';
         }
-      } catch { /* ignore */ }
-      return { success: true, timestamp: Date.now(), connected, version };
+      } catch (err: any) {
+        error = err?.message || String(err);
+      }
+      return { success: true, timestamp: Date.now(), connected, version, error };
     }
 
-    default:
-      return { error: `Unknown message type: ${message.type}` };
   }
 }
 
 function currentTopPageUrl(tabId: number, senderTabUrl?: string): string | undefined {
-  const trackedUrl = currentPageUrlByTab.get(tabId);
+  const state = tabStates.get(tabId);
+  const trackedUrl = state?.currentPageUrl;
   if (trackedUrl === null) return undefined;
   if (trackedUrl && senderTabUrl && trackedUrl !== senderTabUrl) return undefined;
   if (trackedUrl) return trackedUrl;
   if (senderTabUrl) {
-    currentPageUrlByTab.set(tabId, senderTabUrl);
+    tabStates.ensure(tabId).currentPageUrl = senderTabUrl;
     return senderTabUrl;
   }
   return undefined;
@@ -1179,20 +1365,21 @@ function currentTopPageUrl(tabId: number, senderTabUrl?: string): string | undef
 function isCurrentContentGeneration(tabId: number, generation: unknown, isTopFrame: boolean): boolean {
   if (typeof generation !== 'number' || !Number.isInteger(generation)) return false;
 
-  const knownGeneration = navigationGenerationByTab.get(tabId);
+  const state = tabStates.ensure(tabId);
+  const knownGeneration = state.navigationGeneration;
   if (knownGeneration === undefined) {
     if (!isTopFrame) return false;
-    navigationGenerationByTab.set(tabId, generation);
+    state.navigationGeneration = generation;
     return true;
   }
 
   return generation === knownGeneration;
 }
 
-function handleVideoDetected(tabId: number | undefined, video: VideoInfo, frameId?: number, frameUrl?: string, senderTabUrl?: string): any {
+function handleVideoDetected(tabId: number | undefined, video: DetectedVideo, frameId?: number, frameUrl?: string, senderTabUrl?: string): any {
   if (tabId === undefined) return { error: 'No tabId' };
-  const detectedPageUrl = (video as VideoInfo & { pageUrl?: string; generation?: number }).pageUrl;
-  const generation = (video as VideoInfo & { pageUrl?: string; generation?: number }).generation;
+  const detectedPageUrl = video.pageUrl;
+  const generation = video.generation;
   const currentUrl = currentTopPageUrl(tabId, senderTabUrl);
   if (!detectedPageUrl || !frameUrl || detectedPageUrl !== frameUrl || !currentUrl) {
     return { success: true, stale: true };
@@ -1205,10 +1392,10 @@ function handleVideoDetected(tabId: number | undefined, video: VideoInfo, frameI
   }
   upsertVideo(tabId, video);
   console.log(`[MediaGrabber] Detected video on tab ${tabId}:`, video.title);
-  return { success: true, count: (mediaByTab.get(tabId) || []).length };
+  return { success: true, count: (tabStates.get(tabId)?.media || []).length };
 }
 
-function handleMediaUrlMap(tabId: number | undefined, mapping: any, frameId?: number, frameUrl?: string, senderTabUrl?: string): any {
+function handleMediaUrlMap(tabId: number | undefined, mapping: MediaUrlMapMessage, frameId?: number, frameUrl?: string, senderTabUrl?: string): any {
   if (tabId === undefined) return { error: 'No tabId' };
   const currentUrl = currentTopPageUrl(tabId, senderTabUrl);
   if (!mapping.pageUrl || !frameUrl || mapping.pageUrl !== frameUrl || !currentUrl) {
@@ -1235,82 +1422,49 @@ function handlePageNavigation(tabId: number | undefined, pageUrl: string, genera
     return { success: true, stale: true };
   }
 
-  const previousGeneration = navigationGenerationByTab.get(tabId);
+  const state = tabStates.ensure(tabId);
+  const previousGeneration = state.navigationGeneration;
   if (typeof generation !== 'number' || !Number.isInteger(generation) || (previousGeneration !== undefined && generation <= previousGeneration)) {
     return { success: true, stale: true };
   }
 
-  navigationGenerationByTab.set(tabId, generation);
+  state.navigationGeneration = generation;
   resetTabState(tabId);
   return { success: true };
-}
-
-function normalizeYtdlpQualities(url: string, qualities: any[]): VideoInfo['qualities'] {
-  return (qualities || [])
-    .filter(q => Array.isArray(q?.formatArgs) && q.formatArgs.length > 0)
-    .map(q => ({
-      height: Number(q.height) || 0,
-      width: Number(q.width) || undefined,
-      bitrate: Number(q.bitrate) || 0,
-      url,
-      label: q.label,
-      formatArgs: q.formatArgs,
-      formatId: q.formatId,
-      ext: q.ext,
-      fps: Number(q.fps) || undefined,
-      fileSize: Number(q.fileSize) || undefined,
-      kind: q.kind,
-      language: q.language
-    }));
 }
 
 async function loadYouTubeFormats(tabId: number, url: string, videoId: string, metadata: PageMetadata, generation: number): Promise<void> {
   try {
     await ensureCoAppConnected();
     const info = await nativeClient.ytdlpFormats(url);
-    const currentMetadata = pageMetadataByTab.get(tabId) || metadata;
-    if (generation !== getPageGeneration(tabId) || currentMetadata.pageUrl !== url) return;
+    const currentMetadata = tabStates.get(tabId)?.pageMetadata || metadata;
+    if (!tabStates.isCurrentPageGeneration(tabId, generation) || currentMetadata.pageUrl !== url) return;
 
-    const qualities = normalizeYtdlpQualities(url, info.qualities);
-    upsertVideo(tabId, {
-      id: videoId,
-      title: info.title || currentMetadata.title || 'YouTube Video',
-      url,
-      type: 'ytdlp',
-      qualities: qualities.length ? qualities : fallbackYtdlpQualities(url),
-      thumbnail: info.thumbnail || currentMetadata.thumbnail,
-      duration: info.duration || currentMetadata.duration
-    });
+    upsertVideo(tabId, buildYtdlpVideo(videoId, url, currentMetadata, info));
   } catch (error) {
     console.warn('[MediaGrabber] Failed to load yt-dlp formats:', error);
-    const currentMetadata = pageMetadataByTab.get(tabId) || metadata;
-    if (generation !== getPageGeneration(tabId) || currentMetadata.pageUrl !== url) return;
-    upsertVideo(tabId, {
-      id: videoId,
-      title: currentMetadata.title || 'YouTube Video',
-      url,
-      type: 'ytdlp',
-      qualities: fallbackYtdlpQualities(url),
-      thumbnail: currentMetadata.thumbnail,
-      duration: currentMetadata.duration
-    });
+    const currentMetadata = tabStates.get(tabId)?.pageMetadata || metadata;
+    if (!tabStates.isCurrentPageGeneration(tabId, generation) || currentMetadata.pageUrl !== url) return;
+    upsertVideo(tabId, buildYtdlpVideo(videoId, url, currentMetadata));
   }
 }
 
 function addYouTubeVideo(tabId: number, metadata: PageMetadata): void {
   const url = metadata.pageUrl!;
   const videoId = `ytdlp_${tabId}`;
+  const state = tabStates.ensure(tabId);
 
-  const existing = (mediaByTab.get(tabId) || []).find(v => v.id === videoId);
+  const existing = (state.media || []).find(v => v.id === videoId);
   if (existing) {
     const urlChanged = existing.url !== url;
-    const videos = (mediaByTab.get(tabId) || []).map(v =>
+    const videos = (state.media || []).map(v =>
       v.id === videoId
         ? {
             ...v,
             title: metadata.title || v.title,
             thumbnail: metadata.thumbnail || v.thumbnail,
             duration: metadata.duration || v.duration,
+            pageUrl: metadata.pageUrl,
             url,
             qualities: urlChanged ? [] : v.qualities
           }
@@ -1319,9 +1473,9 @@ function addYouTubeVideo(tabId: number, metadata: PageMetadata): void {
     commitVideos(tabId, videos);
   }
 
-  if (ytdlpFormatUrlByTab.get(tabId) === url) return;
-  ytdlpFormatUrlByTab.set(tabId, url);
-  void loadYouTubeFormats(tabId, url, videoId, metadata, getPageGeneration(tabId));
+  if (state.ytdlpFormatUrl === url) return;
+  state.ytdlpFormatUrl = url;
+  void loadYouTubeFormats(tabId, url, videoId, metadata, state.pageGeneration);
 }
 
 function handlePageMetadata(tabId: number | undefined, metadata: PageMetadata, frameId?: number, frameUrl?: string, senderTabUrl?: string): any {
@@ -1337,13 +1491,14 @@ function handlePageMetadata(tabId: number | undefined, metadata: PageMetadata, f
       return { success: true, stale: true };
     }
 
-    const trackedUrl = currentPageUrlByTab.get(tabId);
+    const state = tabStates.ensure(tabId);
+    const trackedUrl = state.currentPageUrl;
     if (trackedUrl === null) {
       return { success: true, stale: true };
     }
-    currentPageUrlByTab.set(tabId, metadata.pageUrl);
+    state.currentPageUrl = metadata.pageUrl;
     if (trackedUrl && trackedUrl !== metadata.pageUrl) {
-      navigationGenerationByTab.delete(tabId);
+      state.navigationGeneration = undefined;
       resetTabState(tabId);
     }
 
@@ -1361,7 +1516,7 @@ function handlePageMetadata(tabId: number | undefined, metadata: PageMetadata, f
     return { success: true, stale: true };
   }
 
-  let previous = pageMetadataByTab.get(tabId) || {};
+  let previous = tabStates.get(tabId)?.pageMetadata || {};
   if (!isTopFrame && !previous.pageUrl) {
     return { success: true, stale: true };
   }
@@ -1370,35 +1525,24 @@ function handlePageMetadata(tabId: number | undefined, metadata: PageMetadata, f
     previous = {};
   }
 
-  const merged: PageMetadata = {
-    pageUrl: isTopFrame ? (metadata.pageUrl || previous.pageUrl) : previous.pageUrl,
-    title: isTopFrame ? (metadata.title || previous.title) : (previous.title || metadata.title),
-    thumbnail: isTopFrame ? (metadata.thumbnail || previous.thumbnail) : (previous.thumbnail || metadata.thumbnail),
-    duration: metadata.duration || previous.duration,
-    generation: isTopFrame ? metadata.generation : previous.generation
-  };
+  const merged = mergePageMetadata(previous, metadata, isTopFrame);
 
-  pageMetadataByTab.set(tabId, merged);
+  tabStates.ensure(tabId).pageMetadata = merged;
 
   if (merged.pageUrl && isYouTubeUrl(merged.pageUrl)) {
     addYouTubeVideo(tabId, merged);
   }
 
-  const videos = mediaByTab.get(tabId);
+  const videos = tabStates.get(tabId)?.media;
   if (videos?.length) {
-    let changed = false;
-    const updated = videos.map((video) => {
-      const next = {
-        ...video,
-        thumbnail: video.thumbnail || merged.thumbnail,
-        duration: video.duration || merged.duration
-      };
-      changed = changed || next.thumbnail !== video.thumbnail || next.duration !== video.duration;
-      return next;
-    });
+    const updated = applyPageMetadataToVideos(videos, merged);
 
-    if (changed) {
+    if (updated !== videos) {
       commitVideos(tabId, updated);
+    } else {
+      // Source title/URL can arrive after the media itself without changing
+      // its thumbnail or duration. Give history a chance to repair context.
+      void recordHistory(tabId, videos);
     }
   }
 
@@ -1406,5 +1550,5 @@ function handlePageMetadata(tabId: number | undefined, metadata: PageMetadata, f
 }
 
 function getVideosForTab(tabId: number): any {
-  return { videos: mediaByTab.get(tabId) || [] };
+  return { videos: tabStates.get(tabId)?.media || [] };
 }

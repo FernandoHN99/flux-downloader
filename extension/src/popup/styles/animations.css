@@ -1,0 +1,25 @@
+/* Keyframes and the reduced-motion overrides. */
+
+@keyframes row-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row-spinner { animation-duration: 2.4s; }
+
+  #progress-fill.indeterminate {
+    animation: none;
+    width: 100%;
+    opacity: 0.4;
+  }
+}
+
+@keyframes progress-indeterminate {
+  0%   { transform: translateX(-120%); }
+  100% { transform: translateX(260%); }
+}
+
+@keyframes progress-indeterminate {
+  0%   { transform: translateX(-120%); }
+  100% { transform: translateX(260%); }
+}

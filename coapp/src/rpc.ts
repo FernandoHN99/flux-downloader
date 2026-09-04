@@ -32,12 +32,19 @@ class RpcProtocol {
       }
       const rid = ++this.replyId;
       this.replies.set(rid, { resolve, reject });
-      this.post({
-        type: "weh#rpc",
-        _request: rid,
-        _method: method,
-        _args: args
-      });
+      try {
+        this.post({
+          type: "weh#rpc",
+          _request: rid,
+          _method: method,
+          _args: args
+        });
+      } catch (error) {
+        // A dead transport never replies, so drop the pending entry here or it
+        // would sit in the map for the life of the process.
+        this.replies.delete(rid);
+        throw error;
+      }
     });
   }
 

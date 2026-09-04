@@ -192,13 +192,24 @@ export class DashParserWrapper {
     return DashParserWrapper.parseIsoDuration(match[1]);
   }
 
+  /**
+   * ISO-8601 durations, both the short PT form and the full one some
+   * packagers emit (P0Y0M0DT0H25M23.000S). Years and months have no fixed
+   * length, so a non-zero one is refused rather than guessed at — in a media
+   * duration they are always zero anyway.
+   */
   private static parseIsoDuration(iso: string): number | undefined {
-    const m = iso.match(/^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?$/);
+    const m = iso.match(
+      /^P(?!$)(?:(\d+(?:\.\d+)?)Y)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)W)?(?:(\d+(?:\.\d+)?)D)?(?:T(?!$)(?:(\d+(?:\.\d+)?)H)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)S)?)?$/
+    );
     if (!m) return undefined;
-    const hours = parseInt(m[1] || '0', 10);
-    const mins = parseInt(m[2] || '0', 10);
-    const secs = parseFloat(m[3] || '0');
-    return hours * 3600 + mins * 60 + secs;
+
+    const [years, months, weeks, days, hours, minutes, seconds] =
+      m.slice(1, 8).map((value) => parseFloat(value || '0'));
+
+    if (years > 0 || months > 0) return undefined;
+
+    return weeks * 604800 + days * 86400 + hours * 3600 + minutes * 60 + seconds;
   }
 
   static resolveUrl(relativeUrl: string, baseUrl: string): string {

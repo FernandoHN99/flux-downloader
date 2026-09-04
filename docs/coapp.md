@@ -1,422 +1,221 @@
-# Companion Application (CoApp) — Technical Details
+# Companion application (CoApp)
 
-## Overview
+Updated: 2026-09-03.
 
-The Companion Application (`vdhcoapp`) is a Node.js application that runs as a separate native process, invoked by the browser extension via Native Messaging.
+The MediaGrabber CoApp is the local Node.js process used by Flux for work a Manifest V3 extension cannot do directly: run FFmpeg/ffprobe/yt-dlp, write to chosen filesystem paths, and stream direct downloads.
 
-**Repository**: https://github.com/aclap-dev/vdhcoapp
+Native host ID: `com.mediagrabber.coapp`.
 
-**Status**: Fully Open Source (GPL-2.0)
+## Startup
 
----
+`coapp/src/main.ts` imports modules for side-effect registration:
 
-## Source Code Structure
+1. `native-messaging.ts` installs stdin/stdout framing.
+2. `converter.ts` registers FFmpeg handlers.
+3. `ytdlp.ts` registers yt-dlp handlers.
+4. `downloads.ts` registers direct HTTP handlers.
+5. `file.ts` registers output helpers.
+6. app-level `ping`, `info`, and `quit` are registered.
 
-```
-vdhcoapp/
-├── app/
-│   └── src/
-│       ├── main.js              # Entry point, native messaging handshake
-│       ├── converter.js         # ffmpeg wrapper for HLS/DASH/conversion (10KB+)
-│       ├── downloads.js         # HTTP download manager
-│       ├── file.js             # File system operations
-│       ├── weh-rpc.js          # RPC protocol implementation
-│       ├── request.js          # HTTP request utilities
-│       ├── native-autoinstall.ts  # Browser registration
-│       ├── vm.js               # Sandboxed JavaScript VM
-│       └── logger.js          # Logging utilities
-├── config.toml                 # Platform-specific configuration
-├── package.json
-└── tests/                      # Test suite with RPC protocol tests
-```
+Startup diagnostics use `console.error`. This is essential: stdout is reserved for framed native messages.
 
----
+`info` currently returns version, platform, architecture, home directory, and the user's `Downloads` directory. The background caches the download directory and platform after first connection.
 
-## main.js — Entry Point
+## Source map
 
-### Responsibilities
+| File | Responsibility |
+|---|---|
+| `src/main.ts` | module registration and app lifecycle |
+| `src/native-messaging.ts` | 4-byte framing over stdin/stdout |
+| `src/rpc.ts` | bidirectional `weh#rpc` dispatch/correlation |
+| `src/converter.ts` | FFmpeg/ffprobe discovery, execution, progress, cancellation |
+| `src/ytdlp.ts` | yt-dlp discovery, format normalization, execution, progress |
+| `src/downloads.ts` | direct HTTP/HTTPS streaming, state, probe, cancellation |
+| `src/file.ts` | unique output names and directory creation |
+| `src/paths.ts` | install/runtime paths |
+| `src/native-autoinstall.ts` | native manifest registration |
+| `src/native-autoinstall-cli.ts` | register/unregister CLI |
+| `src/installer.ts` | release install/uninstall and verified runtime download |
+| `scripts/build-sea.mjs` | Node SEA executable creation |
+| `scripts/create-release-config.mjs` | release URLs/checksums/extension ID |
+| `scripts/create-checksums.mjs` | release `SHA256SUMS.txt` |
 
-1. **Native Messaging Setup**
-   - Read messages from stdin (4-byte length prefix + JSON)
-   - Write responses to stdout
-   - Handle process startup/shutdown
+## RPC surface
 
-2. **RPC Router**
-   - Register handlers for all RPC methods
-   - Route incoming requests to appropriate modules
-   - Handle errors and send responses
+### Application
 
-3. **CoApp Lifecycle**
-   - Ping/pong with extension
-   - Graceful shutdown on `quit` command
+| Method | Result |
+|---|---|
+| `ping(value)` | echoes the value |
+| `info()` | version/platform/arch/home/downloadDir |
+| `quit()` | schedules process exit |
 
-### Message Transport Protocol
-
-```javascript
-// Receiving messages (length-prefixed binary protocol)
-function AppendInputString(chunk) {
-  msgBacklog = Buffer.concat([msgBacklog, chunk]);
-  
-  while (true) {
-    if (msgBacklog.length < 4) return;
-    
-    let msgLength = msgBacklog.readUInt32LE(0);
-    
-    if (msgBacklog.length < msgLength + 4) return;
-    
-    let msgString = msgBacklog.toString("utf8", 4, msgLength + 4);
-    let msgObject = JSON.parse(msgString);
-    
-    rpc.receive(msgObject, Send);
-    msgBacklog = msgBacklog.slice(msgLength + 4);
-  }
-}
-
-// Sending messages
-function sendMessage(message) {
-  let msgStr = Buffer.from(JSON.stringify(message), "utf8");
-  let lengthBuf = Buffer.alloc(4);
-  lengthBuf.writeUInt32LE(msgStr.length, 0);
-  process.stdout.write(lengthBuf);
-  process.stdout.write(msgStr);
-}
-```
-
----
-
-## converter.js — FFmpeg Wrapper
-
-### Key Methods
+### FFmpeg and ffprobe
 
 | Method | Purpose |
-|--------|---------|
-| `convert(args, options)` | Run ffmpeg with arguments, track progress |
-| `probe(input, json, headers)` | Get media info via ffprobe |
-| `abortConvert()` | Kill running ffmpeg process |
+|---|---|
+| `convert(args, options)` | run FFmpeg and return exit code/PID/stderr |
+| `abortConvert(pid)` | send `q`, then force-kill after 10 seconds if needed |
+| `probe(input, json, headers)` | run ffprobe and optionally parse JSON |
+| `converter.info()` | report FFmpeg version/binary |
 
-### How Conversion Works
+`convert` prepends:
 
-```javascript
-"convert": async (args = ["-h"], options = {}) => {
-  // Build ffmpeg command
-  const ffmpeg_base_args = "-progress pipe:1 -hide_banner -loglevel error";
-  args = [...ffmpeg_base_args.split(" "), ...args];
-  
-  // Spawn ffmpeg process
-  const child = spawn(ffmpeg, args);
-  
-  // Parse progress from stdout (format: key=value\n)
-  child.stdout.on("data", (lines) => {
-    lines.toString("utf-8").split("\n").forEach(on_line);
-  });
-  
-  // Report progress via RPC callback
-  if (progressInfo["progress"]) {
-    await rpc.call("convertOutput", options.progressTime, seconds, info);
-  }
-}
+```text
+-progress pipe:1 -hide_banner -loglevel error
 ```
 
-### FFmpeg Executable Discovery
+If `options.manifestFiles` is present, it creates a temporary `mediagrabber-hls-*` directory, writes supplied HLS manifests, replaces placeholder arguments with local file paths, and removes the directory when FFmpeg exits.
 
-```javascript
-function findExecutableFullPath(programName, extraPath = "") {
-  programName = ensureProgramExt(programName);
-  const envPath = (process.env.PATH || '');
-  const pathArr = envPath.split(path.delimiter);
-  
-  if (extraPath) {
-    pathArr.unshift(extraPath);
-  }
-  
-  return pathArr
-    .map((x) => path.join(x, programName))
-    .find((x) => fileExistsSync(x));
-}
-```
+The process PID is pushed to the extension through `convertStartNotification`. Machine-readable progress is parsed from stdout and sent through `convertOutput`. stderr is accumulated for the final result/error formatter.
 
-### Common FFmpeg Operations
+In this integration FFmpeg's `out_time_ms` value is divided by 1,000,000 to obtain seconds; preserve this project-specific behavior.
 
-1. **HLS Download**
-   ```
-   ffmpeg -i <m3u8_url> -c copy output.mp4
-   ```
-
-2. **DASH Download**
-   ```
-   ffmpeg -i <mpd_url> -c copy output.mp4
-   ```
-
-3. **Merge Video + Audio**
-   ```
-   ffmpeg -i video.mp4 -i audio.mp4 -c copy -map 0:v:0 -map 1:a:0 output.mp4
-   ```
-
-4. **Re-encode with Progress**
-   ```
-   ffmpeg -i input.mp4 -c:v libx264 -c:a aac -progress pipe:1 output.mp4
-   ```
-
----
-
-## downloads.js — Download Manager
-
-### HTTP Download Implementation
-
-Uses Node's built-in HTTP/HTTPS streams for HTTP streaming:
-```javascript
-let downloadItem = requestStream(options.url, dlOptions);
-downloadItem.pipe(fs.createWriteStream(filename));
-```
-
-### Download State Tracking
-
-```javascript
-const downloads = {
-  <downloadId>: {
-    downloadItem,        // The response stream
-    totalBytes,         // Content-Length header
-    bytesReceived,      // Progress counter
-    url,                // Source URL
-    filename,           // Destination path
-    state: "in_progress" | "complete" | "interrupted",
-    error               // Error message if failed
-  }
-};
-```
-
-### Handling Interrupted Downloads
-
-```javascript
-downloadItem.on('error', (error) => {
-  if (error.code == 'ECONNRESET') {
-    // Server ended connection early
-    // Content is still valid - ffmpeg will handle truncated video
-    let downloadEntry = downloads[downloadId];
-    if (downloadEntry) {
-      downloadEntry.state = "complete";  // Mark as complete anyway
-    }
-  }
-});
-```
-
-### Request API
-
-For media probing and smaller requests:
-- `request(url, options)` — Returns full response body
-- `requestBinary(url, options)` — Streaming response
-
-Supports:
-- Custom headers
-- Proxy configuration
-- Range requests
-
----
-
-## file.js — File System Operations
-
-### RPC Methods Provided
+### yt-dlp
 
 | Method | Purpose |
-|--------|---------|
-| `fs.write` / `fs.write2` | Write bytes to file |
-| `fs.readFile` | Read entire file |
-| `fs.open` / `fs.close` | File descriptor operations |
-| `fs.mkdirp` | Recursive directory creation |
-| `fs.stat` | Get file metadata |
-| `fs.rename` | Move/rename file |
-| `fs.unlink` | Delete file |
-| `fs.copyFile` | Copy file |
+|---|---|
+| `ytdlpFormats(url)` | run `yt-dlp --no-playlist --no-warnings -J` and normalize choices |
+| `ytdlp(url, args, options)` | execute selected format/subtitle/audio download |
+| `abortYtdlp(pid)` | kill the matching process |
 
-### Filename Uniqueness
+Format normalization:
 
-```javascript
-"makeUniqueFileName": (...args) => {
-  // Ensures no filename collisions by appending -01, -02, etc.
-}
+- groups video by height/FPS/dynamic range;
+- picks the strongest candidate per group;
+- retains real `format_id`;
+- pairs video-only formats with a preferred audio selector;
+- adds an MP3 audio option;
+- adds manual and automatic subtitle options;
+- returns title, duration, and thumbnail.
+
+Every returned choice now carries explicit `kind: video | audio | subtitle`. The extension revalidates/coerces the native payload in `lib/youtube.ts` and infers a kind for older CoApp payloads, so a batch “Worst” choice cannot accidentally select MP3 while video exists.
+
+Downloads always use `--no-playlist`, `--no-warnings`, `--newline`, and an output template. If a local FFmpeg directory is found it is passed through `--ffmpeg-location`.
+
+Progress lines are converted to percent/speed/ETA payloads and sent through the same `convertOutput` callback consumed by the extension's compact progress UI.
+
+### Direct downloads
+
+| Method | Purpose |
+|---|---|
+| `downloads.download(options)` | stream URL to a file and return numeric ID |
+| `downloads.search({id})` | read bytes, total, filename, state, and error |
+| `downloads.probeStatus(url, referer)` | lightweight URL liveness/status check |
+| `downloads.cancel(id)` | destroy an in-progress stream |
+
+The implementation uses Node's built-in `http`/`https` modules and follows at most five redirects. Request headers can be supplied; TLS verification is enabled unless explicitly disabled.
+
+States are `in_progress`, `complete`, or `interrupted`. The extension polls `downloads.search` for byte progress. Completion and errors are pushed back with `downloadComplete`/`downloadError`.
+
+An `ECONNRESET` after bytes were received is treated as complete because some servers close a completed response abruptly. Entries are removed from the in-memory table after 60 seconds.
+
+`downloads.probeStatus` adds Referer and Origin when possible, destroys the body after response status, and times out after 10 seconds. It is used before historical downloads to distinguish an expired signed URL from a deeper FFmpeg failure.
+
+### File helpers
+
+Only two filesystem methods are exposed over RPC:
+
+| Method | Purpose |
+|---|---|
+| `file.uniquePath(directory, filename)` | append `_1`, `_2`, … before extension until unused |
+| `file.ensureDir(directory)` | recursively create a batch output directory |
+
+The older VDH-style broad `fs.*` surface is not part of this CoApp.
+
+## Runtime discovery
+
+`coapp/src/paths.ts` defines install roots:
+
+| OS | Install root |
+|---|---|
+| Windows | `%LOCALAPPDATA%\MediaGrabber` |
+| macOS | `~/Library/Application Support/MediaGrabber` |
+| Linux | `$XDG_DATA_HOME/MediaGrabber` or `~/.local/share/MediaGrabber` |
+
+Overrides:
+
+- `MEDIAGRABBER_INSTALL_DIR` changes the install root.
+- `MEDIAGRABBER_HOME` adds the first runtime search root.
+
+Runtime roots also include the current working directory, install directory, executable directory, and project directory near compiled code.
+
+Platform binary paths:
+
+```text
+ffmpeg/<win|darwin|linux>/ffmpeg[.exe]
+ffmpeg/<win|darwin|linux>/ffprobe[.exe]
+ytdlp/<win|darwin|linux>/yt-dlp[.exe]
 ```
 
-### Temporary Files
+Converter/ytdlp modules also check generic current-working-directory paths and finally return the command name for system `PATH` lookup.
 
-Uses `tmp` package:
-```javascript
-tmp.file()     // Creates a temporary file
-tmp.tmpName()  // Generates unique temp filename
-```
+Known source-layout caveat: tracked placeholder folders currently include `coapp/ytdlp/mac/`, while `process.platform` is `darwin`. Use/create `darwin` or a generic/system path unless path resolution itself is fixed.
 
----
+## Native host registration
 
-## weh-rpc.js — RPC Protocol
+`registerManifest(extensionIds)` writes `com.mediagrabber.coapp.json` under the install root with:
 
-### Protocol Name
+- name `com.mediagrabber.coapp`;
+- path to `coapp[.exe]` in the install root;
+- `type: "stdio"`;
+- Chrome extension origins for the supplied IDs.
 
-`weh#rpc` — "WebExtension Host RPC"
+Registration destinations:
 
-### Message Format
+| OS | Chrome | Edge |
+|---|---|---|
+| Windows | `HKCU\Software\Google\Chrome\NativeMessagingHosts\com.mediagrabber.coapp` | `HKCU\Software\Microsoft\Edge\NativeMessagingHosts\com.mediagrabber.coapp` |
+| macOS | `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/` | `~/Library/Application Support/Microsoft Edge/NativeMessagingHosts/` |
+| Linux | `~/.config/google-chrome/NativeMessagingHosts/` | `~/.config/microsoft-edge/NativeMessagingHosts/` |
 
-**Request**:
-```json
-{
-  "type": "weh#rpc",
-  "_request": 1,
-  "_method": "convert",
-  "_args": [["arg1", "arg2"], { "option": true }]
-}
-```
+Firefox manifests/IDs are not implemented.
 
-**Response (Success)**:
-```json
-{
-  "type": "weh#rpc",
-  "_reply": 1,
-  "_result": { "output": "file.mp4" }
-}
-```
+Development CLI:
 
-**Response (Error)**:
-```json
-{
-  "type": "weh#rpc",
-  "_reply": 1,
-  "_error": "FFmpeg not found"
-}
-```
-
-### Registered RPC Methods
-
-From source code analysis:
-
-| Module | Methods |
-|--------|---------|
-| `main.js` | `info`, `quit`, `ping`, `env` |
-| `converter.js` | `convert`, `probe`, `abortConvert` |
-| `downloads.js` | `downloads.download`, `downloads.search`, `downloads.cancel` |
-| `file.js` | `fs.write`, `fs.write2`, `fs.readFile`, `fs.mkdirp`, `fs.open`, `fs.close`, `fs.stat`, `fs.rename`, `fs.unlink`, `fs.copyFile`, `listFiles`, `makeUniqueFileName` |
-| `request.js` | `request`, `requestBinary` |
-| `vm.js` | `vm.run` |
-| Various | `path.homeJoin`, `tmp.file`, `tmp.tmpName`, `play`, `filepicker` |
-
----
-
-## vm.js — Sandboxed JavaScript VM
-
-CoApp includes a sandboxed JavaScript VM for running untrusted code:
-
-```javascript
-rpc.listen({
-  "vm.run": async (code) => {
-    const sandbox = {};
-    const script = new vm.Script(code);
-    const result = script.runInNewContext(sandbox);
-    return result;
-  },
-});
-```
-
-This allows execution of arbitrary JavaScript in an isolated context.
-
----
-
-## logger.js — Logging
-
-```javascript
-let logfile = process.env.WEH_NATIVE_LOGFILE;
-
-if (!logfile) {
-  module.exports = {
-    info: () => {},
-    error: () => {},
-    warn: () => {},
-    log: () => {},
-  };
-} else {
-  let logger = simplelogger.createSimpleFileLogger(logfile);
-  module.exports = logger;
-}
-```
-
-Logging is **disabled by default**. Enable via `WEH_NATIVE_LOGFILE` environment variable.
-
----
-
-## Installation & Registration
-
-### Native Messaging Manifest
-
-CoApp registers via JSON manifest files:
-
-**Windows Registry Locations**:
-```
-HKLM\Software\Mozilla\NativeMessagingHosts\net.downloadhelper.coapp
-HKLM\Software\Google\Chrome\NativeMessagingHosts\net.downloadhelper.coapp
-HKLM\Software\Microsoft\Edge\NativeMessagingHosts\net.downloadhelper.coapp
-```
-
-**macOS Locations**:
-```
-~/Library/Application Support/Mozilla/NativeMessagingHosts/
-~/Library/Application Support/Google/Chrome/NativeMessagingHosts/
-```
-
-**Linux Locations**:
-```
-~/.mozilla/native-messaging-hosts/
-~/.config/google-chrome/NativeMessagingHosts/
-```
-
-### Manifest Structure
-
-```json
-{
-  "name": "net.downloadhelper.coapp",
-  "description": "Video DownloadHelper companion app",
-  "path": "/path/to/vdhcoapp",
-  "type": "stdio",
-  "allowed_extensions": [
-    "video-downloadhelper@downloadhelper.net",
-    "{b9db16a4-6edc-47ec-a1f4-b86292ed211d}"
-  ]
-}
-```
-
-### Auto-Registration
-
-The `native-autoinstall.ts` module handles browser-specific registration:
-- Detects browser type (Firefox/Chrome/Edge)
-- Places manifest in correct location
-- Requires browser restart or extension reload
-
----
-
-## Configuration (config.toml)
-
-Platform-specific paths and settings:
-
-```toml
-[paths]
-  firefox.windows = "Software\\Mozilla\\NativeMessagingHosts"
-  chrome.windows = "Software\\Google\\Chrome\\NativeMessagingHosts"
-  edge.windows = "Software\\Microsoft\\Edge\\NativeMessagingHosts"
-  firefox.macos = "~/Library/Application Support/Mozilla/NativeMessagingHosts"
-  firefox.linux = "~/.mozilla/native-messaging-hosts"
-```
-
----
-
-## Bundled FFmpeg
-
-CoApp ships with platform-specific FFmpeg binaries:
-- `ffmpeg.exe` (Windows)
-- `ffmpeg` (macOS, Linux)
-- `ffprobe` (all platforms)
-
-These are **modified builds** with patches from Paul (current maintainer).
-
-### Linux "noffmpeg" Builds
-
-For Linux, there are "noffmpeg" variants that use the system's FFmpeg instead:
 ```bash
-./vdhcoapp install
+cd coapp
+node dist/native-autoinstall-cli.js register <extension-id>
+node dist/native-autoinstall-cli.js unregister
 ```
 
-Or use system ffmpeg by installing via package manager and linking.
+## Release installer
+
+`installer.ts` can read `release-config.json` from an embedded Node SEA asset or next to the executable. It:
+
+1. resolves extension ID/install directory;
+2. extracts an embedded gzip-compressed CoApp asset when present;
+3. copies and marks the CoApp executable;
+4. downloads FFmpeg, ffprobe, and yt-dlp over HTTPS only;
+5. requires and verifies a 64-character SHA-256 for each runtime;
+6. installs into platform subdirectories;
+7. registers the native host for the exact extension ID.
+
+Temporary downloads are removed in `finally`. Runtime redirects are capped at five.
+
+The release build embeds compressed raw CoApp bytes into the installer. Do not embed an already-injected SEA inside another SEA without compression/extraction; duplicate SEA sentinels can corrupt discovery.
+
+## Build
+
+```bash
+cd coapp
+npm run build             # TypeScript CommonJS output
+npm run bundle            # main.bundle.cjs for SEA
+npm run bundle:installer  # installer.bundle.cjs for SEA
+npm run build:sea
+npm start
+```
+
+The workspace emits declarations, declaration maps, and source maps. There is currently no process-side CoApp test suite. The extension-side `NativeClient` transport/lifecycle has nine Vitest cases, but they do not execute CoApp framing, child processes, filesystem, or HTTP code.
+
+## Failure model
+
+- Missing native registration: `connectNative` disconnects with Chrome's last error.
+- Synchronous first-connect failure: the extension does not cache the rejected attempt; a later call can reconnect after registration/install is repaired.
+- Missing runtime: process spawn fails or command exits nonzero.
+- FFmpeg/yt-dlp nonzero exit: CoApp returns code/stderr; background sends user-facing failure.
+- Extension disappears during callback: CoApp callback rejects; active conversion code may kill the child to avoid orphan work.
+- Direct network error: state becomes interrupted and `downloadError` is called.
+- Process shutdown: tracked FFmpeg/yt-dlp children are killed on SIGINT/SIGTERM/exit.
+
+See [native-messaging.md](native-messaging.md), [ffmpeg.md](ffmpeg.md), and [youtube.md](youtube.md).

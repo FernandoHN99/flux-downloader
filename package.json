@@ -13,6 +13,7 @@
     "build": "npm run build:extension && npm run build:coapp",
     "package:extension": "cd extension && npm run package",
     "dev:extension": "cd extension && npm run watch",
-    "dev:coapp": "cd coapp && npm run watch"
+    "dev:coapp": "cd coapp && npm run watch",
+    "test": "npm run test --workspace=extension && npm run test --workspace=coapp"
   }
 }
