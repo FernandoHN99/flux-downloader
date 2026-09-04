@@ -57,6 +57,7 @@ import { buildYtdlpVideo, fallbackYtdlpQualities } from './lib/youtube';
 import { inferRelayCodec, mergeRelayCodecs, resolveRelayUrl } from './lib/relay-codec';
 import { DownloadTracker } from './lib/download-tracker';
 import { buildDashQualities, buildHlsQualities } from './lib/manifest-qualities';
+import { rewriteHlsManifestUris } from './lib/hls-rewrite';
 
 const nativeClient = new NativeClient();
 
@@ -962,33 +963,17 @@ async function rewriteHlsInput(tabId: number, inputUrl: string, referer: string 
   if (parsed.type !== 'media' || !parsed.manifest) return inputUrl;
 
   const manifestUrl = parsed.manifestUrl || inputUrl;
-  let rewrittenCount = 0;
-  let unresolvedUri = false;
-  const rewriteUri = (value: string): string => {
-    const absolute = M3U8ParserWrapper.resolveUrl(value, manifestUrl);
-    const relayUrl = getRelayUrl(tabId, absolute);
-    if (!relayUrl) {
-      unresolvedUri = true;
-      return value;
-    }
-    rewrittenCount += 1;
-    return relayUrl;
-  };
+  const rewritten = rewriteHlsManifestUris(
+    parsed.manifest,
+    manifestUrl,
+    (absoluteUrl) => getRelayUrl(tabId, absoluteUrl)
+  );
 
-  const lines = parsed.manifest.split(/\r?\n/).map((line) => {
-    const trimmed = line.trim();
-    if (!trimmed) return line;
-    if (trimmed.startsWith('#')) {
-      return line.replace(/URI="([^"]+)"/g, (_match, uri: string) => `URI="${rewriteUri(uri)}"`);
-    }
-    return line.replace(trimmed, rewriteUri(trimmed));
-  });
-
-  if (rewrittenCount === 0 || unresolvedUri) {
+  if (rewritten.rewrittenCount === 0 || rewritten.unresolvedUrls.length > 0) {
     throw new Error('Browser relay mapping is incomplete. Start playback for a few seconds and retry the download.');
   }
   const placeholder = `__MEDIA_GRABBER_HLS_MANIFEST_${manifestFiles.length}__`;
-  manifestFiles.push({ placeholder, content: lines.join('\n') });
+  manifestFiles.push({ placeholder, content: rewritten.content });
   return placeholder;
 }
 
