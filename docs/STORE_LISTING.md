@@ -2,6 +2,8 @@
 
 Updated: 2026-09-03.
 
+Copy audit: reviewed against the 500-test post-refactor implementation and current GitHub-distributed `1.1.1` baseline.
+
 > Distribution status: Flux is currently shipped through GitHub Releases as an unpacked extension, **not** through the Chrome Web Store. This is maintained as canonical product copy for release pages or a future listing. Review store policy—especially YouTube behavior—before publishing.
 
 ## Product name
@@ -16,7 +18,7 @@ Detect online media and download the quality you choose with local tools.
 
 **Flux detects media used by your open browser tabs and lets you choose exactly what to save.**
 
-Supported detection includes HLS, DASH, direct MP4/WebM, video elements, and Media Source Extensions. When a manifest exposes several variants, Flux presents the available video qualities plus alternate audio and subtitle tracks.
+Supported detection includes HLS, DASH, direct MP4/WebM, video/audio/source elements (including dynamically inserted players), and Media Source Extensions. When a manifest exposes several variants, Flux presents the available video qualities plus alternate audio and subtitle tracks.
 
 Your media appears in one clear list:
 
@@ -26,6 +28,8 @@ Your media appears in one clear list:
 - flat view or collapsible folders grouped by the real source site;
 - one-click per-site or sequential batch downloads;
 - compact live progress with Stop.
+
+Flux serializes local downloads even if commands race from separate popup windows, so one FFmpeg, yt-dlp, or direct run owns the companion at a time.
 
 The always-visible **Refresh tabs** action rescans every open HTTP(S) page. It can also restore a current item that was accidentally removed from the local history list.
 

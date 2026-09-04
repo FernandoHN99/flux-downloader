@@ -58,11 +58,9 @@ npm run package:extension
 
 The GitHub workflow currently runs `npm ci` and `npm run build` but **does not run `npm test`**. Passing local tests is therefore a maintainer responsibility until CI is changed.
 
-## Known packaging blocker
+## Package validation
 
-After the popup CSS split, `popup.html` references `dist/popup.css`. At this documentation baseline, `extension/scripts/package-extension.mjs` copies only JavaScript names in `bundleFiles` and does not copy `popup.css`.
-
-Before the next release, update/verify packaging so the ZIP contains:
+The popup-CSS packaging blocker is resolved. `extension/scripts/package-extension.mjs` copies:
 
 ```text
 dist/background.js
@@ -73,7 +71,9 @@ dist/popup.css
 dist/settings.js
 ```
 
-Unpacked development can hide this error because `extension/dist/popup.css` exists locally. Always test the extracted ZIP.
+Before creating the archive, the script parses local `src` and `href` references in packaged `popup.html` and `settings.html`. It fails when an asset is missing or resolves outside staging. This protects the split `dist/popup.css` and future local HTML assets by construction.
+
+Unpacked development can still hide package-only errors. Keep `unzip -t`, file-list inspection, and a clean extracted-browser smoke test in release preflight.
 
 ## Fixed extension ID
 

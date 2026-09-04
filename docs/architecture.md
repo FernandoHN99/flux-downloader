@@ -17,7 +17,8 @@ Flux has two processes joined by Chrome native messaging:
 │  background.ts (Manifest V3 service worker)             │
 │  ├─ TabStateStore + detection aggregation               │
 │  ├─ local history/settings/download markers             │
-│  ├─ popup ports and download orchestration               │
+│  ├─ typed popup/content protocols + focused pure rules   │
+│  ├─ DownloadRunGate / BatchRun / DownloadTracker         │
 │  └─ NativeClient                                        │
 │            ▲                                            │
 │  popup App ─┴─ Store + components + typed messages      │
@@ -64,6 +65,15 @@ Any essential state stored only in the worker must be reconstructable. Current m
 - caches announced media so it can replay detections on `RESCAN`;
 - catches invalidated-extension errors instead of breaking the host page.
 
+The entry is now an integration shell. Deterministic work lives under `extension/src/content/`:
+
+- `dom-media.ts`: normalized subtree collection, including nested dynamic players;
+- `page-metadata.ts`: title, thumbnail, duration, and metadata projection;
+- `mse-bridge.ts`: page-world payload validation and immutable/cadenced state reduction;
+- `mse-media.ts`: replay identity and `VideoInfo` projection.
+
+One capture-phase `loadedmetadata` listener serves every media element. Refresh scans do not attach another listener to each existing element.
+
 ### MAIN-world hook
 
 `extension/src/mse-inject.ts` also runs at `document_start` in every frame, with `world: "MAIN"`. It can patch page APIs but cannot access `chrome.*`. It:
@@ -74,6 +84,8 @@ Any essential state stored only in the worker must be reconstructable. Current m
 - tracks MIME/codecs, segment counts/bytes, and generation;
 - observes fetch/XHR redirects/relay mappings used by opaque streams;
 - communicates through `window.postMessage` only.
+
+The isolated script accepts only validated bridge message shapes with matching page URL/generation. Invalid or duplicate observations cannot append undefined segment URLs or repeatedly announce the same 20-item boundary.
 
 ### Popup and settings
 
@@ -134,7 +146,9 @@ Every fresh page gets a monotonically increasing generation. Async parsing and y
 
 `tabs.onUpdated` records URL/navigation changes, resets page state, clears the badge, and notifies open popups. `tabs.onRemoved` deletes the whole state in one operation. The earlier `pageGenerationByTab` leak no longer exists.
 
-The following state intentionally remains global because its lifecycle is not one tab: active downloads, waiters/outcomes, batch run, popup ports, CoApp metadata, settings cache, and history-write queue.
+The following state intentionally remains global because its lifecycle is not one tab: `DownloadTracker` active IDs/waiters/outcomes, `DownloadRunGate`, `BatchRun`, popup ports, CoApp metadata, settings cache, and history-write queue.
+
+Pure service-worker rules live under `extension/src/lib/` rather than inside Chrome event callbacks. Important owners include `video-catalog.ts`, `page-context.ts`, `history.ts`, `http-media.ts`, `download-plan.ts`, `manifest-qualities.ts`, `relay-codec.ts`, and `hls-rewrite.ts`. Popup and content traffic use separate discriminated protocols in `popup-protocol.ts` and `content-protocol.ts`.
 
 ## Detection-to-history flow
 
@@ -162,6 +176,8 @@ network / DOM / MSE / YouTube metadata
 
 Top-frame page metadata is authoritative. Child frames can expose media, but must not replace source ownership. Metadata checks sender frame URL, sender tab URL, and content generation before commit.
 
+`upsertDetectedVideo()` preserves a known source `pageUrl` when a later partial/network detection lacks it. HLS/DASH fetch remains effectful in the worker, while `buildHlsQualities()` / `buildDashQualities()` perform the deterministic parser-output projection.
+
 ## Source page versus media URL
 
 This distinction is an invariant:
@@ -188,6 +204,8 @@ History is one list shared by all tabs, not a current-tab list plus a separate h
 - History read-modify-write operations are serialized through `historyWrites`.
 - Rename, delete, clear, and reorder all use the same queue.
 - `keepHistory=false` immediately prunes storage to current media and keeps pruning as tabs change.
+
+Merge, retain/remove, rename, reorder, decoration, and downloaded/failed marker updates are pure rules in `lib/history.ts`; the worker owns only serialized storage effects and broadcasts.
 
 The popup receives history and current media separately so it can preserve persisted order while calculating pinned current rows.
 
@@ -246,7 +264,7 @@ Single and batch runs share `ProgressPanel`. Batch progress counts the current q
 
 The current compact layout uses one header row (summary, optional bytes/speed/ETA, percent, Stop) and one progress-bar row. It is indeterminate before measurable progress arrives.
 
-Starting another download is disabled while manual or batch state owns the CoApp.
+Starting another download is disabled while manual or batch state owns the CoApp. This is only visual feedback: `DownloadRunGate` is the authoritative synchronous lock in the service worker.
 
 ## Central refresh architecture
 
@@ -273,7 +291,9 @@ A cold worker also calls `rescanAllTabs()` after `GET_MEDIA` when no tab has med
 
 ## Download orchestration
 
-`startDownload()` connects to CoApp, chooses a unique output name, records an active entry, and routes by type:
+Before any asynchronous preparation, the worker acquires one `DownloadRunGate` lease. A single download holds it until settlement; a batch holds it across its complete sequential queue. Thus another popup/window cannot bypass concurrency by racing UI state.
+
+`startDownload()` connects to CoApp, chooses a unique output name, records an active entry in `DownloadTracker`, and routes by type:
 
 | Media | Route | Progress |
 |---|---|---|
@@ -284,13 +304,19 @@ A cold worker also calls `rescanAllTabs()` after `GET_MEDIA` when no tab has med
 
 Historical items can carry expired signed URLs. The popup marks them with `checkFreshness=true`; the background calls `downloads.probeStatus` and reports common expiry statuses before starting the heavier process. Current media skips this probe.
 
-Batch downloads are sequential, choose Best/Worst per item, and write to one `Flux_<timestamp>` folder. Cancellation routes to FFmpeg PID, yt-dlp PID, or direct download ID.
+Batch downloads are sequential, choose Best/Worst video quality per item, and write to one `Flux_<timestamp>` folder. `BatchRun` owns the current source, remaining keys, counts, and cancellation state. A cancellation received before the native ID is known is applied immediately when that ID arrives; cancelled work is not persisted as failed.
+
+`DownloadTracker` retains very short-lived outcomes so a process that finishes before the batch begins waiting is still observed. It resolves multiple waiters, ignores duplicate/late callbacks, and keeps cancellation tombstones long enough to abort a late PID. FFmpeg/MSE/yt-dlp promises share one settlement path for popup events, notifications, markers, and lease release.
+
+Opaque HLS media playlists are transformed by `hls-rewrite.ts`: segment lines plus quoted key/init-map `URI` attributes are resolved against the final manifest URL and replaced with learned relay URLs. A zero/partial mapping fails before FFmpeg rather than producing a corrupt output.
 
 ## Native boundary
 
 The extension uses `chrome.runtime.connectNative("com.mediagrabber.coapp")`. Chrome serializes extension-side JS objects; the process-side stream uses a 4-byte little-endian byte length followed by UTF-8 JSON.
 
 `weh#rpc` is bidirectional request/reply. CoApp progress “pushes” are requests back to registered extension handlers, not unacknowledged notification envelopes.
+
+`NativeClient` retries unexpected disconnects after five seconds, times ordinary calls out after 60 seconds, and leaves long `convert`/`ytdlp` calls untimed. A synchronous first connection failure is never cached, so installing/restarting the host can be recovered by the next call. Nine extension tests cover this lifecycle and RPC correlation.
 
 See [native-messaging.md](native-messaging.md) and [coapp.md](coapp.md).
 
@@ -317,4 +343,8 @@ See [PRIVACY.md](PRIVACY.md) for exact disclosure.
 - A rebuilt extension invalidates content scripts already injected into pages.
 - HLS/DASH parsers are regex-based and need regression fixtures for new syntax.
 - The settings page is intentionally not forced into the popup component abstraction.
-- `background.ts` remains large; its tab-state consolidation is complete, but further extraction should preserve one owner per concern and be test-led.
+- `background.ts` remains the Chrome/I/O composition root. Deterministic rules already have focused owners; further extraction should target cohesive effects, preserve the single-owner boundaries above, and remain test-led.
+
+## Verification baseline
+
+As of this update, 38 Vitest files contain 500 passing extension tests. This includes popup components, parsers, content DOM/MSE helpers, protocols, catalog/history/relay/download state, and `NativeClient`. The CoApp still has no process-side test runner. Required verification remains `npm test` followed by `npm run build`.

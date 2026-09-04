@@ -165,7 +165,7 @@ open web pages
   └─ service-worker webRequest listeners
                  │
                  ▼
-      background TabStateStore
+      background TabStateStore + download-run gate
         ├─ current media from every tab
         ├─ persisted history and markers
         ├─ popup message protocol
@@ -187,7 +187,7 @@ Read [architecture.md](docs/architecture.md), [detection.md](docs/detection.md),
 ### Commands
 
 ```bash
-npm test                    # 19 files / 290 tests at the 2026-09-03 baseline
+npm test                    # 38 files / 500 tests at the 2026-09-03 baseline
 npm run build               # full extension + CoApp verification
 npm run build:extension
 npm run build:coapp
@@ -195,7 +195,7 @@ npm run package:extension
 npm run dev:coapp
 ```
 
-Tests use Vitest with happy-dom and live under `extension/src/**/*.test.ts`. There are currently no CoApp tests and no linter.
+Tests use Vitest with happy-dom and live under `extension/src/**/*.test.ts`. They cover popup components, pure content/background rules, parsers, download lifecycle, and the extension-side native client. There are currently no process-side CoApp tests and no linter.
 
 `npm run dev:extension` is currently broken because no extension `watch` script exists. Re-run the extension or full build after edits.
 
@@ -206,11 +206,15 @@ Tests use Vitest with happy-dom and live under `extension/src/**/*.test.ts`. The
 | `extension/src/background.ts` | MV3 service worker, current/history state, protocol, downloads |
 | `extension/src/lib/tab-state.ts` | one owner for per-tab state and page generations |
 | `extension/src/lib/history.ts` | pure history merge/source attribution rules |
-| `extension/src/content.ts` | DOM detection, metadata, navigation, rescan cache |
+| `extension/src/content.ts` | isolated-world integration, navigation, rescan cache |
+| `extension/src/content/` | tested DOM collection, metadata, MSE bridge validation/reduction |
 | `extension/src/mse-inject.ts` | MAIN-world MSE/fetch/XHR hook |
 | `extension/src/lib/m3u8-parser.ts` | HLS parsing |
 | `extension/src/lib/dash-parser.ts` | DASH parsing |
-| `extension/src/lib/native-client.ts` | bidirectional native RPC client |
+| `extension/src/lib/manifest-qualities.ts` | parsed HLS/DASH → typed quality choices |
+| `extension/src/lib/download-tracker.ts` | active IDs, outcomes, waiters, cancellation lifecycle |
+| `extension/src/lib/download-run-gate.ts` | service-worker enforcement of one native run |
+| `extension/src/lib/native-client.ts` | tested bidirectional native RPC client/reconnect lifecycle |
 | `extension/src/popup/index.ts` | popup app shell |
 | `extension/src/popup/state.ts` | separate remote and local UI state |
 | `extension/src/popup/components/` | DOM-owning UI components |
@@ -218,6 +222,8 @@ Tests use Vitest with happy-dom and live under `extension/src/**/*.test.ts`. The
 | `coapp/src/` | native RPC, downloads, runtimes, paths, registration |
 
 The detailed refactor record and invariants future agents must preserve are in [AGENTS.md](AGENTS.md) and [the project changelog](docs/changelog.md).
+
+`npm run package:extension` includes `dist/popup.css` and fails before archiving if popup/settings HTML references a missing local asset.
 
 ## Troubleshooting
 

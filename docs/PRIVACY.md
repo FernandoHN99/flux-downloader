@@ -2,6 +2,8 @@
 
 Last updated: 2026-09-03.
 
+Implementation audit: reviewed against the 500-test post-refactor baseline. Storage keys, permissions, external services, and runtime pins did not change.
+
 Flux is the user-facing name of the MediaGrabber browser extension and local companion application.
 
 ## Summary
@@ -44,6 +46,8 @@ While running, the extension may hold:
 - relay URL mappings;
 - popup search/selection/rename state;
 - active/batch download status and progress.
+
+Page-world MSE/fetch/XHR observations are shape-validated in the isolated content script before entering this transient state. Segment observations are deduplicated and capped at 500 per page generation.
 
 Most tab state disappears when a tab closes or the Manifest V3 service worker is stopped. Active native processes have their own local lifetime.
 
@@ -92,6 +96,8 @@ Current `extension/manifest.json` permissions:
 | `<all_urls>` host access | run detectors and inspect media across supported web pages |
 
 Two scripts run at `document_start` in every frame: an isolated content detector and a MAIN-world MSE/fetch/XHR observer. The MAIN-world script cannot access extension storage/APIs and communicates through page messages.
+
+Those page messages are not treated as trusted storage or native commands: the isolated script validates their type, page URL, generation, and type-specific fields, then emits the narrower typed content/background protocol. The service worker separately enforces one local native download run at a time.
 
 ## What Flux does not do
 

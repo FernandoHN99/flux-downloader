@@ -2,6 +2,8 @@
 
 Updated: 2026-09-03.
 
+Pin audit: rechecked during the 500-test refactor documentation pass. No runtime provider, version, license, download URL, or redistribution model changed in that work.
+
 Flux is the product name; MediaGrabber is the repository/release namespace. MediaGrabber release tooling installs or embeds the following third-party runtimes. They are governed by their own licenses.
 
 ## FFmpeg and ffprobe

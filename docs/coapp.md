@@ -89,6 +89,8 @@ Format normalization:
 - adds manual and automatic subtitle options;
 - returns title, duration, and thumbnail.
 
+Every returned choice now carries explicit `kind: video | audio | subtitle`. The extension revalidates/coerces the native payload in `lib/youtube.ts` and infers a kind for older CoApp payloads, so a batch “Worst” choice cannot accidentally select MP3 while video exists.
+
 Downloads always use `--no-playlist`, `--no-warnings`, `--newline`, and an output template. If a local FFmpeg directory is found it is passed through `--ffmpeg-location`.
 
 Progress lines are converted to percent/speed/ETA payloads and sent through the same `convertOutput` callback consumed by the extension's compact progress UI.
@@ -204,11 +206,12 @@ npm run build:sea
 npm start
 ```
 
-The workspace emits declarations, declaration maps, and source maps. There is currently no CoApp test suite.
+The workspace emits declarations, declaration maps, and source maps. There is currently no process-side CoApp test suite. The extension-side `NativeClient` transport/lifecycle has nine Vitest cases, but they do not execute CoApp framing, child processes, filesystem, or HTTP code.
 
 ## Failure model
 
 - Missing native registration: `connectNative` disconnects with Chrome's last error.
+- Synchronous first-connect failure: the extension does not cache the rejected attempt; a later call can reconnect after registration/install is repaired.
 - Missing runtime: process spawn fails or command exits nonzero.
 - FFmpeg/yt-dlp nonzero exit: CoApp returns code/stderr; background sends user-facing failure.
 - Extension disappears during callback: CoApp callback rejects; active conversion code may kill the child to avoid orphan work.

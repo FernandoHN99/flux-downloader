@@ -52,10 +52,38 @@ This section describes commits after the `v1.1.1` tag on the current refactor li
 - Prevented stale async parser/yt-dlp results from repopulating a reused tab ID.
 - Kept downloads, batch, popup ports, settings cache, and history-write queue outside tab state because they have different lifetimes.
 
+### Pure boundaries and protocols
+
+- Reduced `content.ts` from 595 to 261 lines by extracting page metadata, URL classification, MSE projection/reduction, and normalized DOM subtree collection.
+- Removed the content script's dead private M3U8 parser and made content/background share `media-url.ts`.
+- Added typed, validated popup/background and content/background protocols.
+- Extracted video catalog, source ownership, history mutations, HTTP context, download planning, yt-dlp normalization, manifest quality projection, HLS relay rewriting, and relay codec inference.
+- Preserved known `pageUrl` values across partial detections instead of letting a CDN-only update erase ownership.
+- Hardened relay inference to require a one-to-one character mapping.
+
+### Download lifecycle and native client
+
+- Added `DownloadTracker` for active IDs, early outcomes, multiple waiters, cancellation tombstones, and late-callback suppression.
+- Added `BatchRun` for deterministic queue transitions; cancellation no longer marks the current video failed.
+- Fixed cancellation arriving before `startDownload()` returns its native ID.
+- Reserved a batch before its first await so rapid duplicate starts cannot overlap.
+- Added `DownloadRunGate`, enforced in the service worker, so popup instances and batches share one native execution slot.
+- Centralized FFmpeg/MSE/yt-dlp completion, error publication, and ownership release.
+- Added nine extension-side `NativeClient` tests and fixed retries after an initial synchronous `connectNative` failure.
+
+### Content and manifest fixes
+
+- Validated MAIN-world MSE messages before mutating isolated-world state; invalid durations/bytes/URLs are rejected.
+- Reduced MSE events immutably, capped segments at 500, and stopped duplicate segments from re-announcing snapshots.
+- Centralized DOM media collection, including nested dynamically inserted players, and replaced per-element metadata listeners with one capture listener.
+- Added explicit HLS `SUBTITLES` group tracking so valid subtitle renditions are not filtered as unrelated.
+- Projected HLS/DASH parser output into explicit video/audio/subtitle qualities in a tested module.
+- Covered HLS relay rewriting for segments, encryption-key URIs, and init-map URIs; partial relay maps fail early.
+
 ### Parser work
 
 - Deleted unreachable `lib/quality-utils.ts` and `lib/mpd-parser.ts` (333 lines), including duplicate formatter implementations.
-- Added 37 HLS parser tests and 39 DASH parser tests.
+- Added 38 HLS parser tests and 39 DASH parser tests.
 - Covered realistic master/media manifests, relative URLs, CRLF, ordering, audio/subtitle renditions, inherited DASH attributes, DRM flags, and deduplication.
 - Fixed DASH `mediaPresentationDuration` parsing for full ISO forms such as `P0Y0M0DT0H25M23.000S`.
 - Added days/weeks support and deliberately reject non-zero years/months.
@@ -77,8 +105,8 @@ This section describes commits after the `v1.1.1` tag on the current refactor li
 
 At this baseline:
 
-- 19 test files;
-- 290 passing tests;
+- 38 test files;
+- 500 passing tests;
 - Vitest 3 + happy-dom;
 - full extension and CoApp build passes;
 - no linter and no CoApp test suite yet.
@@ -114,10 +142,29 @@ At this baseline:
 | `3c52e13` | `TabStateStore` consolidation |
 | `893c3e8` | all-tab refresh and page-source fix |
 | `9388ff9` | compact progress and flat reorder inset |
+| `2d4187a` | pure content detection helpers |
+| `f98bae1` | video catalog rules |
+| `0ac5a04` | HTTP/media and download-plan rules |
+| `3731f0e` | typed popup protocol |
+| `6760fc9` | typed content protocol |
+| `2edc30d` | page ownership merge rules |
+| `be786b6` | yt-dlp quality normalization |
+| `97ac193` | popup CSS packaging and asset validation |
+| `f6ed1b1` | relay codec hardening |
+| `714932c` | active download lifecycle |
+| `47f1b32` | history mutation rules |
+| `21471c3` | manifest quality projection/subtitle groups |
+| `b3fbb3c` | HLS relay rewriting |
+| `aed5095` | batch state/race fixes |
+| `59428ef` | MSE bridge validation/reducer |
+| `7cab5b6` | DOM media collection/listener fix |
+| `c70b819` | native reconnect retry/tests |
+| `d1e8be5` | global native-run gate |
+| `9c3a496` | native process settlement |
 
-### Known release check
+### Resolved release check
 
-`extension/scripts/package-extension.mjs` currently copies the JavaScript bundles but its `bundleFiles` list does not include `dist/popup.css`, while packaged `popup.html` references that path. Unpacked development loads correctly because the build directory exists, but the ZIP must be inspected/fixed before the next release.
+`extension/scripts/package-extension.mjs` now includes `dist/popup.css`. Before archiving it scans local `src`/`href` references in popup/settings HTML and fails if an asset is missing or escapes the staging directory. The resulting ZIP still needs extracted-browser smoke testing before release.
 
 ## 1.1.1 — opaque HLS segment rewrite
 

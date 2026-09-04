@@ -143,13 +143,16 @@ Unknown or non-function methods produce an error reply.
 `NativeClient`:
 
 - opens `chrome.runtime.connectNative("com.mediagrabber.coapp")` lazily;
-- coalesces simultaneous connection attempts;
+- reuses an already-live port (connection setup itself is synchronous);
+- never caches a synchronous failed `connectNative` attempt, so the next call can recover after installation/restart;
 - rejects every pending call when the port disconnects;
 - records Chrome's `runtime.lastError` in a `ConnectionError`;
 - schedules reconnect after five seconds unless disconnect was intentional;
 - times ordinary calls out after 60 seconds;
 - gives long-running `convert` and `ytdlp` calls no client timeout;
 - can retry recoverable operations with increasing delays through `withRetry`.
+
+Nine extension-side tests cover live-port reuse, retry after initial failure, request/reply correlation, remote errors, timeout policy, reverse calls, unknown handlers, reconnect, and intentional disconnect. These are transport-client tests; the Node CoApp still has no process-side suite.
 
 The settings status does not trust a cold `connected` boolean. Its `PING` background handler first tries to connect, calls `info`, and then reports version/error.
 
@@ -189,9 +192,11 @@ Extension                         CoApp
 
 Do not confuse native RPC with the long-lived `chrome.runtime.connect({name: "popup"})` port.
 
-The popup uses typed application messages such as `GET_MEDIA`, `REFRESH_TABS`, `DOWNLOAD`, `MEDIA_LIST`, and `DOWNLOAD_PROGRESS`. These have no `weh#rpc` envelope and never cross the native process boundary directly.
+The popup uses the discriminated protocol in `extension/src/lib/popup-protocol.ts`, with application messages such as `GET_MEDIA`, `REFRESH_TABS`, `DOWNLOAD`, `MEDIA_LIST`, and `DOWNLOAD_PROGRESS`. Unknown popup message types are rejected before routing. These messages have no `weh#rpc` envelope and never cross the native process boundary directly.
 
-Similarly, `RESCAN` is an internal background → content-script runtime message.
+Similarly, `extension/src/lib/content-protocol.ts` separately types and validates content/background traffic. `RESCAN` is an internal background → content-script runtime message; do not rename it to the user-facing `REFRESH_TABS` command.
+
+The service worker's `DownloadRunGate` reserves one native execution slot before asynchronous setup. This is above RPC: it prevents separate popups or a batch/manual race from starting overlapping FFmpeg, yt-dlp, or direct runs.
 
 ## Native manifest
 

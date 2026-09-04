@@ -66,9 +66,13 @@ When an audio-only format exists, Flux adds **Audio MP3**:
 -f ba -x --audio-format mp3 --audio-quality 0
 ```
 
+The CoApp marks this option with `kind: "audio"`; video choices use `kind: "video"`.
+
 ### Subtitles
 
 Manual subtitle languages become options using `--write-subs`, and automatic caption languages use `--write-auto-subs`. Both use `--skip-download` and retain language/extension metadata.
+
+Subtitle choices use `kind: "subtitle"`. `extension/src/lib/youtube.ts` sanitizes the entire native result and infers kinds for payloads from older CoApp versions. Batch Best/Worst first selects video-kind options, falling back to non-video only when no video exists.
 
 The exact available formats, languages, and metadata depend on yt-dlp, the page, region, login state, and YouTube at that moment.
 
@@ -111,6 +115,8 @@ The CoApp parses yt-dlp `[download] N% ... at SPEED ... ETA ...` lines. It sends
 The background associates the process PID through `convertStartNotification(startHandler, pid)`.
 
 Cancellation calls `abortYtdlp(pid)` and kills the child process. The popup uses the same compact progress panel and Stop action as every other route.
+
+The service-worker `DownloadRunGate` prevents yt-dlp from overlapping any FFmpeg/direct/manual/batch run. Completion/error handling is shared with native FFmpeg processes so active state and the lease are released consistently.
 
 ## Runtime discovery
 

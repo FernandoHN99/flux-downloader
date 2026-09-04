@@ -56,7 +56,7 @@ That rule is intentionally narrower than globally ignoring hostnames: direct fil
 
 It owns:
 
-- `mediaUrls` and `manifestUrls` dedup sets;
+- `mediaUrls`, the normalized per-page-generation dedup set;
 - `announced`, a replayable map of everything this page generation has sent;
 - the last metadata signature;
 - current page URL/content generation;
@@ -64,7 +64,9 @@ It owns:
 
 ### DOM scan
 
-At startup, after relevant page lifecycle events, on mutations, and on refresh, it scans media elements and sources. Candidate URLs are resolved against `window.location.href` and restricted to HTTP(S).
+At startup, after relevant page lifecycle events, on mutations, and on refresh, `content/dom-media.ts` scans one DOM subtree. It finds nested dynamically inserted players as well as the added root itself, normalizes each URL against `window.location.href`, and deduplicates the result.
+
+`video`, `audio`, and `source` elements are media evidence even when the URL has no familiar extension or uses `blob:`. An arbitrary element's `src` is accepted only when it is a recognizable HTTP(S) HLS/DASH/MP4/WebM URL. One capture-phase `loadedmetadata` listener handles all present/future media; rescans no longer add another listener per element.
 
 For each detection it sends `VIDEO_DETECTED` with:
 
@@ -116,11 +118,13 @@ It wraps or observes:
 - selected fetch/XHR behavior and Performance entries to associate an original request with an opaque/relay response URL;
 - SPA navigation APIs to reset MSE state.
 
-The isolated content script validates `event.source` and the MediaGrabber message source, then converts those observations into `VIDEO_DETECTED` or `MEDIA_URL_MAP` messages.
+The isolated content script validates `event.source` and every `content/mse-bridge.ts` discriminated payload before converting observations into `VIDEO_DETECTED` or `MEDIA_URL_MAP` messages. It rejects malformed URLs, non-finite/zero durations, negative byte counts, unknown types, and invalid generations.
+
+`reduceMseState()` immutably applies valid source-buffer, segment, duration, and progress events. It retains at most 500 unique segment URLs, announces the first and every twentieth new segment, and does not re-announce when a duplicate happens to arrive at one of those boundaries. Rescan replays only the latest MSE snapshot under the stable `mse` replay key.
 
 ### Relay mappings
 
-Some players transform an original media URL into an opaque relay URL. The worker stores exact original→relay mappings and can learn a per-origin character mapping for the current time window. This state belongs to one tab/page and is discarded on reset/close.
+Some players transform an original media URL into an opaque relay URL. The worker stores exact original→relay mappings and can learn a per-origin character mapping for the current time window. Inference requires a consistent one-to-one substitution; ambiguous mappings are rejected instead of guessing a relay URL. This state belongs to one tab/page and is discarded on reset/close.
 
 Treat this logic as site-compatibility code. Do not move mappings into global persistent storage.
 
@@ -136,15 +140,18 @@ The regex/line parser supports:
 - relative and absolute URLs;
 - CRLF input;
 - alternate audio/subtitle `EXT-X-MEDIA` renditions;
+- `AUDIO` and `SUBTITLES` group references on each variant;
 - bandwidth-descending ordering;
 - child URL and segment collection;
 - semantic deduplication.
 
-Same dimensions/bitrate/codecs are not sufficient to merge variants when their audio groups differ. Groups with equivalent rendition members can be deduplicated.
+Same dimensions/bitrate/codecs are not sufficient to merge variants when their audio groups differ. Groups with equivalent rendition members can be deduplicated. Tracking subtitle group IDs prevents active subtitles from being discarded as unrelated renditions.
+
+`lib/manifest-qualities.ts` projects parser output into explicit video/audio/subtitle choices. Alternate HLS audio creates a video choice with two inputs, Referer/Origin context, explicit stream maps, and stream copy; standalone audio/subtitle tracks remain selectable.
 
 Calling `parse(manifest)` without a base URL cannot resolve relative variant/segment URLs. Production calls use `fetchAndParse` or provide an explicit base.
 
-Current baseline: **37 HLS tests** in `m3u8-parser.test.ts`.
+Current baseline: **38 HLS tests** in `m3u8-parser.test.ts`, plus focused manifest-quality projection tests.
 
 ## DASH
 
@@ -166,6 +173,8 @@ ISO-8601 duration accepts short `PT...` forms, full packager forms such as `P0Y0
 Current baseline: **39 DASH tests** in `dash-parser.test.ts`.
 
 The parser can identify encrypted representations; Flux does not bypass DRM.
+
+DASH video/subtitle choices are also produced by `lib/manifest-qualities.ts`, keeping parser syntax separate from popup/FFmpeg projection.
 
 ## YouTube
 
@@ -216,6 +225,8 @@ The first step restores a current row even if the user deleted it and it came on
 When a worker starts cold and `GET_MEDIA` finds no tab state, it also requests a rescan.
 
 Restricted pages, tabs without a listener, and old invalidated content scripts are skipped. Reload the page after reloading the extension if refresh cannot reach it.
+
+Popup → background traffic is typed in `lib/popup-protocol.ts`; content → background and internal `RESCAN` traffic is independently typed/validated in `lib/content-protocol.ts`. Keep the two refresh names and protocol boundaries distinct.
 
 ## Detection troubleshooting
 

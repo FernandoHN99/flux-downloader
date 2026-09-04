@@ -1,6 +1,6 @@
 # Flux / MediaGrabber — Agent Instructions
 
-This file is the authoritative implementation guide for AI agents working in this repository. It describes the code as it exists after the popup/background refactor completed on 2026-09-03. When a count or behavior matters, verify it again before changing code.
+This file is the authoritative implementation guide for AI agents working in this repository. It describes the code as it exists after the popup, content, background, and download-lifecycle refactor completed on 2026-09-03. When a count or behavior matters, verify it again before changing code.
 
 ## Identity and scope
 
@@ -21,8 +21,9 @@ This is an npm-workspaces monorepo.
 | `extension/` | Manifest V3 extension (`mediagrabber-extension`) |
 | `extension/src/background.ts` | Service worker: detection aggregation, tab state, history, popup protocol, downloads |
 | `extension/src/content.ts` | Isolated-world DOM detector and bridge from the page world |
+| `extension/src/content/` | Tested DOM collection, page metadata, MSE bridge validation/reduction, detection projection |
 | `extension/src/mse-inject.ts` | MAIN-world MSE/fetch/XHR hook; cannot use `chrome.*` |
-| `extension/src/lib/` | Shared types, parsers, history/state helpers, native client, settings |
+| `extension/src/lib/` | Shared protocols/types, parsers/projections, state/history/download lifecycle, native client, settings |
 | `extension/src/popup/` | Component popup, settings page, and component-scoped CSS |
 | `coapp/` | Native messaging host (`mediagrabber-coapp`) |
 | `coapp/src/` | RPC, FFmpeg, yt-dlp, HTTP download, paths, registration, installer |
@@ -63,13 +64,13 @@ For Windows development, `coapp/scripts/register-dev-host.ps1 -ExtensionId <id>`
 
 As of 2026-09-03:
 
-- 19 extension test files and **290 tests** pass.
+- 38 extension test files and **500 tests** pass.
 - Tests use Vitest 3 with `happy-dom`; configuration is in `extension/vitest.config.ts`.
-- There are no CoApp tests and no linter.
+- `NativeClient` is covered on the extension side; there are still no process-side CoApp tests and no linter.
 - The required final verification for code changes is `npm test` followed by `npm run build`.
 - Parser and component regressions should be protected with tests before or with a refactor.
 
-Do not keep reporting the 290 count after adding/removing tests without rerunning the suite.
+Do not keep reporting the 500 count after adding/removing tests without rerunning the suite.
 
 ## Extension build and loading
 
@@ -141,10 +142,11 @@ Chrome action popups require explicit pixel sizing. Do not replace the fixed wid
 
 ### Progress and concurrency
 
-- One download run owns the CoApp at a time; the UI blocks concurrent starts.
+- One download run owns the CoApp at a time. `DownloadRunGate` enforces this synchronously in the worker; popup disabling is feedback, not the lock.
 - `ProgressPanel` handles both single and batch runs.
 - The compact panel is two visual rows: summary/speed/ETA/percent/Stop, then the bar. The 2026-09-03 browser preview measured 44px high (previously 54px).
 - The active row shows a percentage; other batch rows show `Queued`.
+- `BatchRun` owns queue transitions. A cancelled item is not marked failed, and cancellation that arrives before a native ID is applied as soon as the ID appears.
 
 ## Central refresh flow
 
@@ -178,7 +180,7 @@ If a cold service worker receives `GET_MEDIA` with no tab media state, it automa
 
 `resetPage()` creates a fresh generation while preserving navigation identity. `tabs.onRemoved` deletes the complete state. Generations are globally monotonic for the service-worker lifetime so late async parser/yt-dlp results cannot repopulate a reused tab ID.
 
-State with a different lifetime remains outside `TabStateStore`: active downloads, batch state, completion waiters, popup ports, settings cache, and serialized history writes.
+State with a different lifetime remains outside `TabStateStore`: `DownloadTracker`, `DownloadRunGate`, `BatchRun`, popup ports, settings cache, and serialized history writes.
 
 ### Persistent storage
 
@@ -215,7 +217,7 @@ The manifest registers two scripts on `<all_urls>`, in all frames, at `document_
 
 The service worker also observes `webRequest.onBeforeRequest` and `onHeadersReceived` for HTTP(S) HLS, DASH, MP4, and WebM candidates. It merges network, DOM, and MSE findings per tab.
 
-Top-frame metadata owns page title/URL/thumbnail. Messages are checked against sender frame URL, sender tab URL, and content generation; stale navigation results are discarded. Child frames may contribute media but must not replace top-level source ownership.
+Top-frame metadata owns page title/URL/thumbnail. Messages are checked against sender frame URL, sender tab URL, and content generation; stale navigation results are discarded. Child frames may contribute media but must not replace top-level source ownership. `content/dom-media.ts` performs normalized subtree collection and `content/mse-bridge.ts` validates/reduces page-world traffic before it mutates isolated-world state.
 
 `mse-inject.ts` is self-contained and guarded by `window.__MediaGrabberMSEHooked`. It has no extension API access. Content-script sends catch invalidated-extension errors because a loaded page can outlive an extension reload.
 
@@ -228,11 +230,13 @@ Both parsers are regex-based because `DOMParser` is not available in the MV3 ser
 - Redirect-chain manifest deduplication intentionally compares pathname while ignoring hostname.
 - `VideoQuality.kind` is `video`, `audio`, or `subtitle`.
 - HLS preserves distinct same-resolution variants when their audio rendition groups differ, but deduplicates groups with equivalent rendition membership.
+- HLS variants record both `AUDIO` and `SUBTITLES` group IDs. `manifest-qualities.ts` projects parsed variants/renditions into typed popup/FFmpeg choices.
+- `hls-rewrite.ts` rewrites segment, key, and init-map URIs for learned browser relays and rejects a partial mapping.
 - DASH inherits representation attributes from `AdaptationSet`, records DRM presence, extracts subtitle tracks, and parses ISO-8601 media durations.
 - DASH duration accepts full zero-year/month forms such as `P0Y0M0DT0H25M23.000S`, plus days/weeks. Non-zero years or months are rejected because they have no fixed duration.
 - Calling M3U8 `parse()` without a base URL cannot resolve/return relative variants; production `fetchAndParse()` supplies one.
 
-Current parser coverage: 37 HLS tests and 39 DASH tests. The deleted `lib/quality-utils.ts` and `lib/mpd-parser.ts` were unreachable duplicates; do not reintroduce or import them.
+Current parser coverage: 38 HLS tests and 39 DASH tests. The deleted `lib/quality-utils.ts` and `lib/mpd-parser.ts` were unreachable duplicates; do not reintroduce or import them.
 
 ## YouTube
 
@@ -268,7 +272,7 @@ Key CoApp handlers:
 - direct HTTP: `downloads.download`, `downloads.search`, `downloads.probeStatus`, `downloads.cancel`
 - filesystem: `file.uniquePath`, `file.ensureDir`
 
-`NativeClient` uses a 60-second timeout for ordinary RPC, no timeout for long-running `convert`/`ytdlp`, rejects pending calls on disconnect, and retries connection after five seconds.
+`NativeClient` uses a 60-second timeout for ordinary RPC, no timeout for long-running `convert`/`ytdlp`, rejects pending calls on disconnect, and retries connection after five seconds. A synchronous initial `connectNative` failure is not cached; a later call must make a fresh attempt. Its extension-side lifecycle/RPC behavior has nine tests.
 
 ### Runtime paths
 
@@ -280,7 +284,7 @@ Release install roots:
 
 `MEDIAGRABBER_INSTALL_DIR` overrides the install root. `MEDIAGRABBER_HOME` adds a runtime search root.
 
-Runtime binaries are searched under known roots using `ffmpeg/{win|darwin|linux}/`, `ytdlp/{win|darwin|linux}/`, then project/current-working-directory fallbacks, then system `PATH` command names. Note that source-development folders use `coapp/ffmpeg/mac` and `coapp/ytdlp/mac`, while `paths.ts` derives `darwin` for release roots; verify the actual platform path before changing discovery logic.
+Runtime binaries are searched under known roots using `ffmpeg/{win|darwin|linux}/`, `ytdlp/{win|darwin|linux}/`, then project/current-working-directory fallbacks, then system `PATH` command names. The tracked yt-dlp placeholder uses `coapp/ytdlp/mac`, while `paths.ts` derives `darwin`; there is currently no tracked `coapp/ffmpeg/` tree. Verify actual platform paths before changing discovery logic.
 
 The CoApp uses Node built-in HTTP/HTTPS streams so SEA builds do not depend on an ESM-only HTTP client.
 
@@ -293,6 +297,7 @@ The CoApp uses Node built-in HTTP/HTTPS streams so SEA builds do not depend on a
 - Historical links are probed for expiration before download; current links skip that check.
 - Output names are sanitized and `file.uniquePath` appends `_1`, `_2`, etc. rather than overwriting.
 - Batch downloads are sequential and use a `Flux_<timestamp>` folder.
+- `DownloadRunGate` reserves the one native execution slot before the first await, across popup instances and the complete batch. `DownloadTracker` owns active IDs/outcomes/cancellation tombstones; one settlement path publishes process completion and releases ownership.
 
 FFmpeg `out_time_ms` is treated as nanoseconds in this integration and divided by `1_000_000` to produce seconds. Preserve the tested behavior even though the field name is misleading.
 
@@ -304,7 +309,7 @@ Pushing a `v*` tag triggers `.github/workflows/release.yml` on Windows with Node
 
 Current workflow pins FFmpeg 8.1.2 Essentials and yt-dlp 2026.07.04. Update `THIRD_PARTY_NOTICES.md` and checksums/config whenever runtime pins change.
 
-Known pre-release blocker: `extension/scripts/package-extension.mjs` currently omits `dist/popup.css` from its copied bundle list even though packaged `popup.html` references it. Unpacked development masks this. Inspect/fix the ZIP before tagging.
+`extension/scripts/package-extension.mjs` includes `dist/popup.css` and validates every local `src`/`href` in packaged popup/settings HTML before creating the ZIP. Still inspect and load the extracted archive before tagging.
 
 Do not inject an already SEA-injected CoApp binary directly into another SEA binary: duplicate Node SEA sentinels are unsafe. The installer embeds the gzip-compressed CoApp asset.
 
@@ -324,6 +329,25 @@ These commits are the context future work must preserve:
 | `3c52e13` | Replaced scattered per-tab maps with `TabStateStore` and fixed generation cleanup/leak |
 | `893c3e8` | Centralized all-tab refresh and fixed source-page ownership (Rocketseat/CDN case) |
 | `9388ff9` | Compacted progress UI and inset the flat-list reorder outline |
+| `2d4187a` | Extracted content URL/metadata/MSE detection helpers and removed a dead parser |
+| `f98bae1` | Extracted video catalog rules; partial updates retain known source ownership |
+| `0ac5a04` | Extracted HTTP/media and download-plan rules |
+| `3731f0e` | Centralized the typed popup/background protocol |
+| `6760fc9` | Centralized and validated the typed content/background protocol |
+| `2edc30d` | Extracted source-page ownership merge rules |
+| `be786b6` | Normalized yt-dlp qualities and explicit video/audio/subtitle kinds |
+| `97ac193` | Added popup CSS to the ZIP and packaged-HTML asset validation |
+| `f6ed1b1` | Extracted and hardened one-to-one relay codec inference |
+| `714932c` | Centralized active download outcomes, waiters, and cancellation tombstones |
+| `47f1b32` | Extracted pure history mutation/decorating rules |
+| `21471c3` | Extracted HLS/DASH quality projection and fixed HLS subtitle-group ownership |
+| `b3fbb3c` | Extracted pure HLS relay-manifest rewriting |
+| `aed5095` | Centralized batch transitions and fixed start/cancel races |
+| `59428ef` | Validated and reduced MAIN-world MSE bridge events |
+| `7cab5b6` | Centralized DOM media collection and removed repeated metadata listeners |
+| `c70b819` | Fixed retry after an initial native connection failure; added RPC lifecycle tests |
+| `d1e8be5` | Enforced one native download run in the service worker |
+| `9c3a496` | Centralized FFmpeg/MSE/yt-dlp process settlement |
 
 Structural regressions this refactor prevents:
 
@@ -334,6 +358,16 @@ Structural regressions this refactor prevents:
 - dead listeners for nonexistent elements;
 - redraws destroying focused search/rename fields;
 - tab cleanup spread across independent maps;
-- CDN hosts replacing the page that actually owns a video.
+- CDN hosts replacing the page that actually owns a video;
+- partial detections erasing a previously known `pageUrl`;
+- ambiguous relay mappings generating a plausible but wrong URL;
+- late/duplicate native callbacks reviving a cancelled download;
+- HLS subtitle groups being discarded because only audio group IDs were tracked;
+- double batch starts and cancellation-before-download-ID races;
+- invalid/duplicate page-world MSE events polluting or flooding content state;
+- every refresh attaching another `loadedmetadata` listener to the same media element;
+- an initial missing native host making every later connect retry reuse one rejected promise;
+- separate popup instances bypassing the visual-only download concurrency guard;
+- packaged popup HTML referencing a CSS asset absent from the ZIP.
 
-Preserve these invariants with tests whenever touching popup rendering, history merging, tab generations, refresh, or source attribution.
+Preserve these invariants with tests whenever touching popup rendering, content detection, protocols, history/catalog merging, tab generations, refresh, source attribution, native lifecycle, download concurrency/cancellation, or packaging.

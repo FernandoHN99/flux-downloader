@@ -30,7 +30,7 @@ cd coapp && npm start
 
 `npm run dev:extension` does not work: the extension has no `watch` script.
 
-Verification baseline: 19 extension test files, 290 tests, no CoApp tests, no linter.
+Verification baseline: 38 extension test files, 500 tests, no process-side CoApp tests, no linter.
 
 ## Load and register
 
@@ -57,6 +57,13 @@ node dist/native-autoinstall-cli.js unregister
 | `extension/src/popup/styles/index.css` | `extension/dist/popup.css` |
 | `coapp/src/main.ts` | `coapp/dist/main.js` |
 
+Focused source owners (not separate bundles):
+
+- `extension/src/content/{dom-media,page-metadata,mse-bridge,mse-media}.ts`
+- `extension/src/lib/{popup-protocol,content-protocol,video-catalog,page-context,history}.ts`
+- `extension/src/lib/{manifest-qualities,hls-rewrite,relay-codec}.ts`
+- `extension/src/lib/{download-plan,download-tracker,download-run-gate,batch-run}.ts`
+
 ## Popup
 
 - `App`: store, messenger, top-level components.
@@ -67,6 +74,7 @@ node dist/native-autoinstall-cli.js unregister
 - Movable history rows live in `.reorder-zone`; grouped zones cannot exchange rows.
 - Flat reorder zone has `margin-inline: 3px` so the dashed border stays visible.
 - Progress UI is one compact two-row panel for single and batch runs.
+- `DownloadRunGate` in the service worker is the real concurrency lock; popup disabled state is feedback only.
 
 ## Refresh
 
@@ -123,11 +131,11 @@ History writes are serialized through `historyWrites`.
 ## Detection
 
 - Service-worker `webRequest`: HLS, DASH, MP4, WebM by URL/content type.
-- Isolated content script: video/source DOM, metadata, SPA navigation, cached rescan.
+- Isolated content script: normalized DOM subtree collection, metadata, SPA navigation, validated MSE bridge, cached rescan.
 - MAIN-world hook: MediaSource/SourceBuffer plus fetch/XHR relay observations.
 - YouTube: top-page metadata → CoApp `ytdlpFormats`; raw YouTube media is not shown.
 - HLS/DASH parsers are regex-based.
-- Parser baseline: 37 M3U8 tests + 39 DASH tests.
+- Parser baseline: 38 M3U8 tests + 39 DASH tests, plus manifest-quality projection tests.
 
 ## Popup messages
 
@@ -155,6 +163,8 @@ CoApp handlers:
 
 CoApp → extension callbacks are also RPC requests: `convertOutput`, `convertStartNotification`, `downloadComplete`, `downloadError`.
 
+`NativeClient`: ordinary timeout 60 seconds; `convert`/`ytdlp` untimed; pending calls reject on disconnect; unexpected reconnect delay 5 seconds; a synchronous initial connection failure is not cached. Nine extension tests cover the lifecycle.
+
 ## Download routing
 
 | Type | Engine |
@@ -165,6 +175,12 @@ CoApp → extension callbacks are also RPC requests: `convertOutput`, `convertSt
 | Direct MP4/WebM | CoApp Node HTTP/HTTPS stream |
 
 Historical links are probed for common expiration responses. Output collision suffix is `_1`, `_2`, etc. Batch folder is `Flux_<timestamp>`.
+
+`DownloadTracker` owns active IDs/outcomes/waiters/cancellation tombstones. `BatchRun` owns queue transitions and late-start cancellation. A cancelled item is not marked failed.
+
+## Extension package
+
+`npm run package:extension` copies all six bundles, including `dist/popup.css`, then validates local `src`/`href` references in popup/settings HTML before creating `extension/MediaGrabber-extension.zip`.
 
 ## Install roots
 

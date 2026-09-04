@@ -4,7 +4,7 @@ This directory documents the implementation in this repository. It no longer des
 
 The product name displayed in the browser is **Flux**. Internal packages, the native host, install paths, GitHub repository, and release artifacts continue to use **MediaGrabber**.
 
-Documentation baseline: **2026-09-03**, version `1.1.1`, including the component popup, `TabStateStore`, central all-tab refresh, source-page attribution fix, parser suite, compact progress panel, and flat-list reorder inset.
+Documentation baseline: **2026-09-03**, version `1.1.1`, including the component popup, pure content/background boundaries, `TabStateStore`, central all-tab refresh, source-page attribution, parser/manifest projection, download lifecycle/concurrency, native reconnect coverage, package validation, compact progress panel, and flat-list reorder inset.
 
 ## Start here
 
@@ -33,7 +33,9 @@ Documentation baseline: **2026-09-03**, version `1.1.1`, including the component
 - Top-level source page is kept separately from media/CDN URLs.
 - Vanilla TypeScript components with component-owned DOM and split CSS.
 - Per-tab background data is owned by one `TabStateStore`.
-- Vitest + happy-dom: 19 files / 290 passing tests at this baseline.
+- Vitest + happy-dom: 38 files / 500 passing tests at this baseline.
+- Content-side DOM/MSE transformations and background catalog/history/download rules live in focused tested modules rather than anonymous service-worker blocks.
+- One `DownloadRunGate` in the worker—not popup timing—enforces the single native run.
 - Full verification: `npm test`, then `npm run build`.
 - Tagged release automation currently builds Windows x64 only.
 
@@ -48,3 +50,5 @@ When behavior changes:
 5. Update privacy/store/release/third-party files when their claims are affected.
 
 Source code is the final authority. Counts and pinned versions are dated snapshots and must be rerun/rechecked before copying them forward.
+
+All 15 tracked Markdown files were reviewed against this baseline. Focused implementation documents carry the details; privacy, listing, release, and third-party claims were rechecked as part of the same audit.

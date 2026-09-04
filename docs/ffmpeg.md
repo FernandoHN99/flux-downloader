@@ -113,6 +113,8 @@ Some opaque HLS streams require rewritten manifests. The background can send `ma
 
 Do not write these generated manifests into the repository or download folder.
 
+The text transformation is isolated in `extension/src/lib/hls-rewrite.ts`. It resolves segment lines and quoted `URI` attributes (including encryption keys and init maps) against the final manifest response URL, then asks the tab's relay codec for replacements. If zero URIs are rewritten or any URI is unresolved, the background fails with an actionable “start playback and retry” error instead of passing a partially rewritten playlist to FFmpeg.
+
 ## Progress
 
 FFmpeg writes key/value records to stdout because of `-progress pipe:1`. The CoApp accumulates a record until it sees `progress=...` and then calls:
@@ -146,7 +148,7 @@ Cancellation:
 
 All tracked FFmpeg children are also killed when CoApp receives SIGINT/SIGTERM or exits.
 
-The popup prevents concurrent runs, but PID association must still remain keyed because async start/progress callbacks can interleave.
+The popup disables concurrent actions for feedback, and `DownloadRunGate` enforces the same rule synchronously in the service worker across popup instances. PID association must still remain keyed because cancellation can arrive before `convertStartNotification`; `DownloadTracker` keeps a cancellation tombstone and aborts that late PID.
 
 ## Completion and errors
 
@@ -160,12 +162,14 @@ The popup prevents concurrent runs, but PID association must still remain keyed 
 }
 ```
 
-The background:
+The background uses one settlement path for FFmpeg, MSE conversion, and yt-dlp. It:
 
 - publishes `DOWNLOAD_COMPLETE` and a desktop notification for exit code 0;
 - formats stderr into `DOWNLOAD_ERROR` for nonzero exit;
 - marks the stable source key as downloaded only on success;
 - releases the active/batch waiter in both cases.
+
+Single downloads release their native-run lease on settlement. A batch retains one lease between sequential items and releases it only when the queue ends. Cancelled batch items do not receive a persistent failure marker.
 
 Historical signed URLs are probed through `downloads.probeStatus` before FFmpeg starts. Common HTTP expiry statuses produce a direct “reopen the page” error instead of an opaque FFmpeg failure.
 
