@@ -42,7 +42,6 @@ import {
 } from './lib/download-plan';
 import { isPopupRequest } from './lib/popup-protocol';
 import type {
-  BatchStatus,
   PopupMessage,
   PopupRequest
 } from './lib/popup-protocol';
@@ -58,6 +57,7 @@ import { inferRelayCodec, mergeRelayCodecs, resolveRelayUrl } from './lib/relay-
 import { DownloadTracker } from './lib/download-tracker';
 import { buildDashQualities, buildHlsQualities } from './lib/manifest-qualities';
 import { rewriteHlsManifestUris } from './lib/hls-rewrite';
+import { BatchRun } from './lib/batch-run';
 
 const nativeClient = new NativeClient();
 
@@ -492,15 +492,11 @@ async function probeLinkStatus(url: string, referer?: string): Promise<number | 
 
 // --- Batch download ("Download all" from history) ---
 
-interface BatchState extends BatchStatus {
-  currentKey?: string;
-}
-
-let batch: BatchState | null = null;
+let batch: BatchRun | null = null;
 
 function broadcastBatch(): void {
   popupPorts.forEach((port) => {
-    postPopup(port, { type: 'BATCH_STATUS', batch });
+    postPopup(port, { type: 'BATCH_STATUS', batch: batch?.snapshot() || null });
   });
 }
 
@@ -508,44 +504,49 @@ function broadcastBatch(): void {
 // the same CDN tend to get throttled.
 async function runBatchDownload(videos: VideoInfo[], tabId?: number, quality?: 'best' | 'worst'): Promise<void> {
   if (batch) return;
-  const settings = await getSettings();
-  const preference = quality || settings.batchQuality;
 
   // Each run drops its files in its own folder, stamped with the epoch
   // milliseconds so two runs in the same second can't collide.
   const folder = `Flux_${Date.now()}`;
+  const state = new BatchRun(videos, folder);
+  // Reserve the batch before the first await so two requests cannot both pass
+  // the guard while settings or directory creation is pending.
+  batch = state;
+  broadcastBatch();
+
+  let settings: Settings;
+  try {
+    settings = await getSettings();
+  } catch (error: any) {
+    if (batch === state) batch = null;
+    broadcastBatch();
+    popupPorts.forEach((port) => postPopup(port, {
+      type: 'ERROR',
+      message: `Could not load download settings: ${error?.message || error}`
+    }));
+    return;
+  }
+  const preference = quality || settings.batchQuality;
   const directory = joinOutputPath(defaultDownloadDir, folder, coappPlatform);
   try {
     await nativeClient.ensureDir(directory);
   } catch (error: any) {
+    if (batch === state) batch = null;
+    broadcastBatch();
     popupPorts.forEach((port) => postPopup(port, { type: 'ERROR', message: `Could not create ${folder}: ${error?.message || error}` }));
     return;
   }
-
-  const state: BatchState = {
-    total: videos.length,
-    completed: 0,
-    failed: 0,
-    folder,
-    cancelled: false,
-    remainingKeys: videos.map((video) => videoKey(video.url))
-  };
-  batch = state;
-  broadcastBatch();
 
   for (const video of videos) {
     if (state.cancelled) break;
     const chosen = pickBatchQuality(video, preference);
     if (!chosen) {
-      state.failed += 1;
-      const skipped = videoKey(video.url);
-      state.remainingKeys = (state.remainingKeys || []).filter((key) => key !== skipped);
+      state.skip(video);
       broadcastBatch();
       continue;
     }
 
-    state.currentTitle = video.title;
-    state.currentSourceKey = videoKey(video.url);
+    state.begin(video);
     broadcastBatch();
 
     try {
@@ -557,40 +558,42 @@ async function runBatchDownload(videos: VideoInfo[], tabId?: number, quality?: '
         true,
         directory
       );
-      state.currentKey = started?.downloadId;
-      const succeeded = state.currentKey ? await waitForDownload(state.currentKey) : false;
-      if (succeeded) {
-        state.completed += 1;
-      } else {
-        state.failed += 1;
+      const downloadId = started?.downloadId;
+      const cancelLateStart = state.attachDownload(downloadId);
+      if (cancelLateStart && downloadId) {
+        await handleCancelDownload(downloadId).catch(() => { /* already finished */ });
+      }
+      const succeeded = downloadId ? await waitForDownload(downloadId) : false;
+      const outcome = state.complete(video, succeeded);
+      if (outcome.markFailed) {
         await markFailed(video.url).catch(() => { /* badge is best-effort */ });
       }
     } catch (error: any) {
-      state.failed += 1;
-      await markFailed(video.url).catch(() => { /* badge is best-effort */ });
+      const outcome = state.complete(video, false);
+      if (outcome.markFailed) {
+        await markFailed(video.url).catch(() => { /* badge is best-effort */ });
+      }
       const message = error?.message || String(error);
       popupPorts.forEach((port) => {
         postPopup(port, { type: 'ERROR', message: `${video.title}: ${message}` });
       });
     }
-    state.currentKey = undefined;
-    state.currentSourceKey = undefined;
-    const done = videoKey(video.url);
-    state.remainingKeys = (state.remainingKeys || []).filter((key) => key !== done);
     broadcastBatch();
   }
 
-  batch = null;
+  if (batch === state) batch = null;
   broadcastBatch();
-  notify('Batch download finished', `${state.completed} downloaded, ${state.failed} failed`);
+  const result = state.snapshot();
+  notify(
+    result.cancelled ? 'Batch download cancelled' : 'Batch download finished',
+    `${result.completed} downloaded, ${result.failed} failed`
+  );
 }
 
 // Cancels only the batch's own download — a manually started one keeps running.
 async function cancelBatchDownload(): Promise<void> {
   if (!batch) return;
-  batch.cancelled = true;
-  batch.remainingKeys = [];
-  const key = batch.currentKey;
+  const key = batch.cancel();
   broadcastBatch();
   if (key) {
     try { await handleCancelDownload(key); } catch { /* already finished */ }
@@ -841,7 +844,7 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: PopupRequest): void 
       break;
 
     case 'GET_BATCH_STATUS':
-      postPopup(port, { type: 'BATCH_STATUS', batch });
+      postPopup(port, { type: 'BATCH_STATUS', batch: batch?.snapshot() || null });
       break;
 
     case 'GET_ACTIVE_DOWNLOAD': {
