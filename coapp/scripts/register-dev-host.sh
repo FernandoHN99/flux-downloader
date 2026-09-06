@@ -55,13 +55,31 @@ esac
 
 mkdir -p "$DEV_DIR"
 
-NODE_BIN="$(command -v node)"
+# fnm places a full Node executable under a per-shell `fnm_multishells`
+# directory. `command -v node` therefore looks valid during registration but
+# can become stale after that shell is cleaned up. Node resolves its own real,
+# versioned installation path for us, which remains executable across shells.
+NODE_BIN="$(node -p 'process.execPath')"
+if [[ ! -x "$NODE_BIN" ]]; then
+  echo "Could not resolve an executable Node runtime: $NODE_BIN" >&2
+  exit 1
+fi
 LAUNCHER="$DEV_DIR/flux-host-dev"
+DEV_LOG="${FLUX_DEV_HOST_LOG:-}"
 
-cat > "$LAUNCHER" <<EOF
+if [[ -n "$DEV_LOG" ]]; then
+  mkdir -p "$(dirname "$DEV_LOG")"
+  cat > "$LAUNCHER" <<EOF
+#!/bin/bash
+printf '[%s] Native host launch: %s\\n' "\$(date '+%Y-%m-%d %H:%M:%S')" "\$*" >> "$DEV_LOG"
+exec "$NODE_BIN" "$DIST_MAIN" "\$@" 2>> "$DEV_LOG"
+EOF
+else
+  cat > "$LAUNCHER" <<EOF
 #!/bin/bash
 exec "$NODE_BIN" "$DIST_MAIN" "\$@"
 EOF
+fi
 chmod +x "$LAUNCHER"
 
 MANIFEST_PATH="$DEV_DIR/com.fluxdownloader.coapp.json"
@@ -84,7 +102,10 @@ echo "Dev native host registered."
 echo "Launcher: $LAUNCHER"
 echo "Manifest: $MANIFEST_PATH"
 echo "Extension ID: $EXTENSION_ID"
+echo "Node: $NODE_BIN"
+if [[ -n "$DEV_LOG" ]]; then
+  echo "Debug log: $DEV_LOG"
+fi
 echo
-echo "Note: the launcher embeds an absolute path to dist/main.js. Re-run this"
-echo "script if you move or rename the repository, or the host will fail to"
-echo "start with a MODULE_NOT_FOUND error."
+echo "Note: the launcher embeds absolute paths to Node and dist/main.js. Re-run"
+echo "this script if you move/rename the repository or replace the Node version."
