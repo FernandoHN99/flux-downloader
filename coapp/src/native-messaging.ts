@@ -33,6 +33,28 @@ function processInput(chunk: Buffer): void {
 
 rpc.setPost(Send);
 process.stdin.on('data', processInput);
+process.stdin.on('end', () => {
+  console.error('[Flux Downloader CoApp] Browser closed native stdin');
+});
+process.stdin.on('error', (error) => {
+  console.error('[Flux Downloader CoApp] Native stdin error:', error);
+});
+process.stdout.on('error', (error: NodeJS.ErrnoException) => {
+  console.error('[Flux Downloader CoApp] Native stdout error:', error);
+  // Once the browser side has gone away there is no channel to recover. Exit
+  // deliberately instead of letting a later RPC write become an opaque crash.
+  if (error.code === 'EPIPE') process.exit(0);
+});
+
+process.on('uncaughtExceptionMonitor', (error, origin) => {
+  console.error(`[Flux Downloader CoApp] Fatal ${origin}:`, error);
+});
+process.on('beforeExit', (code) => {
+  console.error('[Flux Downloader CoApp] Event loop became idle (code %d)', code);
+});
+process.on('exit', (code) => {
+  console.error('[Flux Downloader CoApp] Process exiting (code %d)', code);
+});
 
 process.on('SIGINT', () => process.exit(0));
 process.on('SIGTERM', () => process.exit(0));

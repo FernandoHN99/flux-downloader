@@ -12,7 +12,7 @@ import { applyIncoming } from './incoming';
 import { Messenger } from './messages';
 import type { QualityOption } from './quality';
 import {
-  busyLabel, downloadInProgress, isCurrent, isDownloading, progressView, visibleEntries
+  busyLabel, downloadInProgress, isCurrent, isDownloading, progressDetail, progressView, visibleEntries
 } from './selectors';
 import { Store, type AppState, type BatchQuality } from './state';
 
@@ -112,7 +112,7 @@ class App {
     const entries = visibleEntries(state);
     const blocked = downloadInProgress(state);
 
-    this.progress.setState({ view: progressView(state), detail: state.remote.progress });
+    this.progress.setState({ view: progressView(state), detail: progressDetail(state) });
     this.refresh.setState({ refreshing: state.ui.refreshing });
 
     this.header.setState({

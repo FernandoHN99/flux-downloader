@@ -69,19 +69,22 @@ alone leaves the host unreachable. `coapp/scripts/register-dev-host.sh`
 (Windows) instead build/register a launcher that execs this checkout's
 `dist/main.js`. Both derive the extension ID from `extension/manifest.json`
 automatically. Re-run the script after moving or renaming the repository —
-the launcher embeds an absolute path.
+the launcher embeds absolute paths to the checkout and the physical Node
+runtime. The shell script deliberately uses `process.execPath`, not
+`command -v node`, so fnm's disposable per-shell `fnm_multishells` path is
+never persisted. Re-run it after replacing the selected Node version too.
 
 ## Verification baseline
 
-As of 2026-09-03:
+As of 2026-09-04:
 
-- 40 extension test files and **519 tests** pass, plus 1 CoApp file with **7 tests** — 526 in total.
+- 42 extension test files and **564 tests** pass, plus 7 CoApp files with **21 tests** — 585 in total.
 - Tests use Vitest 3 with `happy-dom`; configuration is in `extension/vitest.config.ts`.
-- `NativeClient` is covered on the extension side; there are still no process-side CoApp tests and no linter.
+- `NativeClient` is covered on the extension side. CoApp covers RPC, HTTP ranges/fallback/cancellation against loopback, line buffering, keyed progress arguments, and yt-dlp arguments; there are still no real FFmpeg/yt-dlp child-process integration tests and no linter.
 - The required final verification for code changes is `npm test` followed by `npm run build`.
 - Parser and component regressions should be protected with tests before or with a refactor.
 
-Do not keep reporting the 526 count after adding or removing tests without rerunning the suite.
+Do not keep reporting the 585 count after adding or removing tests without rerunning the suite.
 
 ## Extension build and loading
 
@@ -178,7 +181,9 @@ The handler list, RPC framing, runtime path discovery, install roots and SEA pac
 
 HLS/DASH go through FFmpeg `convert`, MSE through FFmpeg with reconstructed inputs, YouTube through yt-dlp, and direct media through the CoApp HTTP downloader. Historical links are probed for expiration first; current links skip the check.
 
-One download run owns the CoApp at a time, reserved synchronously by `DownloadRunGate` before the first await. Popup button state is feedback, not the lock.
+One user-visible download run owns a synchronous `DownloadRunGate` lease before the first await. Popup button state is feedback, not the lock. A batch retains one lease while running up to four ID-keyed native jobs concurrently.
+
+yt-dlp uses eight concurrent fragments. Direct HTTP proves range support with a one-byte request and uses up to eight validated ranges (minimum 4 MiB per connection), with per-range resume/retry and clean sequential fallback. See **[docs/performance.md](docs/performance.md)** for the complete tuning, compatibility, and cancellation model.
 
 Routing detail, the tracker/batch invariants, the FFmpeg `out_time_ms` nanosecond quirk, and output naming are documented in **[extension/src/download/AGENTS.md](extension/src/download/AGENTS.md)**.
 
@@ -253,5 +258,9 @@ Structural regressions this refactor prevents:
 - separate popup instances bypassing the visual-only download concurrency guard;
 - packaged popup HTML referencing a CSS asset absent from the ZIP;
 - in-place HLS argument insertion skipping or misordering a later audio input.
+- same-millisecond FFmpeg/yt-dlp starts sharing a logical key and progress;
+- parallel batch items selecting the same not-yet-created output filename;
+- partial/reset HTTP bodies being published as successfully completed files;
+- unkeyed concurrent process progress being painted onto every active row.
 
 Preserve these invariants with tests whenever touching popup rendering, content detection, protocols, history/catalog merging, tab generations, refresh, source attribution, native lifecycle, download concurrency/cancellation, or packaging.

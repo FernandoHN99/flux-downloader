@@ -19,6 +19,11 @@ The service worker wires domains together: it owns `TabStateStore`,
 `BatchRun`, and the popup ports. Business rules belong in the domain folders;
 this file should read as orchestration.
 
+The run gate is exclusive at the user-command level, not the process level. A
+batch owns one lease while `batch-pool.ts` dispatches four native operations.
+Every FFmpeg/yt-dlp progress callback must be attributed by `startHandler`; an
+old unkeyed callback is usable only when exactly one matching process is active.
+
 It is still the largest file in the repo (~1,400 lines). When adding to it, ask
 whether the logic could be a tested unit in `detection/`, `catalog/` or
 `download/` instead.

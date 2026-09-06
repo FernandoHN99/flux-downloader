@@ -1,6 +1,6 @@
 # Flux Downloader quick reference
 
-Updated: 2026-09-03.
+Updated: 2026-09-04.
 
 ## Identity
 
@@ -31,7 +31,7 @@ cd coapp && npm start
 
 `npm run dev:extension` runs one no-emit TypeScript checker plus esbuild watchers for `background.js`, `content.js`, `mse-inject.js`, `popup.js`, `settings.js`, and `popup.css`. Bundles update in `extension/dist/`; browser extension/page reloads remain manual.
 
-Verification baseline: 39 extension test files, 505 tests, no process-side CoApp tests, no linter.
+Verification baseline: 42 extension files / 564 tests plus 7 CoApp files / 21 tests (585 total); no real FFmpeg/yt-dlp download integration tests and no linter.
 
 ## Load and register
 
@@ -75,7 +75,7 @@ Focused source owners (not separate bundles):
 - Movable history rows live in `.reorder-zone`; grouped zones cannot exchange rows.
 - Flat reorder zone has `margin-inline: 3px` so the dashed border stays visible.
 - Progress UI is one compact two-row panel for single and batch runs.
-- `DownloadRunGate` in the service worker is the real concurrency lock; popup disabled state is feedback only.
+- `DownloadRunGate` in the service worker is the real user-run lock; popup disabled state is feedback only. One batch lease fans out to four native jobs.
 
 ## Refresh
 
@@ -173,11 +173,11 @@ CoApp → extension callbacks are also RPC requests: `convertOutput`, `convertSt
 | HLS/DASH | FFmpeg stream copy/remux |
 | MSE | FFmpeg with captured/reconstructed input |
 | YouTube | yt-dlp |
-| Direct MP4/WebM | CoApp Node HTTP/HTTPS stream |
+| Direct MP4/WebM | CoApp Node HTTP/HTTPS, up to 8 validated byte ranges |
 
 Historical links are probed for common expiration responses. Output collision suffix is `_1`, `_2`, etc. Batch folder is `Flux_<timestamp>`.
 
-`DownloadTracker` owns active IDs/outcomes/waiters/cancellation tombstones. `BatchRun` owns queue transitions and late-start cancellation. A cancelled item is not marked failed.
+`DownloadTracker` owns active IDs/outcomes/waiters/cancellation tombstones. `BatchRun` owns concurrent active IDs, queue transitions, and late-start cancellation. The bounded batch pool runs four items at once; a cancelled item is not marked failed.
 
 ## Extension package
 

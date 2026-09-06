@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { VideoInfo, VideoQuality } from '../shared/types';
 import {
+  buildBatchDownloadPlans,
   ensureFilenameExtension,
   formatFfmpegError,
   getDefaultExtension,
@@ -63,6 +64,25 @@ describe('download filenames', () => {
   it('replaces known media extensions and accepts a dotted target', () => {
     expect(ensureFilenameExtension('lesson.M3U8', '.mp4')).toBe('lesson.mp4');
     expect(ensureFilenameExtension('lesson.part', 'webm')).toBe('lesson.part.webm');
+  });
+
+  it('preallocates distinct case-insensitive names for concurrent batch starts', () => {
+    const first = video([quality(1080, { url: 'https://cdn.example/one' })]);
+    first.title = 'Lesson: 1';
+    const second = video([quality(720, { url: 'https://cdn.example/two' })]);
+    second.title = 'lesson? 1';
+    const third = video([]);
+    third.title = 'No quality';
+
+    const plans = buildBatchDownloadPlans([first, second, third], 'best');
+
+    expect(plans.map((plan) => plan.filename)).toEqual([
+      'Lesson_ 1.mp4',
+      'lesson_ 1_1.mp4',
+      undefined
+    ]);
+    expect(plans[0].selected?.url).toBe('https://cdn.example/one');
+    expect(plans[2].selected).toBeUndefined();
   });
 
   it.each([

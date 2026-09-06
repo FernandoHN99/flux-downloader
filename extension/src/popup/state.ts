@@ -19,6 +19,8 @@ export interface RemoteState {
   /** The one video being written, whichever kind of run it belongs to. */
   activeDownloadKey: string | null;
   progress: ProgressDetail | null;
+  /** Per-row progress is required when several batch items run together. */
+  progressByKey: ReadonlyMap<string, ProgressDetail>;
 }
 
 /**
@@ -58,7 +60,8 @@ export function initialState(): AppState {
       manualDownloadKey: null,
       manualDownloadId: null,
       activeDownloadKey: null,
-      progress: null
+      progress: null,
+      progressByKey: new Map()
     },
     ui: {
       search: '',

@@ -262,11 +262,11 @@ Flat mode gives the direct zone a 3px inline margin so its outline remains insid
 
 ### Progress model
 
-Single and batch runs share `ProgressPanel`. Batch progress counts the current queue position; only `activeDownloadKey` receives a live percentage and remaining rows say `Queued`.
+Single and batch runs share `ProgressPanel`. Concurrent active rows retain keyed percentages, queued rows say `Queued`, and the batch bar combines settled items with fractional progress from every active item.
 
 The current compact layout uses one header row (summary, optional bytes/speed/ETA, percent, Stop) and one progress-bar row. It is indeterminate before measurable progress arrives.
 
-Starting another download is disabled while manual or batch state owns the CoApp. This is only visual feedback: `DownloadRunGate` is the authoritative synchronous lock in the service worker.
+Starting another user-visible run is disabled while manual or batch state owns the CoApp. This is only visual feedback: `DownloadRunGate` is the authoritative synchronous lock in the service worker, while a batch lease permits four internal jobs.
 
 ## Central refresh architecture
 
@@ -293,7 +293,7 @@ A cold worker also calls `rescanAllTabs()` after `GET_MEDIA` when no tab has med
 
 ## Download orchestration
 
-Before any asynchronous preparation, the worker acquires one `DownloadRunGate` lease. A single download holds it until settlement; a batch holds it across its complete sequential queue. Thus another popup/window cannot bypass concurrency by racing UI state.
+Before any asynchronous preparation, the worker acquires one `DownloadRunGate` lease. A single download holds it until settlement; a batch holds it across its complete concurrent pool. Thus another popup/window cannot race a second user-visible run, while the batch itself can keep four network-bound jobs in flight.
 
 `startDownload()` connects to CoApp, chooses a unique output name, records an active entry in `DownloadTracker`, and routes by type:
 
@@ -306,9 +306,9 @@ Before any asynchronous preparation, the worker acquires one `DownloadRunGate` l
 
 Historical items can carry expired signed URLs. The popup marks them with `checkFreshness=true`; the background calls `downloads.probeStatus` and reports common expiry statuses before starting the heavier process. Current media skips this probe.
 
-Batch downloads are sequential, choose Best/Worst video quality per item, and write to one `Flux_<timestamp>` folder. `BatchRun` owns the current source, remaining keys, counts, and cancellation state. A cancellation received before the native ID is known is applied immediately when that ID arrives; cancelled work is not persisted as failed.
+Batch downloads use a four-worker pool, choose Best/Worst video quality per item, and write to one `Flux_<timestamp>` folder. Names are sanitized/deduplicated before dispatch. `BatchRun` owns all active sources/IDs, remaining keys, counts, and cancellation state. Stop aborts every known ID; a cancellation received before any native ID is known is applied immediately when that ID arrives. Cancelled work is not persisted as failed.
 
-`DownloadTracker` retains very short-lived outcomes so a process that finishes before the batch begins waiting is still observed. It resolves multiple waiters, ignores duplicate/late callbacks, and keeps cancellation tombstones long enough to abort a late PID. FFmpeg/MSE/yt-dlp promises share one settlement path for popup events, notifications, markers, and lease release.
+`DownloadTracker` retains very short-lived outcomes so a process that finishes before its batch worker begins waiting is still observed. It resolves multiple waiters, ignores duplicate/late callbacks, and keeps cancellation tombstones long enough to abort a late PID. FFmpeg/MSE/yt-dlp promises share one settlement path for popup events, notifications, markers, and lease release. Keyed progress prevents concurrent process updates from being projected onto the wrong rows.
 
 Opaque HLS media playlists are transformed by `hls-rewrite.ts`: segment lines plus quoted key/init-map `URI` attributes are resolved against the final manifest URL and replaced with learned relay URLs. A zero/partial mapping fails before FFmpeg rather than producing a corrupt output. `hls-arguments.ts` then walks the original FFmpeg array into a new one, rewriting every HTTP(S) input—including separate video/audio manifests—and placing protocol options immediately before the matching `-i`.
 
@@ -349,4 +349,4 @@ See [PRIVACY.md](PRIVACY.md) for exact disclosure.
 
 ## Verification baseline
 
-As of this update, 39 Vitest files contain 505 passing extension tests. This includes popup components, parsers, content DOM/MSE helpers, protocols, catalog/history/relay/download state, HLS argument preparation, and `NativeClient`. The CoApp still has no process-side test runner. Required verification remains `npm test` followed by `npm run build`.
+As of 2026-09-04, 42 extension Vitest files contain 564 passing tests and 7 CoApp files contain 21, for 585 total. This includes popup components, parsers, content DOM/MSE helpers, protocols, catalog/history/relay/download state, concurrent batch planning, collision-safe process keys, `NativeClient`, RPC, real loopback HTTP transfer behavior, restricted-PATH runtime discovery, and missing-child settlement. Real FFmpeg/yt-dlp download integration remains uncovered. Required verification remains `npm test` followed by `npm run build`.

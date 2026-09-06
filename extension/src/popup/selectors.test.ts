@@ -3,7 +3,7 @@ import type { HistoryEntry } from '../shared/types';
 import { initialState, type AppState } from './state';
 import {
   busyLabel, canReorder, downloadInProgress, groupByDomain,
-  isDownloading, orderedEntries, progressView, visibleEntries
+  isDownloading, orderedEntries, progressDetail, progressView, visibleEntries
 } from './selectors';
 
 const entry = (title: string, url: string, pageUrl?: string): HistoryEntry =>
@@ -83,9 +83,10 @@ describe('download gating', () => {
     expect(downloadInProgress(stateWith({ batch }))).toBe(true);
   });
 
-  it('is idle once the queue empties', () => {
+  it('stays blocked until the background retires the batch object', () => {
     const batch = { total: 2, completed: 2, failed: 0, remainingKeys: [], cancelled: false };
-    expect(downloadInProgress(stateWith({ batch }))).toBe(false);
+    expect(downloadInProgress(stateWith({ batch }))).toBe(true);
+    expect(downloadInProgress(stateWith({ batch: null }))).toBe(false);
   });
 
   it('marks every queued video as busy, not just the active one', () => {
@@ -99,26 +100,49 @@ describe('download gating', () => {
 
 describe('busyLabel', () => {
   it('gives a percentage only to the video actually being written', () => {
-    const state = stateWith({ activeDownloadKey: RS9, progress: { percent: 37.6 } });
+    const state = stateWith({
+      manualDownloadKey: RS9,
+      activeDownloadKey: RS9,
+      progress: { percent: 37.6 }
+    });
     expect(busyLabel(state, RS9)).toBe('Downloading… 38%');
     expect(busyLabel(state, RS8)).toBe('Queued');
   });
 
   it('omits the percentage until there is one', () => {
-    const state = stateWith({ activeDownloadKey: RS9, progress: { percent: 0 } });
+    const state = stateWith({ manualDownloadKey: RS9, activeDownloadKey: RS9, progress: { percent: 0 } });
     expect(busyLabel(state, RS9)).toBe('Downloading…');
+  });
+
+  it('shows independent progress for every active batch row', () => {
+    const batch = {
+      total: 3, completed: 0, failed: 0, remainingKeys: [RS9, RS8, UDEMY],
+      activeSourceKeys: [RS9, RS8], cancelled: false
+    };
+    const state = stateWith({
+      batch,
+      progressByKey: new Map([[RS9, { percent: 22 }], [RS8, { percent: 67 }]])
+    });
+    expect(busyLabel(state, RS9)).toBe('Downloading… 22%');
+    expect(busyLabel(state, RS8)).toBe('Downloading… 67%');
+    expect(busyLabel(state, UDEMY)).toBe('Queued');
   });
 });
 
 describe('progressView', () => {
-  it('counts the video being fetched, so a run of five opens at 1 / 5', () => {
-    const batch = { total: 5, completed: 0, failed: 0, remainingKeys: [], cancelled: false };
-    expect(progressView(stateWith({ batch }))).toEqual({ current: 1, total: 5, kind: 'batch' });
+  it('reports settled and active counts for a concurrent batch', () => {
+    const batch = {
+      total: 5, completed: 0, failed: 0, remainingKeys: [RS9, RS8],
+      activeSourceKeys: [RS9, RS8], concurrency: 4, cancelled: false
+    };
+    expect(progressView(stateWith({ batch }))).toEqual({
+      current: 0, total: 5, kind: 'batch', active: 2, concurrency: 4
+    });
   });
 
   it('advances as videos finish, counting failures too', () => {
     const batch = { total: 5, completed: 2, failed: 1, remainingKeys: [], cancelled: false };
-    expect(progressView(stateWith({ batch }))!.current).toBe(4);
+    expect(progressView(stateWith({ batch }))!.current).toBe(3);
   });
 
   it('never counts past the total on the last video', () => {
@@ -133,6 +157,18 @@ describe('progressView', () => {
 
   it('shows nothing when idle', () => {
     expect(progressView(stateWith())).toBeNull();
+  });
+
+  it('aggregates completed and fractional active item progress', () => {
+    const batch = {
+      total: 4, completed: 1, failed: 0, remainingKeys: [RS9, RS8, UDEMY],
+      activeSourceKeys: [RS9, RS8], cancelled: false
+    };
+    const detail = progressDetail(stateWith({
+      batch,
+      progressByKey: new Map([[RS9, { percent: 50 }], [RS8, { percent: 25 }]])
+    }));
+    expect(detail?.percent).toBe(43.75);
   });
 });
 

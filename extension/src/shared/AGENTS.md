@@ -26,6 +26,15 @@ different lifetimes.
 When adding a message, add it to the union *and* the guard. A message the guard
 does not know is dropped, which fails silently and is hard to trace.
 
+Concurrent batches depend on `BatchStatus.activeSourceKeys`/`concurrency` and
+the optional `sourceKey` on progress/completion/error events. These source keys
+are stable `videoKey()` values, not native process IDs. Keep the older optional
+fields readable so popup/background upgrades remain tolerant.
+
+`ACTIVE_DOWNLOAD.runKind` prevents a batch item restored after popup reopen
+from being stored as a manual run. Missing values mean `single` for backward
+compatibility.
+
 ## Types
 
 `VideoInfo.url` and `VideoInfo.pageUrl` are different facts — see

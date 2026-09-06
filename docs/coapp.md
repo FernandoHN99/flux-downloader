@@ -33,6 +33,7 @@ Startup diagnostics use `console.error`. This is essential: stdout is reserved f
 | `src/downloads.ts` | direct HTTP/HTTPS streaming, state, probe, cancellation |
 | `src/file.ts` | unique output names and directory creation |
 | `src/paths.ts` | install/runtime paths |
+| `src/child-process.ts` | safe child-process error/exit settlement |
 | `src/native-autoinstall.ts` | native manifest registration |
 | `src/native-autoinstall-cli.ts` | register/unregister CLI |
 | `src/installer.ts` | release install/uninstall and verified runtime download |
@@ -92,24 +93,26 @@ Format normalization:
 
 Every returned choice now carries explicit `kind: video | audio | subtitle`. The extension revalidates/coerces the native payload in `lib/youtube.ts` and infers a kind for older CoApp payloads, so a batch “Worst” choice cannot accidentally select MP3 while video exists.
 
-Downloads always use `--no-playlist`, `--no-warnings`, `--newline`, and an output template. If a local FFmpeg directory is found it is passed through `--ffmpeg-location`.
+Downloads always use `--no-playlist`, `--no-warnings`, `--newline`, an output template, and `--concurrent-fragments 8`. If a local FFmpeg directory is found it is passed through `--ffmpeg-location`.
 
-Progress lines are converted to percent/speed/ETA payloads and sent through the same `convertOutput` callback consumed by the extension's compact progress UI.
+Progress lines are buffered across stdout chunks, converted to percent/speed/ETA payloads, and sent through the same keyed `convertOutput` callback consumed by the extension's compact progress UI.
 
 ### Direct downloads
 
 | Method | Purpose |
 |---|---|
-| `downloads.download(options)` | stream URL to a file and return numeric ID |
-| `downloads.search({id})` | read bytes, total, filename, state, and error |
+| `downloads.download(options)` | start an accelerated URL download and return numeric ID |
+| `downloads.search({id})` | read bytes, total, filename, state, error, mode, and connection count |
 | `downloads.probeStatus(url, referer)` | lightweight URL liveness/status check |
-| `downloads.cancel(id)` | destroy an in-progress stream |
+| `downloads.cancel(id)` | abort every request belonging to a transfer |
 
-The implementation uses Node's built-in `http`/`https` modules and follows at most five redirects. Request headers can be supplied; TLS verification is enabled unless explicitly disabled.
+The implementation uses Node's built-in `http`/`https` modules and follows at most five redirects. Request headers can be supplied; TLS verification is enabled unless explicitly disabled. It probes actual byte-range behavior with `bytes=0-0` rather than trusting `Accept-Ranges`, then uses up to eight disjoint ranges with a minimum target of 4 MiB per connection.
 
-States are `in_progress`, `complete`, or `interrupted`. The extension polls `downloads.search` for byte progress. Completion and errors are pushed back with `downloadComplete`/`downloadError`.
+States are `in_progress`, `complete`, or `interrupted`. Modes are `probing`, `single`, and `parallel`. The extension polls `downloads.search` for byte progress. Completion and errors are pushed back with `downloadComplete`/`downloadError`.
 
-An `ECONNRESET` after bytes were received is treated as complete because some servers close a completed response abruptly. Entries are removed from the in-memory table after 60 seconds.
+Ranges validate `Content-Range`, preserve a strong ETag/Last-Modified through `If-Range`, resume from the last written byte, and retry three times. A server that rejects consistent parallel ranges triggers one clean sequential restart. Known-length responses must reach their exact size; a partial `ECONNRESET` is an error. Cancelled/failed partial files are removed, and entries leave the in-memory table after 60 seconds.
+
+See [performance.md](performance.md) for connection math, fallback behavior, and batch interaction.
 
 `downloads.probeStatus` adds Referer and Origin when possible, destroys the body after response status, and times out after 10 seconds. It is used before historical downloads to distinguish an expired signed URL from a deeper FFmpeg failure.
 
@@ -149,7 +152,12 @@ ffmpeg/<win|darwin|linux>/ffprobe[.exe]
 ytdlp/<win|darwin|linux>/yt-dlp[.exe]
 ```
 
-Converter/ytdlp modules also check generic current-working-directory paths and finally return the command name for system `PATH` lookup.
+Converter/ytdlp modules also check generic current-working-directory paths,
+standard macOS Homebrew/system or Linux user/system binary directories, and
+finally return the command name for system `PATH` lookup. This explicit search
+matters because a browser-launched native host can receive
+`PATH=/usr/bin:/bin:/usr/sbin:/sbin` even when an interactive shell finds tools
+under `/opt/homebrew/bin`.
 
 Known source-layout caveat: tracked placeholder folders currently include `coapp/ytdlp/mac/`, while `process.platform` is `darwin`. Use/create `darwin` or a generic/system path unless path resolution itself is fixed.
 
@@ -184,8 +192,12 @@ scripts\register-dev-host.ps1         # Windows (PowerShell)
 
 Both derive the extension ID from `extension/manifest.json`; pass one
 explicitly only to assert it matches. Re-run after moving/renaming the
-repository — the launcher embeds an absolute path to `dist/main.js`, and a
-stale path is what produces Chrome's "native host has exited" disconnect.
+repository or replacing the selected Node version — the launcher embeds
+absolute paths to `dist/main.js` and the physical Node executable. On fnm,
+`register-dev-host.sh` obtains that executable from `process.execPath`; it must
+not persist `command -v node`, which can point inside a disposable
+`fnm_multishells` directory. A stale path produces Chrome's "native host has
+exited" disconnect.
 
 Lower-level CLI (writes only the manifest; the `path` it points at,
 `coapp[.exe]` in the install root, must already exist — true for a release
@@ -224,13 +236,14 @@ npm run build:sea
 npm start
 ```
 
-The workspace emits declarations, declaration maps, and source maps. There is currently no process-side CoApp test suite. The extension-side `NativeClient` transport/lifecycle has nine Vitest cases, but they do not execute CoApp framing, child processes, filesystem, or HTTP code.
+The workspace emits declarations, declaration maps, and source maps. Seven CoApp Vitest files contain 21 tests over RPC, loopback HTTP ranges/fallback/resume/cancellation, line buffering, keyed callback arguments, yt-dlp argument construction, restricted-PATH runtime lookup, and missing-child settlement. They exercise temporary files and real local HTTP streams but do not run a real FFmpeg/yt-dlp download. The extension-side `NativeClient` transport/lifecycle has nine additional cases.
 
 ## Failure model
 
 - Missing native registration: `connectNative` disconnects with Chrome's last error.
 - Synchronous first-connect failure: the extension does not cache the rejected attempt; a later call can reconnect after registration/install is repaired.
-- Missing runtime: process spawn fails or command exits nonzero.
+- Missing runtime: the individual RPC operation returns a spawn/nonzero error;
+  the child `error` event is settled and must never terminate the native host.
 - FFmpeg/yt-dlp nonzero exit: CoApp returns code/stderr; background sends user-facing failure.
 - Extension disappears during callback: CoApp callback rejects; active conversion code may kill the child to avoid orphan work.
 - Direct network error: state becomes interrupted and `downloadError` is called.

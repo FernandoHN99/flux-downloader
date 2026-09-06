@@ -18,6 +18,7 @@ Documentation baseline: **2026-09-03**, version `1.1.1`, including the component
 | [Companion app](coapp.md) | CoApp modules, runtime discovery, downloads, installer |
 | [FFmpeg](ffmpeg.md) | exact FFmpeg role, arguments, progress, cancellation, release binary |
 | [YouTube](youtube.md) | yt-dlp-only detection and download path |
+| [Download performance](performance.md) | fragment, HTTP-range, and batch parallelism |
 | [Quick reference](quick-reference.md) | commands, IDs, paths, keys, protocols |
 | [Releasing](releasing.md) | tag workflow, Windows assets, checksums, runtime pins |
 | [Privacy](PRIVACY.md) | locally stored data, network activity, permissions |
@@ -33,9 +34,9 @@ Documentation baseline: **2026-09-03**, version `1.1.1`, including the component
 - Top-level source page is kept separately from media/CDN URLs.
 - Vanilla TypeScript components with component-owned DOM and split CSS.
 - Per-tab background data is owned by one `TabStateStore`.
-- Vitest + happy-dom: 39 files / 505 passing tests at this baseline.
+- Vitest: 42 extension files / 564 tests plus 7 CoApp files / 21 tests (585 total).
 - Content-side DOM/MSE transformations and background catalog/history/download rules live in focused tested modules rather than anonymous service-worker blocks.
-- One `DownloadRunGate` in the worker—not popup timing—enforces the single native run.
+- One `DownloadRunGate` in the worker—not popup timing—enforces one user-visible run; a batch uses four native jobs concurrently.
 - `npm run dev:extension` watches all six browser bundles plus TypeScript; Chrome/Edge reloads remain manual.
 - Full verification: `npm test`, then `npm run build`.
 - Tagged release automation currently builds Windows x64 only.

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   getContentType,
+  getDirectHttpHeaders,
   getFfmpegHttpArgs,
   getMediaTypeFromContentType,
   getRequestReferer
@@ -61,5 +62,21 @@ describe('getFfmpegHttpArgs', () => {
   it('returns no args without a referer and a safe subset for malformed input', () => {
     expect(getFfmpegHttpArgs()).toEqual([]);
     expect(getFfmpegHttpArgs('not a URL')).toEqual(['-referer', 'not a URL']);
+  });
+});
+
+describe('getDirectHttpHeaders', () => {
+  it('forwards page context to every native HTTP request', () => {
+    expect(getDirectHttpHeaders('https://course.example/lesson?id=1')).toEqual([
+      { name: 'Referer', value: 'https://course.example/lesson?id=1' },
+      { name: 'Origin', value: 'https://course.example' }
+    ]);
+  });
+
+  it('keeps a malformed referer but omits an invented origin', () => {
+    expect(getDirectHttpHeaders('not a URL')).toEqual([
+      { name: 'Referer', value: 'not a URL' }
+    ]);
+    expect(getDirectHttpHeaders()).toEqual([]);
   });
 });

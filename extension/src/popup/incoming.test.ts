@@ -63,7 +63,7 @@ describe('HISTORY_LIST', () => {
 describe('BATCH_STATUS', () => {
   const batch = (patch = {}) =>
     ({ total: 3, completed: 0, failed: 0, remainingKeys: [RS9, RS8], currentSourceKey: RS9,
-       cancelled: false, ...patch });
+       activeSourceKeys: [RS9], concurrency: 4, cancelled: false, ...patch });
 
   it('tracks which video the run is on', () => {
     applyIncoming(store, { type: 'BATCH_STATUS', batch: batch() });
@@ -84,6 +84,17 @@ describe('BATCH_STATUS', () => {
     applyIncoming(store, { type: 'BATCH_STATUS', batch: null });
     expect(store.get().remote.activeDownloadKey).toBe(RS8);
   });
+
+  it('keeps the most recently reporting item selected while it remains active', () => {
+    applyIncoming(store, { type: 'BATCH_STATUS', batch: batch({ activeSourceKeys: [RS9, RS8] }) });
+    applyIncoming(store, {
+      type: 'DOWNLOAD_PROGRESS', sourceKey: RS8, progress: { percent: 61 }
+    });
+    applyIncoming(store, { type: 'BATCH_STATUS', batch: batch({ activeSourceKeys: [RS9, RS8] }) });
+
+    expect(store.get().remote.activeDownloadKey).toBe(RS8);
+    expect(store.get().remote.progressByKey.get(RS8)?.percent).toBe(61);
+  });
 });
 
 describe('a one-off download', () => {
@@ -94,8 +105,11 @@ describe('a one-off download', () => {
   });
 
   it('records progress as it arrives', () => {
-    applyIncoming(store, { type: 'DOWNLOAD_PROGRESS', progress: { percent: 37.6, eta: 92 } });
+    applyIncoming(store, {
+      type: 'DOWNLOAD_PROGRESS', sourceKey: RS9, progress: { percent: 37.6, eta: 92 }
+    });
     expect(store.get().remote.progress).toEqual({ percent: 37.6, eta: 92 });
+    expect(store.get().remote.progressByKey.get(RS9)).toEqual({ percent: 37.6, eta: 92 });
   });
 
   it('accepts progress sent flat rather than nested', () => {
@@ -147,6 +161,17 @@ describe('ACTIVE_DOWNLOAD', () => {
   it('starts from zero when no progress came with it', () => {
     applyIncoming(store, { type: 'ACTIVE_DOWNLOAD', downloadId: 'd9', sourceUrl: RS8 });
     expect(store.get().remote.progress).toEqual({ percent: 0 });
+  });
+
+  it('restores batch progress without creating a phantom manual run', () => {
+    applyIncoming(store, {
+      type: 'ACTIVE_DOWNLOAD', downloadId: 'd-batch', runKind: 'batch',
+      sourceUrl: RS8, progress: { percent: 44 }
+    });
+    expect(store.get().remote.manualDownloadId).toBeNull();
+    expect(store.get().remote.manualDownloadKey).toBeNull();
+    expect(store.get().remote.activeDownloadKey).toBe(RS8);
+    expect(store.get().remote.progressByKey.get(RS8)?.percent).toBe(44);
   });
 
   it('clears the marks when there turns out to be nothing running', () => {

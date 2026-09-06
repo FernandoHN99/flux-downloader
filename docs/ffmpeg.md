@@ -41,7 +41,7 @@ ffmpeg/linux/ffmpeg
 ffmpeg/linux/ffprobe
 ```
 
-Search roots include `FLUX_HOME`, current working directory, install directory, executable directory, and the project directory near compiled code. Converter code also checks `<cwd>/ffmpeg/ffmpeg[.exe]` and `ffprobe[.exe]`. The final fallback is the command name on system `PATH`.
+Search roots include `FLUX_HOME`, current working directory, install directory, executable directory, and the project directory near compiled code. Converter code also checks `<cwd>/ffmpeg/ffmpeg[.exe]` and `ffprobe[.exe]`, common macOS Homebrew/system and Linux user/system binary directories, then system `PATH`. This avoids relying on the restricted `PATH` inherited from Chrome/Arc. A missing executable is returned as an RPC operation error; its child-process `error` event cannot terminate the CoApp.
 
 `FLUX_INSTALL_DIR` overrides the install root.
 
@@ -122,7 +122,7 @@ The text transformation is isolated in `extension/src/lib/hls-rewrite.ts`. It re
 FFmpeg writes key/value records to stdout because of `-progress pipe:1`. The CoApp accumulates a record until it sees `progress=...` and then calls:
 
 ```text
-convertOutput(progressTime, currentSeconds, info)
+convertOutput(progressTime, currentSeconds, info, startHandler)
 ```
 
 In this project, `out_time_ms` is treated as nanoseconds:
@@ -131,7 +131,10 @@ In this project, `out_time_ms` is treated as nanoseconds:
 const seconds = parseInt(info.out_time_ms, 10) / 1_000_000;
 ```
 
-The field name is misleading, but changing the divisor without testing real output will break percentage calculations.
+`startHandler` is the logical download key appended after the legacy arguments,
+so concurrent process progress is attributed correctly without breaking an
+older extension. The time field name is misleading, but changing the divisor
+without testing real output will break percentage calculations.
 
 The background uses the selected video's duration to calculate percent, clamps it to 100, records the last progress, updates the active popup row, and feeds the compact shared `ProgressPanel`.
 
@@ -150,7 +153,7 @@ Cancellation:
 
 All tracked FFmpeg children are also killed when CoApp receives SIGINT/SIGTERM or exits.
 
-The popup disables concurrent actions for feedback, and `DownloadRunGate` enforces the same rule synchronously in the service worker across popup instances. PID association must still remain keyed because cancellation can arrive before `convertStartNotification`; `DownloadTracker` keeps a cancellation tombstone and aborts that late PID.
+The popup disables a second user-visible run for feedback, and `DownloadRunGate` enforces the same rule synchronously in the service worker across popup instances. A batch holding that gate may run four FFmpeg/yt-dlp/direct jobs at once. PID and progress association remain keyed because cancellation can arrive before `convertStartNotification`; `DownloadTracker` keeps a cancellation tombstone and aborts that late PID.
 
 ## Completion and errors
 
@@ -171,7 +174,7 @@ The background uses one settlement path for FFmpeg, MSE conversion, and yt-dlp. 
 - marks the stable source key as downloaded only on success;
 - releases the active/batch waiter in both cases.
 
-Single downloads release their native-run lease on settlement. A batch retains one lease between sequential items and releases it only when the queue ends. Cancelled batch items do not receive a persistent failure marker.
+Single downloads release their user-run lease on settlement. A batch retains one lease across its four-worker pool and releases it only when every worker ends. Cancelled batch items do not receive a persistent failure marker.
 
 Historical signed URLs are probed through `downloads.probeStatus` before FFmpeg starts. Common HTTP expiry statuses produce a direct “reopen the page” error instead of an opaque FFmpeg failure.
 

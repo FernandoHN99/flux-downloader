@@ -3,7 +3,11 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import rpc from './rpc';
-import { getRuntimeBinary, getRuntimeRoots } from './paths';
+import { findRuntimeExecutable } from './paths';
+import { onStreamLine } from './line-buffer';
+import { buildYtDlpDownloadArgs, YTDLP_CONCURRENT_FRAGMENTS } from './ytdlp-options';
+import { progressCallbackArgs } from './progress-callback';
+import { settleChild, spawnFailure } from './child-process';
 
 const ytdlpChildren = new Map<number, ChildProcess>();
 const to_kill = new Set<ChildProcess>();
@@ -18,8 +22,7 @@ function spawn(arg0: string, argv: string[]): ChildProcess {
 }
 
 function findYtDlp(): string {
-  const paths: string[] = [
-    ...getRuntimeRoots().map(root => path.join(root, getRuntimeBinary('ytdlp'))),
+  const extraCandidates: string[] = [
     path.join(process.cwd(), 'ytdlp', 'yt-dlp' + (process.platform === 'win32' ? '.exe' : ''))
   ];
 
@@ -31,26 +34,19 @@ function findYtDlp(): string {
     for (const root of roots) {
       if (!fs.existsSync(root)) continue;
       for (const dir of fs.readdirSync(root)) {
-        paths.push(path.join(root, dir, 'Scripts', 'yt-dlp.exe'));
+        extraCandidates.push(path.join(root, dir, 'Scripts', 'yt-dlp.exe'));
       }
     }
   }
 
-  for (const p of paths) {
-    if (fs.existsSync(p)) return p;
-  }
-  return 'yt-dlp';
+  return findRuntimeExecutable('ytdlp', extraCandidates);
 }
 
 function findFFmpegDir(): string {
-  const platform = process.platform;
-  const exe = platform === 'win32' ? '.exe' : '';
-  const dirNames = getRuntimeRoots().map(root => path.join(root, 'ffmpeg', platform === 'win32' ? 'win' : platform));
-  dirNames.push(path.join(process.cwd(), 'ffmpeg'));
-  for (const dir of dirNames) {
-    if (fs.existsSync(path.join(dir, 'ffmpeg' + exe))) return dir;
-  }
-  return '';
+  const executable = findRuntimeExecutable('ffmpeg', [
+    path.join(process.cwd(), 'ffmpeg', 'ffmpeg' + (process.platform === 'win32' ? '.exe' : ''))
+  ]);
+  return path.isAbsolute(executable) ? path.dirname(executable) : '';
 }
 
 const ytdlpBin = findYtDlp();
@@ -215,33 +211,30 @@ rpc.listen({
   ytdlpFormats: async (url: string) => {
     const args = ['--no-playlist', '--no-warnings', '-J', url];
     const child = spawn(ytdlpBin, args);
+    const childDone = settleChild(child);
     let stdout = '';
     let stderr = '';
 
     child.stdout?.on('data', (d: Buffer) => { stdout += d.toString('utf8'); });
     child.stderr?.on('data', (d: Buffer) => { stderr += d.toString('utf8'); });
 
-    return new Promise((resolve, reject) => {
-      child.on('error', reject);
-      child.on('exit', (code) => {
-        if (code !== 0) {
-          reject(new Error(`yt-dlp format probe failed (${code}): ${stderr}`));
-          return;
-        }
+    const result = await childDone;
+    if (result.error) throw new Error(spawnFailure('yt-dlp', ytdlpBin, result.error));
+    if (result.exitCode !== 0) {
+      throw new Error(`yt-dlp format probe failed (${result.exitCode}): ${stderr}`);
+    }
 
-        try {
-          const info = JSON.parse(stdout.trim());
-          resolve({
-            title: info.title,
-            duration: info.duration,
-            thumbnail: info.thumbnail,
-            qualities: buildYtDlpQualities(info, url)
-          });
-        } catch (error: any) {
-          reject(new Error(`Failed to parse yt-dlp format JSON: ${error.message || String(error)}`));
-        }
-      });
-    });
+    try {
+      const info = JSON.parse(stdout.trim());
+      return {
+        title: info.title,
+        duration: info.duration,
+        thumbnail: info.thumbnail,
+        qualities: buildYtDlpQualities(info, url)
+      };
+    } catch (error: any) {
+      throw new Error(`Failed to parse yt-dlp format JSON: ${error.message || String(error)}`);
+    }
   },
 
   ytdlp: async (
@@ -252,19 +245,9 @@ rpc.listen({
     const outputDir = options.outputDir || path.join(os.homedir(), 'Downloads');
     const outputTemplate = path.join(outputDir, options.filename || '%(title)s.%(ext)s');
 
-    const baseArgs = [
-      '--no-playlist',
-      '--no-warnings',
-      '--newline',
-      '-o', outputTemplate
-    ];
-
-    if (ffmpegDir) {
-      baseArgs.push('--ffmpeg-location', ffmpegDir);
-    }
-
-    const fullArgs = [...baseArgs, ...args, url];
+    const fullArgs = buildYtDlpDownloadArgs(url, args, outputTemplate, ffmpegDir);
     const child = spawn(ytdlpBin, fullArgs);
+    const childDone = settleChild(child);
     if (child.pid) ytdlpChildren.set(child.pid, child);
 
     let stderr = '';
@@ -288,30 +271,35 @@ rpc.listen({
         source: 'ytdlp'
       };
       try {
-        await rpc.call('convertOutput', options.progressTime || 1000, 0, info);
+        await rpc.call('convertOutput', ...progressCallbackArgs(
+          options.progressTime || 1000,
+          0,
+          info,
+          options.startHandler
+        ));
       } catch {
         try { child.kill(); } catch { /* gone */ }
       }
     };
 
     if (options.progressTime) {
-      child.stdout?.on('data', (data: Buffer) => {
-        data.toString('utf8').split('\n').forEach((line: string) => {
-          if (line.trim()) void onLine(line);
-        });
-      });
+      onStreamLine(child.stdout, (line) => { void onLine(line); });
     }
 
-    return new Promise((resolve) => {
-      child.on('exit', (code) => {
-        if (child.pid) ytdlpChildren.delete(child.pid);
-        resolve({ exitCode: code, pid: child.pid, stderr });
-      });
-    });
+    const result = await childDone;
+    if (child.pid) ytdlpChildren.delete(child.pid);
+    if (result.error) {
+      stderr = [stderr, spawnFailure('yt-dlp', ytdlpBin, result.error)].filter(Boolean).join('\n');
+    }
+    return { exitCode: result.exitCode ?? 1, pid: child.pid ?? -1, stderr };
   }
 });
 
 process.on('SIGINT', killAll);
 process.on('SIGTERM', killAll);
 process.on('exit', killAll);
-console.error('[Flux Downloader CoApp] yt-dlp module loaded (binary: %s)', ytdlpBin);
+console.error(
+  '[Flux Downloader CoApp] yt-dlp module loaded (binary: %s, concurrent fragments: %d)',
+  ytdlpBin,
+  YTDLP_CONCURRENT_FRAGMENTS
+);

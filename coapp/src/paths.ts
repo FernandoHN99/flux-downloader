@@ -1,5 +1,6 @@
 import * as os from 'os';
 import * as path from 'path';
+import * as fs from 'fs';
 
 const platformFolder = process.platform === 'win32' ? 'win' : process.platform;
 const executableSuffix = process.platform === 'win32' ? '.exe' : '';
@@ -34,6 +35,36 @@ export function getRuntimeBinary(kind: 'ffmpeg' | 'ffprobe' | 'ytdlp'): string {
   const name = kind === 'ytdlp' ? `yt-dlp${executableSuffix}` : `${kind}${executableSuffix}`;
   const folder = kind === 'ytdlp' ? 'ytdlp' : 'ffmpeg';
   return path.join(folder, platformFolder, name);
+}
+
+export function findRuntimeExecutable(
+  kind: 'ffmpeg' | 'ffprobe' | 'ytdlp',
+  extraCandidates: string[] = []
+): string {
+  const name = kind === 'ytdlp' ? `yt-dlp${executableSuffix}` : `${kind}${executableSuffix}`;
+  const systemDirs = process.platform === 'darwin'
+    ? ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin']
+    : process.platform === 'win32'
+      ? []
+      : [path.join(os.homedir(), '.local', 'bin'), '/usr/local/bin', '/usr/bin', '/bin'];
+  const pathDirs = (process.env.PATH || '').split(path.delimiter).filter(Boolean);
+  const candidates = [
+    ...getRuntimeRoots().map(root => path.join(root, getRuntimeBinary(kind))),
+    ...extraCandidates,
+    ...systemDirs.map(dir => path.join(dir, name)),
+    ...pathDirs.map(dir => path.join(dir, name))
+  ];
+
+  for (const candidate of new Set(candidates)) {
+    try {
+      fs.accessSync(candidate, process.platform === 'win32' ? fs.constants.F_OK : fs.constants.X_OK);
+      if (fs.statSync(candidate).isFile()) return candidate;
+    } catch {
+      // Keep looking. The bare command below gives a useful spawn error when
+      // a runtime genuinely is not installed anywhere we know about.
+    }
+  }
+  return name;
 }
 
 export function getHostBinaryPath(): string {

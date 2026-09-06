@@ -3,22 +3,24 @@ import type { VideoInfo } from '../shared/types';
 import { videoKey } from '../detection/video-key';
 
 /**
- * Owns the synchronous state transitions of one sequential batch. Effects
+ * Owns the synchronous state transitions of one concurrent batch. Effects
  * such as creating directories and starting/cancelling downloads stay in the
  * service worker.
  */
 export class BatchRun {
   private readonly state: BatchStatus;
-  private currentDownloadId?: string;
+  private readonly active = new Map<string, { title: string; downloadId?: string }>();
 
-  constructor(videos: VideoInfo[], folder: string) {
+  constructor(videos: VideoInfo[], folder: string, concurrency = 1) {
     this.state = {
       total: videos.length,
       completed: 0,
       failed: 0,
       folder,
       cancelled: false,
-      remainingKeys: videos.map((video) => videoKey(video.url))
+      remainingKeys: videos.map((video) => videoKey(video.url)),
+      activeSourceKeys: [],
+      concurrency
     };
   }
 
@@ -27,14 +29,14 @@ export class BatchRun {
   }
 
   begin(video: VideoInfo): void {
-    this.state.currentTitle = video.title;
-    this.state.currentSourceKey = videoKey(video.url);
-    this.currentDownloadId = undefined;
+    this.active.set(videoKey(video.url), { title: video.title });
+    this.syncActiveState();
   }
 
   /** Returns true when a cancellation arrived before the ID was known. */
-  attachDownload(downloadId: string | undefined): boolean {
-    this.currentDownloadId = downloadId;
+  attachDownload(video: VideoInfo, downloadId: string | undefined): boolean {
+    const active = this.active.get(videoKey(video.url));
+    if (active) active.downloadId = downloadId;
     return Boolean(downloadId && this.state.cancelled);
   }
 
@@ -57,25 +59,34 @@ export class BatchRun {
     this.finishItem(video);
   }
 
-  /** Mark the queue cancelled and return the active native download, if known. */
-  cancel(): string | undefined {
+  /** Mark the queue cancelled and return every active native download already known. */
+  cancel(): string[] {
     this.state.cancelled = true;
-    this.state.remainingKeys = [];
-    return this.currentDownloadId;
+    this.state.remainingKeys = [...this.active.keys()];
+    return [...this.active.values()]
+      .map((item) => item.downloadId)
+      .filter((downloadId): downloadId is string => Boolean(downloadId));
   }
 
   snapshot(): BatchStatus {
     return {
       ...this.state,
-      remainingKeys: [...(this.state.remainingKeys || [])]
+      remainingKeys: [...(this.state.remainingKeys || [])],
+      activeSourceKeys: [...(this.state.activeSourceKeys || [])]
     };
   }
 
   private finishItem(video: VideoInfo): void {
-    this.currentDownloadId = undefined;
-    this.state.currentTitle = undefined;
-    this.state.currentSourceKey = undefined;
     const done = videoKey(video.url);
+    this.active.delete(done);
     this.state.remainingKeys = (this.state.remainingKeys || []).filter((key) => key !== done);
+    this.syncActiveState();
+  }
+
+  private syncActiveState(): void {
+    const entries = [...this.active.entries()];
+    this.state.activeSourceKeys = entries.map(([key]) => key);
+    this.state.currentSourceKey = entries[0]?.[0];
+    this.state.currentTitle = entries[0]?.[1].title;
   }
 }

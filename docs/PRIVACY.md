@@ -1,8 +1,8 @@
 # Flux privacy policy
 
-Last updated: 2026-09-03.
+Last updated: 2026-09-04.
 
-Implementation audit: reviewed against the 505-test post-refactor baseline. Storage keys, permissions, external services, and runtime pins did not change.
+Implementation audit: reviewed against the 585-test post-refactor baseline. Storage keys, permissions, external services, and runtime pins did not change; direct media may now use several parallel requests to the same source/CDN selected by the user.
 
 Flux is the user-facing name of the Flux Downloader browser extension and local companion application.
 

@@ -4,7 +4,7 @@ export interface DownloadLease {
   readonly kind: DownloadRunKind;
 }
 
-/** A synchronous, owner-checked lease for the single native download slot. */
+/** A synchronous, owner-checked lease for one user-visible download run. */
 export class DownloadRunGate {
   private current: DownloadLease | null = null;
 

@@ -115,7 +115,7 @@ The background registers:
 | Method | Purpose |
 |---|---|
 | `convertStartNotification(startHandler, pid)` | attach FFmpeg/yt-dlp PID to a logical download |
-| `convertOutput(progressTime, currentSeconds, info)` | push FFmpeg or yt-dlp progress |
+| `convertOutput(progressTime, currentSeconds, info, startHandler?)` | push FFmpeg or yt-dlp progress for one logical download |
 | `downloadComplete(downloadId, outputPath)` | finish direct download |
 | `downloadError(downloadId, error)` | fail direct download |
 
@@ -152,7 +152,7 @@ Unknown or non-function methods produce an error reply.
 - gives long-running `convert` and `ytdlp` calls no client timeout;
 - can retry recoverable operations with increasing delays through `withRetry`.
 
-Nine extension-side tests cover live-port reuse, retry after initial failure, request/reply correlation, remote errors, timeout policy, reverse calls, unknown handlers, reconnect, and intentional disconnect. These are transport-client tests; the Node CoApp still has no process-side suite.
+Nine extension-side tests cover live-port reuse, retry after initial failure, request/reply correlation, remote errors, timeout policy, reverse calls, unknown handlers, reconnect, and intentional disconnect. The CoApp suite separately covers `RpcProtocol`, loopback HTTP transfers, process-line buffering, keyed progress arguments, and yt-dlp argument construction; it does not spawn real FFmpeg or yt-dlp binaries.
 
 The settings status does not trust a cold `connected` boolean. Its `PING` background handler first tries to connect, calls `info`, and then reports version/error.
 
@@ -196,7 +196,7 @@ The popup uses the discriminated protocol in `extension/src/lib/popup-protocol.t
 
 Similarly, `extension/src/lib/content-protocol.ts` separately types and validates content/background traffic. `RESCAN` is an internal background → content-script runtime message; do not rename it to the user-facing `REFRESH_TABS` command.
 
-The service worker's `DownloadRunGate` reserves one native execution slot before asynchronous setup. This is above RPC: it prevents separate popups or a batch/manual race from starting overlapping FFmpeg, yt-dlp, or direct runs.
+The service worker's `DownloadRunGate` reserves one user-visible run before asynchronous setup. This is above RPC: it prevents separate popups or a batch/manual race, while the batch holding that lease may start four ID-keyed native operations concurrently.
 
 ## Native manifest
 
@@ -263,9 +263,11 @@ This repository does not register Firefox `allowed_extensions`.
    `.ps1` on Windows) over the raw `native-autoinstall-cli.js register` step —
    the latter only writes a manifest pointing at a `coapp` binary that has to
    already exist at the install root. If the repository was ever moved or
-   renamed after registering, the launcher's embedded path goes stale and
-   Chrome reports the host as having exited immediately; re-run the script to
-   fix it.
+   renamed after registering, or its selected Node version was removed, an
+   embedded path goes stale and Chrome reports the host as having exited
+   immediately; re-run the script to fix it. The macOS/Linux script records
+   Node's physical `process.execPath`, avoiding fnm's disposable per-shell
+   `fnm_multishells` executable path.
 
 ### Port disconnects immediately
 
@@ -273,6 +275,12 @@ This repository does not register Firefox `allowed_extensions`.
 - Ensure no log is written to stdout.
 - Verify the built CommonJS files exist.
 - Verify the process does not exit due to a missing import/runtime exception.
+- For a source checkout, temporarily register with
+  `FLUX_DEV_HOST_LOG="$HOME/Library/Logs/FluxDownloader/native-host.log" ./scripts/register-dev-host.sh`.
+  This redirects only the development host's stderr to that file; native RPC
+  stdout stays untouched. Register again without the variable after diagnosis
+  to disable persistent logging. Avoid sharing the log without reviewing it,
+  because downloader diagnostics can contain source URLs.
 
 ### Requests hang
 

@@ -101,7 +101,7 @@ ytdlp(pageUrl, formatArgs, {
 The CoApp prepends:
 
 ```text
---no-playlist --no-warnings --newline -o <template>
+--no-playlist --no-warnings --newline --concurrent-fragments 8 -o <template>
 ```
 
 If FFmpeg is found, its directory is supplied through `--ffmpeg-location` so yt-dlp can merge separate tracks or convert audio.
@@ -110,13 +110,13 @@ The selected `VideoInfo.url` for a yt-dlp item remains the YouTube page URL, not
 
 ## Progress and cancellation
 
-The CoApp parses yt-dlp `[download] N% ... at SPEED ... ETA ...` lines. It sends percent, optional speed, optional ETA, and `source: "ytdlp"` through the same `convertOutput` reverse RPC used by FFmpeg.
+The CoApp parses yt-dlp `[download] N% ... at SPEED ... ETA ...` lines. It sends percent, optional speed, optional ETA, `source: "ytdlp"`, and the logical download key through the same `convertOutput` reverse RPC used by FFmpeg. Eight concurrent fragments are requested for fragmented formats.
 
 The background associates the process PID through `convertStartNotification(startHandler, pid)`.
 
 Cancellation calls `abortYtdlp(pid)` and kills the child process. The popup uses the same compact progress panel and Stop action as every other route.
 
-The service-worker `DownloadRunGate` prevents yt-dlp from overlapping any FFmpeg/direct/manual/batch run. Completion/error handling is shared with native FFmpeg processes so active state and the lease are released consistently.
+The service-worker `DownloadRunGate` prevents two user-visible runs from racing. Inside a batch, up to four yt-dlp/FFmpeg/direct jobs may overlap and each remains keyed for progress and cancellation. Completion/error handling is shared with native FFmpeg processes so active state and the lease are released consistently.
 
 ## Runtime discovery
 
@@ -128,7 +128,7 @@ ytdlp/darwin/yt-dlp
 ytdlp/linux/yt-dlp
 ```
 
-Search roots include install/project/executable/current directories and `FLUX_HOME`. A generic `<cwd>/ytdlp/yt-dlp[.exe]` and system `PATH` are fallbacks. Windows additionally scans common per-user Python installation `Scripts` directories.
+Search roots include install/project/executable/current directories and `FLUX_HOME`. A generic `<cwd>/ytdlp/yt-dlp[.exe]`, common macOS Homebrew/system and Linux user/system binary directories, and system `PATH` are fallbacks. Windows additionally scans common per-user Python installation `Scripts` directories. Missing-executable spawn errors fail only the requested RPC operation; they no longer take down the native host.
 
 Known caveat: the repository's historical `coapp/ytdlp/mac/` placeholder is not the `darwin` folder current code searches.
 

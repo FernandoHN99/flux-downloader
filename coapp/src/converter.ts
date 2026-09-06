@@ -6,7 +6,10 @@ import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
 import rpc from './rpc';
-import { getRuntimeBinary, getRuntimeRoots } from './paths';
+import { findRuntimeExecutable } from './paths';
+import { onStreamLine } from './line-buffer';
+import { progressCallbackArgs } from './progress-callback';
+import { settleChild, spawnFailure } from './child-process';
 
 const convertChildren = new Map<number, ChildProcess>();
 const to_kill = new Set<ChildProcess>();
@@ -21,27 +24,15 @@ function spawn(arg0: string, argv: string[]): ChildProcess {
 }
 
 function findFFmpeg(): string {
-  const paths = [
-    ...getRuntimeRoots().map(root => path.join(root, getRuntimeBinary('ffmpeg'))),
+  return findRuntimeExecutable('ffmpeg', [
     path.join(process.cwd(), 'ffmpeg', 'ffmpeg' + (process.platform === 'win32' ? '.exe' : '')),
-    'ffmpeg'
-  ];
-  for (const p of paths) {
-    if (fs.existsSync(p)) return p;
-  }
-  return 'ffmpeg';
+  ]);
 }
 
 function findFFprobe(): string {
-  const paths = [
-    ...getRuntimeRoots().map(root => path.join(root, getRuntimeBinary('ffprobe'))),
+  return findRuntimeExecutable('ffprobe', [
     path.join(process.cwd(), 'ffmpeg', 'ffprobe' + (process.platform === 'win32' ? '.exe' : '')),
-    'ffprobe'
-  ];
-  for (const p of paths) {
-    if (fs.existsSync(p)) return p;
-  }
-  return 'ffprobe';
+  ]);
 }
 
 const ffmpegBin = findFFmpeg();
@@ -87,6 +78,7 @@ rpc.listen({
 
     const fullArgs = [...ffmpegBaseArgs, ...resolvedArgs];
     const child = spawn(ffmpegBin, fullArgs);
+    const childDone = settleChild(child);
     if (child.pid) convertChildren.set(child.pid, child);
 
     let stderr = '';
@@ -113,7 +105,12 @@ rpc.listen({
           // out_time_ms is in NANOSECONDS, not milliseconds
           const seconds = parseInt(info['out_time_ms'], 10) / 1_000_000;
           try {
-            await rpc.call('convertOutput', options.progressTime, seconds, info);
+            await rpc.call('convertOutput', ...progressCallbackArgs(
+              options.progressTime,
+              seconds,
+              info,
+              options.startHandler
+            ));
           } catch {
             try { child.kill(); } catch { /* already exited */ }
           }
@@ -122,18 +119,16 @@ rpc.listen({
     };
 
     if (options.progressTime) {
-      child.stdout?.on('data', (data: Buffer) => {
-        data.toString('utf8').split('\n').forEach((line: string) => { onLine(line); });
-      });
+      onStreamLine(child.stdout, (line) => { void onLine(line); });
     }
 
-    return new Promise((resolve) => {
-      child.on('exit', async (code) => {
-        if (child.pid) convertChildren.delete(child.pid);
-        if (manifestDir) await fs.promises.rm(manifestDir, { recursive: true, force: true });
-        resolve({ exitCode: code, pid: child.pid, stderr });
-      });
-    });
+    const result = await childDone;
+    if (child.pid) convertChildren.delete(child.pid);
+    if (manifestDir) await fs.promises.rm(manifestDir, { recursive: true, force: true });
+    if (result.error) {
+      stderr = [stderr, spawnFailure('ffmpeg', ffmpegBin, result.error)].filter(Boolean).join('\n');
+    }
+    return { exitCode: result.exitCode ?? 1, pid: child.pid ?? -1, stderr };
   },
 
   probe: (input: string, json: boolean = false, headers: string[] = []) => {
@@ -148,11 +143,17 @@ rpc.listen({
 
     return new Promise((resolve, reject) => {
       const child = spawn(ffprobeBin, args);
+      const childDone = settleChild(child);
       let stdout = '';
       let stderr = '';
       child.stdout?.on('data', (data: Buffer) => { stdout += data.toString('utf8'); });
       child.stderr?.on('data', (data: Buffer) => { stderr += data.toString('utf8'); });
-      child.on('exit', (code) => {
+      void childDone.then((result) => {
+        if (result.error) {
+          reject(new Error(spawnFailure('ffprobe', ffprobeBin, result.error)));
+          return;
+        }
+        const code = result.exitCode;
         if (code === 0) {
           if (json) {
             try {
@@ -173,9 +174,19 @@ rpc.listen({
   'converter.info': () => {
     return new Promise((resolve) => {
       const child = spawn(ffmpegBin, ['-h']);
+      const childDone = settleChild(child);
       let stdout = '';
       child.stdout?.on('data', (data: Buffer) => { stdout += data.toString('utf8'); });
-      child.on('exit', () => {
+      void childDone.then((result) => {
+        if (result.error) {
+          resolve({
+            program: 'ffmpeg',
+            version: 'unavailable',
+            converterBinary: ffmpegBin,
+            error: spawnFailure('ffmpeg', ffmpegBin, result.error)
+          });
+          return;
+        }
         const versionMatch = stdout.match(/ffmpeg version (\S+)/);
         const version = versionMatch ? versionMatch[1] : 'unknown';
         resolve({

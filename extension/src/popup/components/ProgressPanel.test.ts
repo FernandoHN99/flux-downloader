@@ -24,10 +24,13 @@ describe('ProgressPanel', () => {
     expect(panel.el.children).toHaveLength(0);
   });
 
-  it('counts the video being fetched, not the ones finished', () => {
-    const { panel } = mount({ view: { current: 1, total: 4, kind: 'batch' }, detail: { percent: 38 } });
+  it('shows parallel activity and settled batch items', () => {
+    const { panel } = mount({
+      view: { current: 1, total: 4, kind: 'batch', active: 3, concurrency: 4 },
+      detail: { percent: 38 }
+    });
     expect(panel.el.classList.contains('hidden')).toBe(false);
-    expect(label(panel)).toBe('Downloading 1/4');
+    expect(label(panel)).toBe('Downloading 3 in parallel · 1/4 done');
     expect(percent(panel)).toBe('38%');
   });
 
@@ -74,6 +77,14 @@ describe('ProgressPanel', () => {
     it('shows bytes for a direct download', () => {
       const { panel } = mount({ view, detail: { percent: 50, bytesReceived: 5_200_000, totalBytes: 10_400_000 } });
       expect(speed(panel)).toBe('5.2 / 10.4 MB');
+    });
+
+    it('shows direct bytes and measured transfer speed together', () => {
+      const { panel } = mount({
+        view,
+        detail: { percent: 50, bytesReceived: 5_200_000, totalBytes: 10_400_000, speed: 2_000_000 }
+      });
+      expect(speed(panel)).toBe('5.2 / 10.4 MB · 2.0 MB/s');
     });
 
     it('shows a rate when the CoApp reports bytes per second', () => {

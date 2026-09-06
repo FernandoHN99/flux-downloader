@@ -18,16 +18,17 @@ import {
 } from '../catalog/video-catalog';
 import {
   getContentType,
+  getDirectHttpHeaders,
   getFfmpegHttpArgs,
   getMediaTypeFromContentType,
   getRequestReferer
 } from '../detection/http-media';
 import {
+  buildBatchDownloadPlans,
   ensureFilenameExtension,
   formatFfmpegError,
   getDefaultExtension,
   joinOutputPath,
-  pickBatchQuality,
   sanitizeFilename
 } from '../download/download-plan';
 import { describeCoAppError, isCoAppUnreachable } from '../shared/errors';
@@ -54,6 +55,8 @@ import { DownloadRunGate } from '../download/download-run-gate';
 import type { DownloadLease } from '../download/download-run-gate';
 import { prepareHlsInputArguments } from '../download/hls-arguments';
 import type { ManifestFile } from '../download/hls-arguments';
+import { DEFAULT_BATCH_CONCURRENCY, runBatchPool } from '../download/batch-pool';
+import { ProcessDownloadKeyFactory } from '../download/download-key';
 
 const nativeClient = new NativeClient();
 
@@ -111,6 +114,7 @@ interface DownloadRunContext {
 }
 
 const downloadRunByKey = new Map<string, DownloadRunContext>();
+const processDownloadKeys = new ProcessDownloadKeyFactory();
 
 function trackDownload(
   key: string,
@@ -181,22 +185,41 @@ function notify(title: string, message: string): void {
 
 // Register handlers for CoApp → extension calls (push progress)
 nativeClient.listen({
-  // FFmpeg progress push: (progressTime, currentSeconds, info)
-  convertOutput: (progressTime: number, currentSeconds: number, info: any) => {
-    for (const [key, dl] of activeDownloads) {
-      if (!activeDownloads.isRunning(key)) continue;
-      if (!dl.video) continue;
+  // New CoApps include the process key. Accept the old three-argument
+  // shape only when one process is active, where attribution is unambiguous.
+  convertOutput: (...args: any[]) => {
+    const keyed = args.length >= 4;
+    const startHandler = keyed ? args[3] : undefined;
+    const currentSeconds = Number(args[1]) || 0;
+    const info = args[2];
+    const key = typeof startHandler === 'string' ? startHandler : undefined;
+    const candidates = key
+      ? [[key, activeDownloads.get(key)] as const]
+      : [...activeDownloads].filter(([, dl]) => dl.type === 'convert' || dl.type === 'ytdlp');
+    if (!key && candidates.length !== 1) return;
+
+    for (const [downloadKey, dl] of candidates) {
+      if (!dl || !activeDownloads.isRunning(downloadKey) || !dl.video) continue;
       if (dl.type !== 'convert' && dl.type !== 'ytdlp') continue;
       const duration = dl.video.duration || 0;
       const percent = info?.percent != null
         ? Math.min(100, info.percent)
         : duration > 0 ? Math.min(100, (currentSeconds / duration) * 100) : 0;
-      dl.lastProgress = { percent, speed: info?.speed || '', eta: info?.eta };
+      const progress = {
+        percent,
+        currentSeconds,
+        speed: info?.speed || '',
+        eta: info?.eta,
+        bitrate: info?.bitrate || ''
+      };
+      dl.lastProgress = progress;
+      const sourceKey = videoKey(dl.sourceUrl || dl.video.url);
       popupPorts.forEach(port => {
         postPopup(port, {
           type: 'DOWNLOAD_PROGRESS',
-          downloadId: key,
-          progress: { percent, currentSeconds, speed: info?.speed || '', eta: info?.eta, bitrate: info?.bitrate || '' }
+          downloadId: downloadKey,
+          sourceKey,
+          progress
         });
       });
     }
@@ -239,8 +262,12 @@ nativeClient.listen({
   downloadComplete: (downloadId: number, outputPath: string) => {
     const key = `direct_${downloadId}`;
     if (activeDownloads.isRunning(key)) {
+      const tracked = activeDownloads.get(key);
+      const sourceKey = tracked?.video
+        ? videoKey(tracked.sourceUrl || tracked.video.url)
+        : undefined;
       popupPorts.forEach(port => {
-        postPopup(port, { type: 'DOWNLOAD_COMPLETE', downloadId: key, outputPath });
+        postPopup(port, { type: 'DOWNLOAD_COMPLETE', downloadId: key, sourceKey, outputPath });
       });
       finishDownload(key, true);
     }
@@ -250,8 +277,12 @@ nativeClient.listen({
   downloadError: (downloadId: number, error: string) => {
     const key = `direct_${downloadId}`;
     if (!activeDownloads.isRunning(key)) return;
+    const tracked = activeDownloads.get(key);
+    const sourceKey = tracked?.video
+      ? videoKey(tracked.sourceUrl || tracked.video.url)
+      : undefined;
     popupPorts.forEach(port => {
-      postPopup(port, { type: 'DOWNLOAD_ERROR', downloadId: key, error });
+      postPopup(port, { type: 'DOWNLOAD_ERROR', downloadId: key, sourceKey, error });
     });
     finishDownload(key, false);
   }
@@ -390,8 +421,8 @@ function broadcastBatch(): void {
   });
 }
 
-// Downloads run one at a time: ffmpeg is network-bound and parallel pulls from
-// the same CDN tend to get throttled.
+// One user-visible run owns the gate, while a batch fans out through a bounded
+// pool. This preserves popup race protection without serializing the network.
 async function runBatchDownload(videos: VideoInfo[], tabId?: number, quality?: 'best' | 'worst'): Promise<void> {
   if (batch) return;
   const lease = downloadRunGate.acquire('batch');
@@ -407,7 +438,7 @@ async function runBatchDownload(videos: VideoInfo[], tabId?: number, quality?: '
   // Each run drops its files in its own folder, stamped with the epoch
   // milliseconds so two runs in the same second can't collide.
   const folder = `Flux_${Date.now()}`;
-  const state = new BatchRun(videos, folder);
+  const state = new BatchRun(videos, folder, DEFAULT_BATCH_CONCURRENCY);
   // Reserve the batch before the first await so two requests cannot both pass
   // the guard while settings or directory creation is pending.
   batch = state;
@@ -417,6 +448,8 @@ async function runBatchDownload(videos: VideoInfo[], tabId?: number, quality?: '
   try {
     const settings = await getSettings();
     const preference = quality || settings.batchQuality;
+    const plans = buildBatchDownloadPlans(videos, preference);
+    await ensureCoAppConnected();
     const directory = joinOutputPath(defaultDownloadDir, folder, coappPlatform);
     try {
       await nativeClient.ensureDir(directory);
@@ -430,13 +463,12 @@ async function runBatchDownload(videos: VideoInfo[], tabId?: number, quality?: '
       return;
     }
 
-    for (const video of videos) {
-      if (state.cancelled) break;
-      const chosen = pickBatchQuality(video, preference);
-      if (!chosen) {
+    await runBatchPool(plans, async (plan) => {
+      const video = plan.source;
+      if (!plan.selected || !plan.filename) {
         state.skip(video);
         broadcastBatch();
-        continue;
+        return;
       }
 
       state.begin(video);
@@ -444,16 +476,16 @@ async function runBatchDownload(videos: VideoInfo[], tabId?: number, quality?: '
 
       try {
         const started = await startDownload(
-          { ...video, url: chosen.url, qualities: [chosen] },
+          plan.selected,
           run,
-          video.title,
+          plan.filename,
           tabId,
           video.url,
           true,
           directory
         );
         const downloadId = started?.downloadId;
-        const cancelLateStart = state.attachDownload(downloadId);
+        const cancelLateStart = state.attachDownload(video, downloadId);
         if (cancelLateStart && downloadId) {
           await handleCancelDownload(downloadId).catch(() => { /* already finished */ });
         }
@@ -473,7 +505,7 @@ async function runBatchDownload(videos: VideoInfo[], tabId?: number, quality?: '
         });
       }
       broadcastBatch();
-    }
+    }, () => state.cancelled, DEFAULT_BATCH_CONCURRENCY);
 
     result = state.snapshot();
   } finally {
@@ -489,14 +521,12 @@ async function runBatchDownload(videos: VideoInfo[], tabId?: number, quality?: '
   );
 }
 
-// Cancels only the batch's own download — a manually started one keeps running.
+// Cancels only the batch's own downloads — a manually started one keeps running.
 async function cancelBatchDownload(): Promise<void> {
   if (!batch) return;
-  const key = batch.cancel();
+  const keys = batch.cancel();
   broadcastBatch();
-  if (key) {
-    try { await handleCancelDownload(key); } catch { /* already finished */ }
-  }
+  await Promise.allSettled(keys.map((key) => handleCancelDownload(key)));
 }
 
 function getVisibleVideosForTab(tabId: number): VideoInfo[] {
@@ -758,9 +788,11 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: PopupRequest): void 
       const entry = activeDownloads.findForTab(tabId);
       if (entry) {
         const [key, dl] = entry;
+        const runKind = downloadRunByKey.get(key)?.lease.kind;
         postPopup(port, {
           type: 'ACTIVE_DOWNLOAD',
           downloadId: key,
+          runKind,
           video: dl.video,
           sourceUrl: dl.sourceUrl || dl.video?.url,
           filename: dl.filename,
@@ -872,6 +904,10 @@ function monitorNativeProcess(
 ): void {
   operation.then((result) => {
     if (!activeDownloads.isRunning(downloadKey)) return;
+    const tracked = activeDownloads.get(downloadKey);
+    const sourceKey = tracked?.video
+      ? videoKey(tracked.sourceUrl || tracked.video.url)
+      : undefined;
     const succeeded = result.exitCode === 0;
     notify(succeeded ? 'Download complete' : 'Download failed', filename);
     popupPorts.forEach((port) => {
@@ -879,12 +915,14 @@ function monitorNativeProcess(
         postPopup(port, {
           type: 'DOWNLOAD_COMPLETE',
           downloadId: downloadKey,
+          sourceKey,
           ...(outputPath ? { outputPath } : {})
         });
       } else {
         postPopup(port, {
           type: 'DOWNLOAD_ERROR',
           downloadId: downloadKey,
+          sourceKey,
           error: failureMessage(result)
         });
       }
@@ -892,10 +930,14 @@ function monitorNativeProcess(
     finishDownload(downloadKey, succeeded);
   }).catch((error) => {
     if (!activeDownloads.isRunning(downloadKey)) return;
+    const tracked = activeDownloads.get(downloadKey);
+    const sourceKey = tracked?.video
+      ? videoKey(tracked.sourceUrl || tracked.video.url)
+      : undefined;
     const message = error?.message || String(error);
     notify('Download failed', message);
     popupPorts.forEach((port) => {
-      postPopup(port, { type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: message });
+      postPopup(port, { type: 'DOWNLOAD_ERROR', downloadId: downloadKey, sourceKey, error: message });
     });
     finishDownload(downloadKey, false);
   });
@@ -967,7 +1009,7 @@ async function startDownload(
     const isSubtitle = video.qualities[0]?.kind === 'subtitle';
     const codecArg = isSubtitle ? ['-c:s', 'copy'] : ['-c', 'copy'];
     const formatArgs = video.qualities[0]?.formatArgs;
-    const downloadKey = `convert_${Date.now()}`;
+    const downloadKey = processDownloadKeys.next('convert');
     const outputPath = joinOutputPath(directory, outFilename, coappPlatform);
 
     const inputArgs = [...getFfmpegHttpArgs(video.referer), '-i', video.url];
@@ -1010,7 +1052,7 @@ async function startDownload(
     return { success: true, downloadId: downloadKey };
   } else if (video.type === 'mse') {
     // MSE stream — use FFmpeg with captured segment URLs if available
-    const downloadKey = `convert_${Date.now()}`;
+    const downloadKey = processDownloadKeys.next('convert');
     const outputPath = joinOutputPath(directory, outFilename, coappPlatform);
     const formatArgs = video.qualities[0]?.formatArgs;
 
@@ -1041,7 +1083,7 @@ async function startDownload(
     return { success: true, downloadId: downloadKey };
   } else if (video.type === 'ytdlp') {
     // yt-dlp path (YouTube etc.)
-    const downloadKey = `ytdlp_${Date.now()}`;
+    const downloadKey = processDownloadKeys.next('ytdlp');
     const formatArgs = video.qualities[0]?.formatArgs || fallbackYtdlpQualities(video.url)[0].formatArgs;
 
     trackDownload(downloadKey, {
@@ -1070,7 +1112,8 @@ async function startDownload(
     const downloadId = await nativeClient.downloadFile({
       url: video.url,
       directory: directory || undefined,
-      filename: outFilename
+      filename: outFilename,
+      headers: getDirectHttpHeaders(video.referer)
     });
 
     const downloadKey = `direct_${downloadId}`;
@@ -1092,6 +1135,8 @@ async function startDownload(
 }
 
 function startDirectProgressPolling(downloadKey: string, downloadId: number, duration?: number): void {
+  let previousBytes = 0;
+  let previousTime = Date.now();
   const timer = setInterval(async () => {
     if (!activeDownloads.isRunning(downloadKey)) {
       clearInterval(timer);
@@ -1110,17 +1155,31 @@ function startDirectProgressPolling(downloadKey: string, downloadId: number, dur
 
       const dl = results[0];
       const percent = dl.totalBytes > 0 ? (dl.bytesReceived / dl.totalBytes) * 100 : 0;
+      const now = Date.now();
+      const elapsedSeconds = Math.max(0.001, (now - previousTime) / 1000);
+      const speed = Math.max(0, (dl.bytesReceived - previousBytes) / elapsedSeconds);
+      previousBytes = dl.bytesReceived;
+      previousTime = now;
+      const progress = {
+        percent,
+        speed,
+        bytesReceived: dl.bytesReceived,
+        totalBytes: dl.totalBytes
+      };
 
       const activeDl = activeDownloads.get(downloadKey);
       if (activeDl) {
-        activeDl.lastProgress = { percent, bytesReceived: dl.bytesReceived, totalBytes: dl.totalBytes };
+        activeDl.lastProgress = progress;
       }
 
       popupPorts.forEach(port => {
         postPopup(port, {
           type: 'DOWNLOAD_PROGRESS',
           downloadId: downloadKey,
-          progress: { percent, bytesReceived: dl.bytesReceived, totalBytes: dl.totalBytes }
+          sourceKey: activeDl?.video
+            ? videoKey(activeDl.sourceUrl || activeDl.video.url)
+            : undefined,
+          progress
         });
       });
 
@@ -1130,7 +1189,14 @@ function startDirectProgressPolling(downloadKey: string, downloadId: number, dur
       } else if (dl.state === 'interrupted') {
         clearInterval(timer);
         popupPorts.forEach(port => {
-          postPopup(port, { type: 'DOWNLOAD_ERROR', downloadId: downloadKey, error: dl.error || 'Download interrupted' });
+          postPopup(port, {
+            type: 'DOWNLOAD_ERROR',
+            downloadId: downloadKey,
+            sourceKey: activeDl?.video
+              ? videoKey(activeDl.sourceUrl || activeDl.video.url)
+              : undefined,
+            error: dl.error || 'Download interrupted'
+          });
         });
         finishDownload(downloadKey, false);
       }

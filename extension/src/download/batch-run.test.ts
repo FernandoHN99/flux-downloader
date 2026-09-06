@@ -17,7 +17,7 @@ describe('BatchRun', () => {
   it('initializes a transport-safe status for the complete queue', () => {
     const one = video('one');
     const two = video('two');
-    const run = new BatchRun([one, two], 'Flux_123');
+    const run = new BatchRun([one, two], 'Flux_123', 4);
 
     expect(run.snapshot()).toEqual({
       total: 2,
@@ -25,26 +25,35 @@ describe('BatchRun', () => {
       failed: 0,
       folder: 'Flux_123',
       cancelled: false,
-      remainingKeys: [videoKey(one.url), videoKey(two.url)]
+      remainingKeys: [videoKey(one.url), videoKey(two.url)],
+      activeSourceKeys: [],
+      concurrency: 4
     });
   });
 
-  it('announces the active source and counts successful and failed items', () => {
+  it('tracks several active sources and counts independent outcomes', () => {
     const one = video('one');
     const two = video('two');
-    const run = new BatchRun([one, two], 'Flux_123');
+    const run = new BatchRun([one, two], 'Flux_123', 4);
 
     run.begin(one);
+    run.begin(two);
     expect(run.snapshot()).toMatchObject({
       currentTitle: 'Lesson one',
-      currentSourceKey: videoKey(one.url)
+      currentSourceKey: videoKey(one.url),
+      activeSourceKeys: [videoKey(one.url), videoKey(two.url)]
     });
-    expect(run.attachDownload('convert_1')).toBe(false);
-    expect(run.complete(one, true)).toEqual({ markFailed: false });
-
-    run.begin(two);
-    run.attachDownload('convert_2');
+    expect(run.attachDownload(one, 'convert_1')).toBe(false);
+    expect(run.attachDownload(two, 'convert_2')).toBe(false);
     expect(run.complete(two, false)).toEqual({ markFailed: true });
+    expect(run.snapshot()).toMatchObject({
+      completed: 0,
+      failed: 1,
+      currentSourceKey: videoKey(one.url),
+      activeSourceKeys: [videoKey(one.url)]
+    });
+
+    expect(run.complete(one, true)).toEqual({ markFailed: false });
     expect(run.snapshot()).toEqual({
       total: 2,
       completed: 1,
@@ -52,6 +61,8 @@ describe('BatchRun', () => {
       folder: 'Flux_123',
       cancelled: false,
       remainingKeys: [],
+      activeSourceKeys: [],
+      concurrency: 4,
       currentTitle: undefined,
       currentSourceKey: undefined
     });
@@ -70,42 +81,55 @@ describe('BatchRun', () => {
     });
   });
 
-  it('returns the active download on cancellation without counting it as failed', () => {
+  it('returns every known active ID on cancellation without counting failures', () => {
     const one = video('one');
-    const run = new BatchRun([one], 'Flux_123');
+    const two = video('two');
+    const three = video('three');
+    const run = new BatchRun([one, two, three], 'Flux_123', 4);
     run.begin(one);
-    run.attachDownload('direct_9');
+    run.begin(two);
+    run.attachDownload(one, 'direct_9');
+    run.attachDownload(two, 'convert_4');
 
-    expect(run.cancel()).toBe('direct_9');
+    expect(run.cancel()).toEqual(['direct_9', 'convert_4']);
+    expect(run.snapshot().remainingKeys).toEqual([videoKey(one.url), videoKey(two.url)]);
     expect(run.complete(one, false)).toEqual({ markFailed: false });
+    expect(run.complete(two, false)).toEqual({ markFailed: false });
     expect(run.snapshot()).toMatchObject({
       completed: 0,
       failed: 0,
       cancelled: true,
-      remainingKeys: []
+      remainingKeys: [],
+      activeSourceKeys: []
     });
   });
 
-  it('detects cancellation that happened before the native ID arrived', () => {
+  it('detects cancellation separately for every ID that arrives late', () => {
+    const one = video('one');
+    const two = video('two');
+    const run = new BatchRun([one, two], 'Flux_123');
+    run.begin(one);
+    run.begin(two);
+
+    expect(run.cancel()).toEqual([]);
+    expect(run.attachDownload(one, 'convert_late')).toBe(true);
+    expect(run.attachDownload(two, 'direct_late')).toBe(true);
+  });
+
+  it('returns snapshots that cannot mutate the live queues', () => {
     const one = video('one');
     const run = new BatchRun([one], 'Flux_123');
     run.begin(one);
-
-    expect(run.cancel()).toBeUndefined();
-    expect(run.attachDownload('convert_late')).toBe(true);
-  });
-
-  it('returns snapshots that cannot mutate the live queue', () => {
-    const one = video('one');
-    const run = new BatchRun([one], 'Flux_123');
     const snapshot = run.snapshot();
 
     snapshot.remainingKeys!.length = 0;
+    snapshot.activeSourceKeys!.length = 0;
     snapshot.completed = 99;
 
     expect(run.snapshot()).toMatchObject({
       completed: 0,
-      remainingKeys: [videoKey(one.url)]
+      remainingKeys: [videoKey(one.url)],
+      activeSourceKeys: [videoKey(one.url)]
     });
   });
 });

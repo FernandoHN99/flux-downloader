@@ -45,3 +45,15 @@ export function getFfmpegHttpArgs(referer?: string): string[] {
     return ['-referer', referer];
   }
 }
+
+/** Browser page context forwarded to every direct HTTP/range request. */
+export function getDirectHttpHeaders(referer?: string): Array<{ name: string; value: string }> {
+  if (!referer) return [];
+  const headers = [{ name: 'Referer', value: referer }];
+  try {
+    headers.push({ name: 'Origin', value: new URL(referer).origin });
+  } catch {
+    // A non-URL referer is still useful as-is.
+  }
+  return headers;
+}

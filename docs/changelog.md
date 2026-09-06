@@ -6,6 +6,17 @@ This is the project changelog. It replaces the old Video DownloadHelper historic
 
 This section describes commits after the `v1.1.1` tag on the current refactor line. These changes are not part of a tagged public release yet.
 
+### Download acceleration
+
+- Added eight-fragment yt-dlp downloads through `--concurrent-fragments 8`.
+- Replaced the single-stream direct downloader with validated parallel byte ranges: up to eight connections, 4 MiB minimum parts, per-range resume/retry, object validators, exact-length checks, cancellation, and automatic sequential fallback.
+- Forwarded Referer and Origin to every direct HTTP/range request and stopped treating a partial `ECONNRESET` response as a complete file.
+- Changed batch execution from sequential to a four-worker pool while retaining one synchronously acquired user-run lease.
+- Made batch cancellation cover every active native ID plus IDs that arrive late, and preallocated case-insensitively unique names before parallel starts.
+- Keyed FFmpeg/yt-dlp progress by logical download, made process IDs collision-safe within the worker, and added per-row plus aggregate parallel progress in the popup.
+- Added a compatibility path for old three-argument `convertOutput` callbacks and preserved the old callback prefix for older extensions.
+- Documented the complete tuning and fallback model in `docs/performance.md`.
+
 ### Rename to Flux Downloader
 
 - Renamed the project to **Flux Downloader** everywhere: manifest, UI, npm packages, install directories, log prefix, page-world globals, and release artifacts.
@@ -84,6 +95,10 @@ This section describes commits after the `v1.1.1` tag on the current refactor li
 - Added `DownloadRunGate`, enforced in the service worker, so popup instances and batches share one native execution slot.
 - Centralized FFmpeg/MSE/yt-dlp completion, error publication, and ownership release.
 - Added nine extension-side `NativeClient` tests and fixed retries after an initial synchronous `connectNative` failure.
+- Fixed browser-launched macOS hosts inheriting a restricted `PATH`: runtime
+  discovery now resolves Homebrew binaries directly, and every missing-tool
+  spawn settles as an operation error instead of crashing the native host with
+  `spawn ... ENOENT` / “Native host has exited.”
 
 ### Content and manifest fixes
 
@@ -118,13 +133,13 @@ This section describes commits after the `v1.1.1` tag on the current refactor li
 
 ### Tests and verification
 
-At this baseline:
+At the current 2026-09-04 baseline:
 
-- 39 test files;
-- 505 passing tests;
+- 49 test files (42 extension + 7 CoApp);
+- 585 passing tests (564 extension + 21 CoApp);
 - Vitest 3 + happy-dom;
 - full extension and CoApp build passes;
-- no linter and no CoApp test suite yet.
+- no linter and no real FFmpeg/yt-dlp process integration suite yet.
 - `npm run dev:extension` now runs a parallel no-emit TypeScript checker and watch contexts for all six extension bundles; browser reloads remain manual.
 
 ### Documentation

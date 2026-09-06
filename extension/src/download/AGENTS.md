@@ -7,9 +7,11 @@ native messaging.
 | File | Owns |
 |---|---|
 | `native-client.ts` | `NativeClient` — the CoApp connection and RPC lifecycle |
-| `download-run-gate.ts` | The single native execution slot |
+| `download-run-gate.ts` | The exclusive user-visible run lease |
 | `download-tracker.ts` | Active IDs, outcomes, cancellation tombstones |
+| `download-key.ts` | Collision-safe FFmpeg/yt-dlp logical keys |
 | `batch-run.ts` | Batch queue transitions |
+| `batch-pool.ts` | Bounded concurrent batch dispatch |
 | `download-plan.ts` | Filenames, extensions, output paths, batch quality choice |
 | `hls-rewrite.ts` | Rewriting manifest URIs for learned browser relays |
 | `hls-arguments.ts` | Multi-input FFmpeg argument preparation |
@@ -29,21 +31,30 @@ download.
 
 ## Concurrency — the rules that bite
 
-`DownloadRunGate` reserves the one native execution slot **synchronously,
-before the first `await`**, and holds it across popup instances and for the
-whole batch. Disabling buttons in the popup is feedback, not the lock: separate
-popup instances would otherwise both start a run.
+`DownloadRunGate` reserves one **user-visible run synchronously, before the
+first `await`**, and holds it across popup instances and for the whole batch.
+Disabling buttons in the popup is feedback, not the lock: separate popup
+instances would otherwise both start a run. A batch holding one lease fans out
+to four native jobs through `batch-pool.ts`; do not reacquire the gate per item.
 
 `DownloadTracker` owns active IDs, outcomes and cancellation tombstones. There
 is exactly one settlement path that publishes process completion and releases
 ownership — late or duplicate native callbacks must not revive a cancelled
 download.
 
-`BatchRun` owns queue transitions. A cancelled item is **not** marked failed,
-and a cancellation arriving before a native ID exists is applied as soon as the
-ID appears.
+`BatchRun` owns queue transitions and every active source/native ID. A cancelled
+item is **not** marked failed, Stop returns all known IDs, and a cancellation
+arriving before any native ID exists is applied as soon as that ID appears.
 
-Batch downloads are sequential and write into a `Flux_<timestamp>` folder.
+Batch downloads run up to four at once and write into a `Flux_<timestamp>`
+folder. Plan and case-insensitively deduplicate sanitized output names before
+dispatch; parallel `file.uniquePath` checks cannot reserve a not-yet-created
+path by themselves.
+
+FFmpeg and yt-dlp progress must carry the logical download key. Process keys
+include both time and a monotonic sequence because `Date.now()` alone collides
+during fan-out. Direct HTTP receives Referer/Origin and may itself use up to
+eight ranges; see `docs/performance.md`.
 
 ## Native client
 

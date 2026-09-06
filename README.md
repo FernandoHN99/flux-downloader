@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white" alt="TypeScript">
   <img src="https://img.shields.io/badge/Manifest%20V3-4285F4?logo=googlechrome&logoColor=white" alt="Manifest V3">
   <img src="https://img.shields.io/badge/Node.js-22-5FA04E?logo=nodedotjs&logoColor=white" alt="Node.js 22">
-  <img src="https://img.shields.io/badge/tests-560%20passing-3fb950" alt="560 tests">
+  <img src="https://img.shields.io/badge/tests-585%20passing-3fb950" alt="585 tests">
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT">
 </p>
 
@@ -34,8 +34,8 @@ extension that **finds** media, and a small local Node companion (CoApp) that
 |---|---|
 | **Finds** | HLS (`.m3u8`), DASH (`.mpd`), direct MP4/WebM, `<video>` elements, and streams that only exist inside Media Source Extensions |
 | **Understands** | Video, alternate audio and subtitle renditions, parsed from the manifest itself |
-| **Downloads** | FFmpeg stream-copy for HLS/DASH, yt-dlp for YouTube, plain HTTP for direct files |
-| **Organises** | One list across every open tab, optional history, grouping by the real source site, rename, search, reorder, batch download |
+| **Downloads** | FFmpeg stream-copy for HLS/DASH, 8-fragment yt-dlp for YouTube, and up to 8 parallel HTTP ranges for direct files |
+| **Organises** | One list across every open tab, optional history, grouping by the real source site, rename, search, reorder, and 4-at-once batch download |
 
 Media playing right now is pinned above history. A video keeps the page that
 actually exposed it — a Rocketseat lesson stays under `app.rocketseat.com.br`
@@ -76,14 +76,16 @@ The extension ID is fixed by the manifest key, so both scripts pick it up
 automatically — there is nothing to pass in. Each script builds a small
 launcher that points at this checkout's `coapp/dist/main.js` and registers it
 as the native messaging host. **Re-run it whenever you move, rename, or
-re-clone the repository** — the launcher embeds an absolute path, and a stale
-one is what makes Chrome report "The companion app stopped responding" even
-though the extension and CoApp are both fine.
+re-clone the repository, or replace the selected Node version** — the launcher
+embeds absolute paths to both. On fnm installations the script resolves Node's
+physical version path instead of persisting the disposable per-shell shim. A
+stale launcher is what makes Chrome report "Native host has exited" even
+though the extension and CoApp builds are both fine.
 
 **4. Make sure the tools are reachable**
 
-`ffmpeg`, `ffprobe` and `yt-dlp` must be on your `PATH` (or under
-`coapp/ffmpeg/<platform>/` and `coapp/ytdlp/<platform>/`).
+`ffmpeg`, `ffprobe` and `yt-dlp` must be under the packaged/project runtime
+folders, a standard system/Homebrew binary directory, or your `PATH`.
 
 ```bash
 brew install ffmpeg yt-dlp      # macOS
@@ -132,8 +134,9 @@ A few decisions worth calling out:
   twice.
 - **The popup owns its own state, split from the background's.** A detection
   arriving mid-rename cannot wipe what you are typing.
-- **One download run owns the CoApp at a time**, reserved synchronously before
-  the first `await` — disabling buttons is feedback, not the lock.
+- **One user-visible run is reserved synchronously** before the first `await` —
+  disabling buttons is feedback, not the lock. A batch fans that lease out to
+  four native jobs.
 - **The MAIN-world hooks stay invisible.** Patched APIs report native source and
   keep the extension out of error stacks, because a player that notices
   tampering stops rendering.
@@ -141,7 +144,7 @@ A few decisions worth calling out:
 ## Development
 
 ```bash
-npm test          # 560 tests · Vitest + happy-dom
+npm test          # 585 tests · Vitest (happy-dom + Node loopback HTTP)
 npm run build     # tsc + esbuild bundles, then the CoApp
 npm run dev:extension
 ```

@@ -52,10 +52,12 @@ list logic there, not in a component.
 
 `ProgressPanel` handles both single and batch runs. The compact panel is two
 visual rows — summary/speed/ETA/percent/Stop, then the bar — measured at 44px.
-The active row shows a percentage; other batch rows show `Queued`.
+Concurrent active rows keep independent progress in `progressByKey`; queued
+rows say `Queued`, and the batch bar aggregates settled plus fractional active
+items. A keyed progress update may select which active row supplies detail.
 
-One download run owns the CoApp at a time, enforced by `DownloadRunGate` in the
-worker. Disabling popup buttons is feedback, not the lock.
+One user-visible run owns the worker gate at a time. A batch uses up to four
+CoApp jobs inside that lease. Disabling popup buttons is feedback, not the lock.
 
 ## Styles
 

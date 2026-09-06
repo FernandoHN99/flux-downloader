@@ -32,9 +32,10 @@ export class ProgressPanel extends Component<ProgressPanelState> {
 
     const header = document.createElement('div');
     header.className = 'progress-header';
+    const active = view.active || 0;
     const label = view.kind === 'single'
       ? 'Downloading'
-      : `Downloading ${view.current}/${view.total}`;
+      : `${active > 1 ? `Downloading ${active} in parallel` : 'Downloading'} · ${view.current}/${view.total} done`;
 
     const info = document.createElement('span');
     info.className = 'progress-info';
@@ -92,7 +93,10 @@ function describeSpeed(detail: ProgressDetail | null): string {
   if (!detail) return '';
   if (detail.bytesReceived !== undefined && (detail.totalBytes ?? 0) > 0) {
     const mb = (n: number) => (n / 1_000_000).toFixed(1);
-    return `${mb(detail.bytesReceived)} / ${mb(detail.totalBytes!)} MB`;
+    const speed = typeof detail.speed === 'number' && detail.speed > 0
+      ? ` · ${formatSpeed(detail.speed)}`
+      : '';
+    return `${mb(detail.bytesReceived)} / ${mb(detail.totalBytes!)} MB${speed}`;
   }
   if (typeof detail.speed === 'string' && detail.speed.trim()) {
     const label = detail.speed.trim().toLowerCase().endsWith('x') ? 'Processing' : 'Speed';

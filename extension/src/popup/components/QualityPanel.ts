@@ -5,7 +5,7 @@ import { Component } from './base';
 export interface QualityPanelState {
   video: VideoInfo;
   selectedIndex: number;
-  /** A run already in flight owns the CoApp, so this row cannot start one. */
+  /** A user-visible run is already in flight, so this row cannot start one. */
   downloadDisabled: boolean;
 }
 

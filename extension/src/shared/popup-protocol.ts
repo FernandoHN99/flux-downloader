@@ -8,6 +8,9 @@ export interface BatchStatus {
   failed: number;
   currentTitle?: string;
   currentSourceKey?: string;
+  /** Items with a native transfer in flight; remainingKeys also includes queued work. */
+  activeSourceKeys?: string[];
+  concurrency?: number;
   remainingKeys?: string[];
   folder?: string;
   cancelled: boolean;
@@ -53,11 +56,11 @@ export type PopupMessage =
   | { type: 'DOWNLOAD_STARTED'; success: boolean; downloadId?: string; error?: string }
   | { type: 'DOWNLOAD_CANCELLED'; success: boolean; error?: string }
   | ({ type: 'DOWNLOAD_PROGRESS'; downloadId?: string; progress?: ProgressDetail } &
-      Partial<ProgressDetail>)
-  | { type: 'DOWNLOAD_COMPLETE'; downloadId?: string; outputPath?: string }
-  | { type: 'DOWNLOAD_ERROR'; downloadId?: string; error?: string }
+      Partial<ProgressDetail> & { sourceKey?: string })
+  | { type: 'DOWNLOAD_COMPLETE'; downloadId?: string; sourceKey?: string; outputPath?: string }
+  | { type: 'DOWNLOAD_ERROR'; downloadId?: string; sourceKey?: string; error?: string }
   | { type: 'ACTIVE_DOWNLOAD'; downloadId: string; video?: VideoInfo; sourceUrl?: string;
-      filename?: string; progress?: ProgressDetail }
+      filename?: string; progress?: ProgressDetail; runKind?: 'single' | 'batch' }
   | { type: 'NO_ACTIVE_DOWNLOAD' }
   | { type: 'ERROR'; message: string };
 

@@ -1,8 +1,8 @@
 # Flux store/listing copy
 
-Updated: 2026-09-03.
+Updated: 2026-09-04.
 
-Copy audit: reviewed against the 505-test post-refactor implementation and current GitHub-distributed `1.1.1` baseline.
+Copy audit: reviewed against the 585-test post-refactor implementation and current GitHub-distributed `1.1.1` baseline.
 
 > Distribution status: Flux is currently shipped through GitHub Releases as an unpacked extension, **not** through the Chrome Web Store. This is maintained as canonical product copy for release pages or a future listing. Review store policy—especially YouTube behavior—before publishing.
 
@@ -26,10 +26,10 @@ Your media appears in one clear list:
 - optional local history keeps recent detections;
 - search, rename, reorder, selective delete, and downloaded/failed markers;
 - flat view or collapsible folders grouped by the real source site;
-- one-click per-site or sequential batch downloads;
+- one-click per-site or four-at-once batch downloads;
 - compact live progress with Stop.
 
-Flux serializes local downloads even if commands race from separate popup windows, so one FFmpeg, yt-dlp, or direct run owns the companion at a time.
+Flux rejects duplicate user commands that race from separate popup windows. A batch deliberately runs up to four local jobs together; each job remains independently tracked and cancellable.
 
 The always-visible **Refresh tabs** action rescans every open HTTP(S) page. It can also restore a current item that was accidentally removed from the local history list.
 
