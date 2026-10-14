@@ -24,15 +24,30 @@ export function orderedEntries(state: AppState): HistoryEntry[] {
   }
 
   const owned = childKeysOf(unique.values());
+  const playablePages = pagesWithPlayableManifest(unique.values());
   const current: HistoryEntry[] = [];
   const rest: HistoryEntry[] = [];
   for (const [key, entry] of unique) {
     // A master playlist speaks for its variants; a variant row detected before
     // the master arrived is the same video and must not show alongside it.
     if (owned.has(key)) continue;
+    // An MSE capture is the fallback for a page whose manifest is unknown. Once
+    // the page has an HLS/DASH row with renditions, the capture is its twin.
+    if (entry.type === 'mse' && entry.pageUrl && playablePages.has(entry.pageUrl)) continue;
     (isCurrent(state, key) ? current : rest).push(entry);
   }
   return [...current, ...rest];
+}
+
+/** Pages that already expose an HLS/DASH manifest whose renditions are known. */
+function pagesWithPlayableManifest(entries: Iterable<HistoryEntry>): Set<string> {
+  const pages = new Set<string>();
+  for (const entry of entries) {
+    const manifest = entry.type === 'hls' || entry.type === 'dash'
+      || entry.type === 'm3u8' || entry.type === 'mpd';
+    if (manifest && entry.pageUrl && (entry.qualities?.length ?? 0) > 0) pages.add(entry.pageUrl);
+  }
+  return pages;
 }
 
 /** Keys of every rendition and child manifest some other entry already owns. */

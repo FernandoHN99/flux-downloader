@@ -26,7 +26,13 @@ native messaging.
 | Direct MP4/WebM/other | CoApp HTTP downloader; byte progress polled, completion/errors pushed |
 
 Historical links are probed for expiration before download; current links skip
-the check. A probe that fails to run returns `undefined` and must never block a
+the check, except a **rendition chosen from a master playlist**, which is always
+probed. A master can list a rendition the server never had (a 4K answering 404);
+that is not an expired link, so `startDownload` falls back to the next-best live
+sibling from history (`rankFallbackRenditions`: at or below the chosen height
+first) and only reports "Link expired" when none is alive. Master tokens also
+expire in minutes while rendition tokens last a day, so never fall back *to* the
+master URL. A probe that fails to run returns `undefined` and must never block a
 download.
 
 ## Concurrency — the rules that bite

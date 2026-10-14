@@ -213,6 +213,9 @@ class MediaDetector {
     const pageUrl = window.location.href;
     const normalizedUrl = resolveMediaUrl(url, pageUrl);
     if (!normalizedUrl || this.mediaUrls.has(normalizedUrl)) return;
+    // A blob: <video src> is a handle into page memory. The CoApp cannot fetch
+    // it; the MSE hook announces the same stream with its real segment URLs.
+    if (normalizedUrl.startsWith('blob:')) return;
     this.mediaUrls.add(normalizedUrl);
 
     console.log('[Flux] Media URL detected:', normalizedUrl);

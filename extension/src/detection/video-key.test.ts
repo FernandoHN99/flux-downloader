@@ -62,3 +62,11 @@ describe('videoKey identity parameters', () => {
       .toBe(videoKey('https://cdn.test/media/lesson.m3u8?token=bbb'));
   });
 });
+
+describe('videoKey for blob URLs', () => {
+  it('does not repeat the origin inside the key', () => {
+    expect(videoKey('blob:https://portal.example/cb28fc45'))
+      .toBe('blob:https://portal.example/cb28fc45');
+  });
+});
+

@@ -11,6 +11,7 @@ import { PageMetadata, TabStateStore } from '../catalog/tab-state';
 import { HistoryStore } from '../catalog/history-store';
 import { isMediaUrl, isYouTubeUrl, mediaTypeFromUrl } from '../detection/media-url';
 import {
+  isManifestCovered,
   mergeChildUrls,
   mergeQualities,
   upsertDetectedVideo,
@@ -25,6 +26,7 @@ import {
 } from '../detection/http-media';
 import {
   buildBatchDownloadPlans,
+  rankFallbackRenditions,
   ensureFilenameExtension,
   formatFfmpegError,
   getDefaultExtension,
@@ -576,12 +578,7 @@ async function handleInterceptedMedia(
 
   // Deduplicate HLS/DASH manifests from redirect chains (same path, different CDN host)
   if (type === 'hls' || type === 'dash') {
-    let urlPath: string;
-    try { urlPath = new URL(url).pathname; } catch { urlPath = url; }
-    const existing = (tabStates.get(tabId)?.media || []).find(v =>
-      v.type === type && (() => { try { return new URL(v.url).pathname === urlPath; } catch { return false; } })()
-    );
-    if (existing) return;
+    if (isManifestCovered(tabStates.get(tabId)?.media || [], url, type)) return;
   }
 
   let qualities: VideoInfo['qualities'] = [];
@@ -704,6 +701,7 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: PopupRequest): void 
     case 'REFRESH_TABS':
       refreshOpenTabs()
         .catch((error) => console.warn('[Flux] Failed to refresh open tabs:', error))
+        .then(() => history.clearFailed().catch(() => { /* cosmetic markers */ }))
         .then(() => {
           postPopup(port, { type: 'MEDIA_LIST', ...currentMediaPayload() });
           return history.settled()
@@ -972,6 +970,25 @@ async function rewriteHlsInput(
   };
 }
 
+/**
+ * The next-best rendition of the same master that the server actually has.
+ * The popup sends only the rendition it chose, so the siblings come from history.
+ */
+async function findLiveRendition(
+  video: VideoInfo,
+  masterUrl: string
+): Promise<VideoInfo | undefined> {
+  const failed = video.qualities?.[0];
+  if (!failed) return undefined;
+  const master = (await history.read()).find((entry) => videoKey(entry.url) === videoKey(masterUrl));
+  for (const candidate of rankFallbackRenditions(master?.qualities || [], failed)) {
+    const status = await probeLinkStatus(candidate.url, video.referer);
+    if (status !== undefined && EXPIRED_LINK_STATUSES.has(status)) continue;
+    return { ...video, url: candidate.url, qualities: [candidate] };
+  }
+  return undefined;
+}
+
 async function startDownload(
   video: VideoInfo,
   run: DownloadRunContext,
@@ -984,11 +1001,20 @@ async function startDownload(
   await ensureCoAppConnected();
 
   // History links are often hours old; a dead one fails deep inside ffmpeg
-  // with an opaque error, so check before starting.
-  if (checkFreshness) {
+  // with an opaque error, so check before starting. A rendition chosen from a
+  // master playlist is probed too: the master can list one the server never
+  // had, and that is not an expired link.
+  const isRendition = !!sourceUrl && sourceUrl !== video.url;
+  if (checkFreshness || isRendition) {
     const status = await probeLinkStatus(video.url, video.referer);
     if (status !== undefined && EXPIRED_LINK_STATUSES.has(status)) {
-      throw new Error(`Link expired (HTTP ${status}) — reopen the page to refresh it.`);
+      const fallback = isRendition && (status === 404 || status === 410)
+        ? await findLiveRendition(video, sourceUrl)
+        : undefined;
+      if (!fallback) {
+        throw new Error(`Link expired (HTTP ${status}) — reopen the page to refresh it.`);
+      }
+      video = fallback;
     }
   }
 

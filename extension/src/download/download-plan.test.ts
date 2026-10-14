@@ -7,6 +7,7 @@ import {
   getDefaultExtension,
   joinOutputPath,
   pickBatchQuality,
+  rankFallbackRenditions,
   sanitizeFilename
 } from './download-plan';
 
@@ -159,3 +160,26 @@ describe('formatFfmpegError', () => {
     expect(error).toBe(`FFmpeg exit code 9: ${'x'.repeat(1000)}`);
   });
 });
+
+describe('rankFallbackRenditions', () => {
+  const dead = quality(2160, { url: 'https://cdn.example/uhd' });
+  const siblings = [dead, quality(1080), quality(360), quality(720), quality(0, { kind: 'audio' })];
+
+  it('offers the other video renditions, best first, never the dead one', () => {
+    expect(rankFallbackRenditions(siblings, dead).map((item) => item.height))
+      .toEqual([1080, 720, 360]);
+  });
+
+  it('puts renditions at or below the failed height ahead of higher ones', () => {
+    const failed = quality(720);
+    const all = [quality(1080), failed, quality(360)];
+
+    expect(rankFallbackRenditions(all, failed).map((item) => item.height))
+      .toEqual([360, 1080]);
+  });
+
+  it('returns nothing when the failed rendition was the only one', () => {
+    expect(rankFallbackRenditions([dead], dead)).toEqual([]);
+  });
+});
+

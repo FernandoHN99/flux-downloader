@@ -256,3 +256,54 @@ describe('HistoryStore duplicate repair', () => {
     expect((data.mediaHistory as HistoryEntry[])).toHaveLength(1);
   });
 });
+
+describe('HistoryStore stale failures', () => {
+  it('clears a failed marker when the same video returns with a fresh signed link', async () => {
+    const { data } = fakeStorage({
+      mediaHistory: [entry('https://cdn.test/a.m3u8?token=old')],
+      failedVideos: ['https://cdn.test/a.m3u8']
+    });
+    const { store } = makeStore();
+
+    await store.record([video('https://cdn.test/a.m3u8?token=new')], {});
+
+    expect(data.failedVideos).toEqual([]);
+  });
+
+  it('keeps the marker when the same link is merely detected again', async () => {
+    const { data } = fakeStorage({
+      mediaHistory: [entry('https://cdn.test/a.m3u8?token=same')],
+      failedVideos: ['https://cdn.test/a.m3u8']
+    });
+    const { store } = makeStore();
+
+    await store.record([video('https://cdn.test/a.m3u8?token=same')], {});
+
+    expect(data.failedVideos).toEqual(['https://cdn.test/a.m3u8']);
+  });
+});
+
+describe('HistoryStore.clearFailed', () => {
+  it('forgets every failure marker and republishes without the badge', async () => {
+    const { data } = fakeStorage({
+      mediaHistory: [entry('https://cdn.test/a.m3u8')],
+      failedVideos: ['https://cdn.test/a.m3u8', 'https://cdn.test/b.m3u8']
+    });
+    const { store, broadcast } = makeStore();
+
+    await store.clearFailed();
+
+    expect(data.failedVideos).toEqual([]);
+    expect(broadcast.mock.lastCall?.[0][0].failed).toBe(false);
+  });
+
+  it('does not write when there was nothing to forget', async () => {
+    const { local } = fakeStorage({ mediaHistory: [], failedVideos: [] });
+    const { store } = makeStore();
+
+    await store.clearFailed();
+
+    expect(local.set).not.toHaveBeenCalled();
+  });
+});
+

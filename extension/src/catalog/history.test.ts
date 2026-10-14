@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { HistoryEntry, VideoInfo } from '../shared/types';
 import {
   decorateHistoryEntries,
+  clearFailedMarkers,
   dedupeHistoryEntries,
   markHistoryDownloaded,
   markHistoryFailed,
@@ -303,3 +304,87 @@ describe('a user-given name survives re-detection', () => {
     expect(merged.title).toBe('Real lesson name');
   });
 });
+
+describe('a later detection never downgrades what is already known', () => {
+  const master = 'https://player.example/abc/playlist.m3u8?token=a';
+  const rendition = { url: 'https://player.example/abc/360p/video.m3u8', height: 360, bitrate: 1 };
+
+  it('keeps known qualities and child URLs when a re-sighting reports none', () => {
+    const known = entry({
+      url: master,
+      qualities: [rendition],
+      childUrls: [rendition.url],
+      duration: 244
+    });
+
+    const [merged] = mergeDetectedVideosIntoHistory(
+      [known],
+      [video({ url: 'https://player.example/abc/playlist.m3u8?token=b', qualities: [] })],
+      {},
+      2,
+      50
+    );
+
+    expect(merged.qualities).toEqual([rendition]);
+    expect(merged.childUrls).toEqual([rendition.url]);
+    expect(merged.duration).toBe(244);
+  });
+
+  it('takes the new qualities when the re-sighting does report some', () => {
+    const fresh = { ...rendition, height: 1080 };
+    const [merged] = mergeDetectedVideosIntoHistory(
+      [entry({ url: master, qualities: [rendition] })],
+      [video({ url: master, qualities: [fresh] })],
+      {},
+      2,
+      50
+    );
+
+    expect(merged.qualities).toEqual([fresh]);
+  });
+
+  const blob = 'blob:https://portal.example/cb28fc45-a413';
+  const captured = { url: blob, height: 0, bitrate: 0, label: 'MSE Stream' };
+
+  it('keeps an MSE capture as mse when the DOM reports the same blob as direct', () => {
+    const [merged] = mergeDetectedVideosIntoHistory(
+      [entry({ url: blob, type: 'mse', qualities: [captured] })],
+      [video({ url: blob, type: 'direct', qualities: [] })],
+      {},
+      2,
+      50
+    );
+
+    expect(merged.type).toBe('mse');
+    expect(merged.qualities).toEqual([captured]);
+  });
+
+  it('repairs a persisted blob row that an older build downgraded to direct', () => {
+    const broken = entry({ url: blob, type: 'direct', qualities: [captured] });
+
+    const [repaired] = dedupeHistoryEntries([broken]);
+
+    expect(repaired.type).toBe('mse');
+  });
+
+  it('returns the same array when nothing needed repair', () => {
+    const clean = [entry({ url: blob, type: 'mse', qualities: [captured] })];
+
+    expect(dedupeHistoryEntries(clean)).toBe(clean);
+  });
+});
+
+describe('clearFailedMarkers', () => {
+  it('forgets a failure once the link behind it has been replaced', () => {
+    const failed = ['https://cdn.test/a.mp4', 'https://cdn.test/b.mp4'];
+
+    expect(clearFailedMarkers(failed, ['https://cdn.test/a.mp4'])).toEqual(['https://cdn.test/b.mp4']);
+  });
+
+  it('returns the same array when none of the keys had failed', () => {
+    const failed = ['https://cdn.test/a.mp4'];
+
+    expect(clearFailedMarkers(failed, ['https://cdn.test/zzz.mp4'])).toBe(failed);
+  });
+});
+

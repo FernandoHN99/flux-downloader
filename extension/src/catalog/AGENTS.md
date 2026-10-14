@@ -46,6 +46,32 @@ Four layers enforce this, and all four are load-bearing:
    variant row whose URL another entry already lists among its `childUrls` or
    `qualities` — a master playlist speaks for its variants.
 
+Two more rules keep that true for a page that streams over MSE:
+
+- A re-sighting never downgrades a row. `qualities`, `childUrls`, `duration`
+  and `thumbnail` survive a detection that reports none (an expired token makes
+  the manifest fetch fail); a master that lost its renditions stops owning its
+  variants and they reappear as extra rows. An `mse` row also keeps its type:
+  the DOM reports the same `blob:` as `direct`, which the CoApp cannot fetch.
+- `content.ts` never announces a DOM `blob:` URL; only the MSE hook does, with
+  the real segment arguments. The popup hides an `mse` row when the same page
+  already has an HLS/DASH row with known renditions.
+
+- Master/variant ownership is matched with `videoKey`, never string equality:
+  the master lists a variant under one signed token and the network reports it
+  under another, so an exact `===` leaves every variant as a row of its own.
+- A `failedVideos` marker belongs to the link that failed. `HistoryStore.merge`
+  clears it when the same video returns with a different signed URL; a plain
+  re-detection of the same link keeps it, or the badge would vanish at once.
+
+- A network-seen manifest is skipped only when `isManifestCovered` says the same
+  path is already *parsed* (or served from another host). A bare same-host row
+  from the page has no renditions; skipping the parse left a master empty for
+  good, so its variants showed as separate rows.
+- The user's **Refresh tabs** clears every `failedVideos` marker
+  (`HistoryStore.clearFailed`): they are hints from earlier attempts, and a row
+  must not show an error nobody just caused.
+
 When two rows collapse, the first keeps its position (the user may have dragged
 it there) and only takes fields the later row can fill in.
 

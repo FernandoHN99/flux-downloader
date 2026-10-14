@@ -23,6 +23,9 @@ const IDENTITY_PARAMS: Record<string, readonly string[]> = {
 export function videoKey(url: string): string {
   try {
     const parsed = new URL(url);
+    // A blob URL already embeds its origin in the path, so composing
+    // origin + pathname would repeat it. The whole URL is the identity.
+    if (parsed.protocol === 'blob:') return url;
     const identity = IDENTITY_PARAMS[parsed.hostname];
     if (!identity) return `${parsed.origin}${parsed.pathname}`;
 

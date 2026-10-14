@@ -35,6 +35,33 @@ export function visibleVideos(videos: VideoInfo[], pageUrl?: string): VideoInfo[
 }
 
 /**
+ * Whether a network-seen manifest is already represented, so fetching and
+ * parsing it again would only produce a duplicate. Another host serving the
+ * same path is a redirect chain and counts as covered. A bare sighting on the
+ * *same* host does not: the page reported the playlist before it was parsed,
+ * and skipping the parse would leave that row without renditions for good, so
+ * its variants would show up as separate rows.
+ */
+export function isManifestCovered(
+  videos: readonly VideoInfo[],
+  url: string,
+  type: VideoInfo['type']
+): boolean {
+  let path: string;
+  try { path = new URL(url).pathname; } catch { return false; }
+  const key = videoKey(url);
+
+  return videos.some((existing) => {
+    if (existing.type !== type) return false;
+    try {
+      if (new URL(existing.url).pathname !== path) return false;
+    } catch { return false; }
+    const unparsedSameHost = videoKey(existing.url) === key && !existing.qualities?.length;
+    return !unparsedSameHost;
+  });
+}
+
+/**
  * Add or update one detected entry without mutating the previous snapshot.
  * Master HLS playlists own their variants, so child manifests never become
  * duplicate rows and are removed if the master arrives later.
@@ -51,25 +78,29 @@ export function upsertDetectedVideo(
   let current = videos;
 
   if (video.type === 'hls') {
-    const childUrls = new Set([
-      ...(video.qualities || []).map((quality) => quality.url),
-      ...(video.childUrls || [])
+    // Signed links rotate, so a variant is matched to its master by identity:
+    // the master listed it under one token and the network reports another.
+    const ownKey = videoKey(video.url);
+    const childKeys = new Set([
+      ...(video.qualities || []).map((quality) => videoKey(quality.url)),
+      ...(video.childUrls || []).map(videoKey)
     ]);
 
     const belongsToExistingMaster = current.some((existing) =>
       existing.type === 'hls' &&
-      existing.url !== video.url &&
+      videoKey(existing.url) !== ownKey &&
       (
-        existing.qualities?.some((quality) => quality.url === video.url) ||
-        existing.childUrls?.includes(video.url)
+        existing.qualities?.some((quality) => videoKey(quality.url) === ownKey) ||
+        existing.childUrls?.some((url) => videoKey(url) === ownKey)
       )
     );
     if (belongsToExistingMaster) return videos;
 
-    if (childUrls.size > 0) {
-      current = current.filter((existing) =>
-        !(existing.type === 'hls' && existing.url !== video.url && childUrls.has(existing.url))
-      );
+    if (childKeys.size > 0) {
+      current = current.filter((existing) => {
+        const key = videoKey(existing.url);
+        return !(existing.type === 'hls' && key !== ownKey && childKeys.has(key));
+      });
     }
   }
 
@@ -84,6 +115,9 @@ export function upsertDetectedVideo(
   const updated: VideoInfo = {
     ...existing,
     ...video,
+    // The page also reports the capture's blob URL as a plain <video src>.
+    // Only the MSE capture carries the segment arguments, so it keeps the type.
+    type: existing.type === 'mse' ? existing.type : video.type,
     title: video.title || existing.title,
     pageUrl: video.pageUrl || existing.pageUrl,
     qualities: video.qualities?.length ? video.qualities : existing.qualities,

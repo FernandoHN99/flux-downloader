@@ -26,6 +26,28 @@ export function pickBatchQuality(
 }
 
 /**
+ * The renditions to try when the chosen one turned out not to exist. A master
+ * playlist can list a rendition its server answers 404 for (a 4K that was never
+ * encoded), so "Best" would otherwise fail on a lesson that downloads fine at
+ * 1080p. Those at or below the failed height come first, best to worst: the
+ * user wanted that quality or lower, never silently something heavier.
+ */
+export function rankFallbackRenditions(
+  qualities: readonly VideoQuality[],
+  failed: VideoQuality
+): VideoQuality[] {
+  const isVideo = (quality: VideoQuality) => (quality.kind || 'video') === 'video';
+  const others = qualities.filter((quality) =>
+    quality.url !== failed.url && isVideo(quality) === isVideo(failed)
+  );
+  const byHeight = (a: VideoQuality, b: VideoQuality) => (b.height || 0) - (a.height || 0);
+  const limit = failed.height || 0;
+  const atOrBelow = others.filter((quality) => (quality.height || 0) <= limit).sort(byHeight);
+  const above = others.filter((quality) => (quality.height || 0) > limit).sort(byHeight);
+  return limit > 0 ? [...atOrBelow, ...above] : others.sort(byHeight);
+}
+
+/**
  * Pick every batch rendition up front and reserve distinct sanitized names.
  * A fresh batch directory is empty, but parallel starts can otherwise all see
  * the same title as available before any process creates its output file.

@@ -246,3 +246,37 @@ describe('orderedEntries never shows one video twice', () => {
     expect(orderedEntries(state)).toHaveLength(3);
   });
 });
+
+describe('orderedEntries shows a playable rendition, not its capture twin', () => {
+  const page = 'https://portal.example/lessons?id=1';
+  const master = {
+    ...entry('Lesson', 'https://player.example/abc/playlist.m3u8'),
+    pageUrl: page,
+    qualities: [{ url: 'https://player.example/abc/360p/video.m3u8', height: 360, bitrate: 1 }]
+  } as HistoryEntry;
+  const capture = {
+    ...entry('Lesson', 'blob:https://portal.example/cb28'),
+    type: 'mse',
+    pageUrl: page
+  } as HistoryEntry;
+
+  it('hides the MSE capture when an HLS master with qualities came from the same page', () => {
+    const state = stateWith({ history: [master, capture] });
+
+    expect(orderedEntries(state).map((e) => e.url)).toEqual([master.url]);
+  });
+
+  it('keeps the MSE capture when the master has no qualities yet', () => {
+    const bare = { ...master, qualities: [] } as HistoryEntry;
+    const state = stateWith({ history: [bare, capture] });
+
+    expect(orderedEntries(state)).toHaveLength(2);
+  });
+
+  it('keeps the MSE capture when the other row came from a different page', () => {
+    const elsewhere = { ...master, pageUrl: 'https://portal.example/lessons?id=2' } as HistoryEntry;
+    const state = stateWith({ history: [elsewhere, capture] });
+
+    expect(orderedEntries(state)).toHaveLength(2);
+  });
+});

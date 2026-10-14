@@ -40,6 +40,15 @@ export function mergeDetectedVideosIntoHistory(
       titleByUser: existing?.titleByUser,
       pageUrl: context.pageUrl || video.pageUrl || existing?.pageUrl,
       pageTitle: context.pageTitle || existing?.pageTitle,
+      // A re-sighting that could not parse the manifest again (expired token,
+      // failed fetch) must not erase the renditions already learned: a master
+      // without them stops owning its variants, which then show as extra rows.
+      type: existing?.type === 'mse' ? existing.type : persistedVideo.type,
+      qualities: persistedVideo.qualities?.length ? persistedVideo.qualities : (existing?.qualities ?? []),
+      childUrls: persistedVideo.childUrls?.length ? persistedVideo.childUrls : existing?.childUrls,
+      thumbnail: persistedVideo.thumbnail || existing?.thumbnail,
+      duration: persistedVideo.duration || existing?.duration,
+      fileSize: persistedVideo.fileSize || existing?.fileSize,
       detectedAt: now
     };
     const alreadyIncoming = incoming.get(key);
@@ -91,12 +100,19 @@ function preferRicher(held: HistoryEntry, other: HistoryEntry): HistoryEntry {
  */
 export function dedupeHistoryEntries(history: HistoryEntry[]): HistoryEntry[] {
   const byKey = new Map<string, HistoryEntry>();
+  let repaired = false;
   for (const entry of history) {
     const key = videoKey(entry.url);
     const held = byKey.get(key);
-    byKey.set(key, held ? preferRicher(held, entry) : entry);
+    // An older build let the DOM's <video src=blob:> overwrite an MSE capture
+    // as `direct`, which the CoApp cannot fetch ("Unsupported protocol: blob:").
+    const sound = entry.url.startsWith('blob:') && entry.type !== 'mse'
+      ? { ...entry, type: 'mse' as const }
+      : entry;
+    if (sound !== entry) repaired = true;
+    byKey.set(key, held ? preferRicher(held, sound) : sound);
   }
-  return byKey.size === history.length ? history : [...byKey.values()];
+  return byKey.size === history.length && !repaired ? history : [...byKey.values()];
 }
 
 /**
@@ -178,6 +194,16 @@ export function decorateHistoryEntries(
       failed: failed.has(key)
     };
   });
+}
+
+/**
+ * A failure belongs to the link that failed. When the same video comes back
+ * with a fresh signed link, the old verdict no longer applies.
+ */
+export function clearFailedMarkers(failed: string[], keys: Iterable<string>): string[] {
+  const forgotten = new Set(keys);
+  const next = failed.filter((key) => !forgotten.has(key));
+  return next.length === failed.length ? failed : next;
 }
 
 export interface DownloadMarkers {

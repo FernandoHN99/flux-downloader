@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { VideoInfo, VideoQuality } from '../shared/types';
 import {
+  isManifestCovered,
   mergeChildUrls,
   mergeQualities,
   upsertDetectedVideo,
@@ -159,3 +160,83 @@ describe('upsertDetectedVideo identity', () => {
     expect(next).toHaveLength(2);
   });
 });
+
+describe('upsertDetectedVideo keeps an MSE capture as mse', () => {
+  const blob = 'blob:https://portal.example/cb28fc45-a413';
+
+  it('does not let a DOM-reported direct blob overwrite the capture type', () => {
+    const captured = video({
+      url: blob,
+      type: 'mse',
+      qualities: [{ url: blob, height: 0, bitrate: 0, label: 'MSE Stream' }]
+    });
+
+    const [row, ...rest] = upsertDetectedVideo(
+      [captured],
+      video({ url: blob, type: 'direct', qualities: [] })
+    );
+
+    expect(rest).toHaveLength(0);
+    expect(row.type).toBe('mse');
+    expect(row.qualities).toHaveLength(1);
+  });
+});
+
+describe('upsertDetectedVideo matches signed URLs by identity, not by string', () => {
+  const master = (token: string, extra: Partial<VideoInfo> = {}) => video({
+    url: `https://player.example/abc/playlist.m3u8?e=${token}`,
+    type: 'hls',
+    ...extra
+  });
+  const variantUrl = (token: string) => `https://player.example/abc/360p/video.m3u8?e=${token}`;
+
+  it('ignores a variant whose token differs from the one the master listed', () => {
+    const owner = master('1', {
+      qualities: [quality(variantUrl('1'), 360)],
+      childUrls: [variantUrl('1')]
+    });
+
+    const result = upsertDetectedVideo([owner], video({ url: variantUrl('2'), type: 'hls' }));
+
+    expect(result).toEqual([owner]);
+  });
+
+  it('drops an already-listed variant row when its master arrives with another token', () => {
+    const variant = video({ url: variantUrl('2'), type: 'hls' });
+    const owner = master('1', { qualities: [quality(variantUrl('1'), 360)] });
+
+    const result = upsertDetectedVideo([variant], owner);
+
+    expect(result.map((row) => row.url)).toEqual([owner.url]);
+  });
+});
+
+describe('isManifestCovered', () => {
+  const url = 'https://player.example/abc/playlist.m3u8?e=2';
+  const held = (overrides: Partial<VideoInfo> = {}) => video({
+    url: 'https://player.example/abc/playlist.m3u8?e=1',
+    type: 'hls',
+    ...overrides
+  });
+
+  it('is covered when the same manifest was already parsed', () => {
+    expect(isManifestCovered([held({ qualities: [quality('https://player.example/abc/360p/video.m3u8')] })], url, 'hls'))
+      .toBe(true);
+  });
+
+  it('is not covered while the held row is a bare sighting with no renditions', () => {
+    expect(isManifestCovered([held()], url, 'hls')).toBe(false);
+  });
+
+  it('stays covered for a bare row on another host: that is a redirect chain', () => {
+    const elsewhere = held({ url: 'https://other-cdn.example/abc/playlist.m3u8?e=1' });
+
+    expect(isManifestCovered([elsewhere], url, 'hls')).toBe(true);
+  });
+
+  it('is not covered when nothing shares the path', () => {
+    expect(isManifestCovered([video({ type: 'hls', url: 'https://player.example/zzz/playlist.m3u8' })], url, 'hls'))
+      .toBe(false);
+  });
+});
+

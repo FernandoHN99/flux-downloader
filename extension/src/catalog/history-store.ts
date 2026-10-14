@@ -1,6 +1,7 @@
 import type { HistoryEntry, VideoInfo } from '../shared/types';
 import { videoKey } from '../detection/video-key';
 import {
+  clearFailedMarkers,
   decorateHistoryEntries,
   dedupeHistoryEntries,
   markHistoryDownloaded,
@@ -126,6 +127,17 @@ export class HistoryStore {
     await this.publish(await this.read());
   }
 
+  /**
+   * A failure marker is a hint from an earlier attempt. The user's explicit
+   * refresh resets them, so a row never shows an error nobody just caused.
+   */
+  async clearFailed(): Promise<void> {
+    const [, failed] = await this.readMarkers();
+    if (failed.length === 0) return;
+    await chrome.storage.local.set({ [FAILED_KEY]: [] });
+    await this.publish(await this.read());
+  }
+
   async markFailed(url: string): Promise<void> {
     const key = videoKey(url);
     const [, failed] = await this.readMarkers();
@@ -167,9 +179,33 @@ export class HistoryStore {
       Date.now(),
       HISTORY_LIMIT
     );
+    await this.forgetFailuresOfReplacedLinks(history, next);
     if (sameHistoryContent(next, history)) return;
     await chrome.storage.local.set({ [HISTORY_KEY]: next });
     await this.publish(next);
+  }
+
+  /**
+   * `sameHistoryContent` ignores signed query strings, so a rotated link does
+   * not rewrite the list; the failure flag is the one thing that must notice.
+   */
+  private async forgetFailuresOfReplacedLinks(
+    before: HistoryEntry[],
+    after: HistoryEntry[]
+  ): Promise<void> {
+    const previousUrls = new Map(before.map((entry) => [videoKey(entry.url), entry.url]));
+    const replaced = after
+      .filter((entry) => {
+        const previous = previousUrls.get(videoKey(entry.url));
+        return previous !== undefined && previous !== entry.url;
+      })
+      .map((entry) => videoKey(entry.url));
+    if (replaced.length === 0) return;
+
+    const [, failed] = await this.readMarkers();
+    const remaining = clearFailedMarkers(failed, replaced);
+    if (remaining === failed) return;
+    await chrome.storage.local.set({ [FAILED_KEY]: remaining });
   }
 
   /** Applies a pure transform, writing and broadcasting only when it changed. */
