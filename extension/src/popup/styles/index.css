@@ -3,6 +3,7 @@
 @import './tokens.css';
 @import './shell.css';
 @import './list.css';
+@import './folder.css';
 @import './row.css';
 @import './quality.css';
 @import './progress.css';

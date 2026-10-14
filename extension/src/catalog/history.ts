@@ -206,6 +206,24 @@ export function clearFailedMarkers(failed: string[], keys: Iterable<string>): st
   return next.length === failed.length ? failed : next;
 }
 
+/**
+ * Records lengths learned after detection. A length already known wins: the
+ * page's own `<video>` reports it more precisely than a playlist does.
+ */
+export function applyDurations(
+  history: HistoryEntry[],
+  durations: ReadonlyMap<string, number>
+): HistoryEntry[] {
+  let changed = false;
+  const next = history.map((entry) => {
+    const learned = durations.get(videoKey(entry.url));
+    if (!learned || entry.duration) return entry;
+    changed = true;
+    return { ...entry, duration: learned };
+  });
+  return changed ? next : history;
+}
+
 export interface DownloadMarkers {
   downloaded: string[];
   failed: string[];

@@ -62,6 +62,12 @@ export interface VideoInfo {
   fileSize?: number;
 }
 
+/** A folder the user made inside Flux Downloader to organise saved videos. */
+export interface VideoFolder {
+  id: string;
+  name: string;
+}
+
 // A video kept in the global detection history, with the page it came from.
 export interface HistoryEntry extends VideoInfo {
   pageTitle?: string;
@@ -76,6 +82,8 @@ export interface HistoryEntry extends VideoInfo {
   downloaded?: boolean;
   /** Set when broadcasting: the last download attempt failed. */
   failed?: boolean;
+  /** Set when broadcasting: the user's folder this video was filed into. */
+  folderId?: string;
 }
 
 export interface DownloadProgress {

@@ -1,6 +1,6 @@
-import type { HistoryEntry } from '../../shared/types';
+import type { HistoryEntry, VideoFolder } from '../../shared/types';
 import { videoKey } from '../../detection/video-key';
-import { formatDuration, formatRelativeTime, getTypeLabel } from '../format';
+import { formatLength, getTypeLabel } from '../format';
 import type { QualityOption } from '../quality';
 import { Component } from './base';
 import { badge, dragHandle, iconButton, playIcon, selectDot, spinner } from './icons';
@@ -18,6 +18,11 @@ export interface VideoRowState {
   isRenaming: boolean;
   downloadDisabled: boolean;
   selectedQualityIndex: number;
+  /** Can be filed into a folder: any row that is not mid-download or being picked. */
+  canMove: boolean;
+  /** Showing its "move to folder" choices. */
+  isMoving: boolean;
+  folders: VideoFolder[];
 }
 
 export interface VideoRowHandlers {
@@ -28,6 +33,10 @@ export interface VideoRowHandlers {
   onTrash(key: string): void;
   onSelectQuality(index: number): void;
   onDownload(option: QualityOption): void;
+  onToggleMove(key: string): void;
+  /** `folderId: null` takes the video back out of its folder. */
+  onMoveToFolder(key: string, folderId: string | null): void;
+  onNewFolderFor(key: string): void;
 }
 
 /**
@@ -68,6 +77,8 @@ export class VideoRow extends Component<VideoRowState> {
     const { entry, isCurrent, isBusy, selectionMode, isPicked, isExpanded, isRenaming } = this.state;
 
     this.el.dataset.key = this.key;
+    if (entry.folderId) this.el.dataset.folder = entry.folderId;
+    else delete this.el.dataset.folder;
     this.el.classList.toggle('media-item-current-page', isCurrent);
     this.el.classList.toggle('busy', isBusy);
     this.el.classList.toggle('picked', selectionMode && isPicked);
@@ -75,8 +86,11 @@ export class VideoRow extends Component<VideoRowState> {
     this.el.classList.toggle('selected', isExpanded);
     this.el.classList.toggle('editing', isRenaming);
     this.el.setAttribute('aria-selected', String(isExpanded));
-    // Pinned and busy rows hold still; so does the whole list while picking.
-    this.el.draggable = !isCurrent && !isBusy && !selectionMode && !isRenaming;
+    // Busy rows hold still, and so does the whole list while picking. The video
+    // playing now can be dragged — into a folder — but stays pinned: it is not
+    // reorderable, so the list keeps it out of every reorder zone.
+    this.el.draggable = !isBusy && !selectionMode && !isRenaming;
+    this.el.dataset.reorderable = String(this.el.draggable && !isCurrent);
     if (entry.pageUrl) this.el.title = entry.pageUrl;
 
     this.el.replaceChildren();
@@ -85,7 +99,7 @@ export class VideoRow extends Component<VideoRowState> {
     this.el.appendChild(head);
 
     if (selectionMode) head.appendChild(selectDot(isPicked));
-    else if (this.el.draggable) head.appendChild(dragHandle());
+    else if (this.el.draggable) head.appendChild(dragHandle(isCurrent));
 
     head.appendChild(this.buildThumbnail());
     head.appendChild(isRenaming ? this.buildRenameForm() : this.buildInfo());
@@ -99,6 +113,10 @@ export class VideoRow extends Component<VideoRowState> {
     // with the title.
     if (isCurrent) {
       head.appendChild(badge('current-badge', 'current', 'Detected on the page you have open'));
+    }
+
+    if (this.state.isMoving && this.state.canMove && !selectionMode && !isBusy) {
+      this.el.appendChild(this.buildMovePanel());
     }
 
     if (isExpanded && !selectionMode && !isBusy) {
@@ -157,8 +175,9 @@ export class VideoRow extends Component<VideoRowState> {
     meta.className = 'media-meta';
     meta.textContent = isBusy ? busyLabel : [
       getTypeLabel(entry.type),
-      entry.duration ? formatDuration(entry.duration) : '',
-      formatRelativeTime(entry.detectedAt)
+      // The length, not when it was detected: it is what tells one lesson from
+      // the next at a glance.
+      entry.duration ? formatLength(entry.duration) : ''
     ].filter(Boolean).join(' · ');
     info.appendChild(meta);
 
@@ -207,9 +226,54 @@ export class VideoRow extends Component<VideoRowState> {
     return info;
   }
 
+  /** Where this video can go: each folder, out of its folder, or a new one. */
+  private buildMovePanel(): HTMLElement {
+    const { entry, folders } = this.state;
+    const panel = document.createElement('div');
+    panel.className = 'move-panel';
+    panel.setAttribute('role', 'menu');
+    panel.addEventListener('click', (event) => event.stopPropagation());
+
+    const choice = (label: string, onPick: () => void, current = false): HTMLButtonElement => {
+      const button = document.createElement('button');
+      button.className = current ? 'move-choice current' : 'move-choice';
+      button.setAttribute('role', 'menuitem');
+      button.textContent = label;
+      button.disabled = current;
+      button.addEventListener('click', onPick);
+      return button;
+    };
+
+    for (const folder of folders) {
+      panel.appendChild(choice(
+        folder.name,
+        () => this.handlers.onMoveToFolder(this.key, folder.id),
+        entry.folderId === folder.id
+      ));
+    }
+    if (entry.folderId) {
+      panel.appendChild(choice('Remove from folder', () => this.handlers.onMoveToFolder(this.key, null)));
+    }
+    const create = choice('New folder…', () => this.handlers.onNewFolderFor(this.key));
+    create.classList.add('move-new');
+    panel.appendChild(create);
+    return panel;
+  }
+
   private buildActions(): HTMLElement {
     const actions = document.createElement('div');
     actions.className = 'media-actions';
+
+    if (this.state.canMove) {
+      const move = iconButton('folderPlus', 'Move to folder');
+      move.classList.add('move-btn');
+      move.setAttribute('aria-expanded', String(this.state.isMoving));
+      move.addEventListener('click', (event) => {
+        event.stopPropagation();
+        this.handlers.onToggleMove(this.key);
+      });
+      actions.appendChild(move);
+    }
 
     const rename = iconButton('rename', 'Rename');
     rename.classList.add('rename-btn');

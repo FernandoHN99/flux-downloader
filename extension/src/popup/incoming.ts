@@ -26,7 +26,12 @@ export function applyIncoming(store: Store, message: Incoming): void {
     }
 
     case 'HISTORY_LIST':
-      store.setRemote({ history: message.entries || [] });
+      store.setRemote({
+        history: message.entries || [],
+        // A message without `folders` leaves them as they were: an older
+        // worker, or the empty fallback sent when reading history failed.
+        ...(message.folders ? { folders: message.folders } : {})
+      });
       break;
 
     case 'BATCH_STATUS': {

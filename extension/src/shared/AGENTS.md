@@ -35,6 +35,11 @@ fields readable so popup/background upgrades remain tolerant.
 from being stored as a manual run. Missing values mean `single` for backward
 compatibility.
 
+Folder messages — `CREATE_FOLDER`, `RENAME_FOLDER`, `DELETE_FOLDER`,
+`MOVE_TO_FOLDER` (`folderId: null` un-files) — arrive from an untrusted port, so
+the background checks each field's type before use. `HISTORY_LIST.folders` is
+optional: a message without it leaves the popup's folders as they were.
+
 ## Types
 
 `VideoInfo.url` and `VideoInfo.pageUrl` are different facts — see

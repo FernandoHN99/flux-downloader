@@ -1,12 +1,23 @@
-import type { HistoryEntry } from '../../shared/types';
+import type { HistoryEntry, VideoFolder } from '../../shared/types';
 import { domainOf, videoKey } from '../../detection/video-key';
-import { groupByDomain } from '../selectors';
+import { groupByDomain, splitByFolder } from '../selectors';
 import { Component } from './base';
+import { FolderComposer } from './FolderComposer';
+import { FolderGroup } from './FolderGroup';
 import { VideoGroup } from './VideoGroup';
 import { VideoRow, type VideoRowHandlers, type VideoRowState } from './VideoRow';
 
 export interface VideoListState {
   entries: HistoryEntry[];
+  folders: VideoFolder[];
+  /** A search is active, so folders without a match are left out. */
+  searching: boolean;
+  collapsedFolders: ReadonlySet<string>;
+  renamingFolderId: string | null;
+  /** The new-folder form is open, with how many videos it will receive. */
+  creatingFolder: { keys: string[] } | null;
+  /** Videos in no folder, offered to the new-folder form as one click. */
+  unfiledCount: number;
   grouped: boolean;
   collapsedGroups: ReadonlySet<string>;
   downloadDisabled: boolean;
@@ -18,6 +29,17 @@ export interface VideoListHandlers extends VideoRowHandlers {
   onReorder(keys: string[]): void;
   onToggleGroup(domain: string): void;
   onDownloadGroup(domain: string): void;
+  onToggleFolder(id: string): void;
+  onDownloadFolder(id: string): void;
+  onStartRenameFolder(id: string): void;
+  onCommitRenameFolder(id: string, name: string): void;
+  onCancelRenameFolder(): void;
+  onDeleteFolder(id: string): void;
+  onCommitNewFolder(name: string): void;
+  onCommitNewFolderWithUnfiled(name: string): void;
+  onCancelNewFolder(): void;
+  /** A dragged row was dropped on a folder, or (null) back on the main list. */
+  onDropToFolder(keys: string[], folderId: string | null): void;
 }
 
 /**
@@ -37,16 +59,79 @@ export class VideoList extends Component<VideoListState> {
     this.el.id = 'history-list';
     this.el.setAttribute('role', 'listbox');
     this.el.setAttribute('aria-label', 'Detected media');
+    this.attachUnfileTarget();
   }
 
   protected render(): void {
     this.el.replaceChildren();
+    const { creatingFolder, folders, searching } = this.state;
+
+    if (creatingFolder) {
+      const composer = new FolderComposer(
+        { videoCount: creatingFolder.keys.length, unfiledCount: this.state.unfiledCount },
+        {
+          onCommit: (name) => this.handlers.onCommitNewFolder(name),
+          onCommitWithUnfiled: (name) => this.handlers.onCommitNewFolderWithUnfiled(name),
+          onCancel: () => this.handlers.onCancelNewFolder()
+        }
+      );
+      composer.update();
+      this.el.appendChild(composer.el);
+    }
+
+    // The user's folders come first, then whatever is not filed anywhere.
+    const split = splitByFolder(this.state.entries, folders, searching);
+    for (const { folder, entries } of split.sections) this.appendFolder(folder, entries);
+    this.appendUnfiled(split.unfiled);
+  }
+
+  private appendFolder(folder: VideoFolder, entries: HistoryEntry[]): void {
+    const collapsed = this.state.collapsedFolders.has(folder.id);
+    const group = new FolderGroup(
+      {
+        id: folder.id,
+        name: folder.name,
+        count: entries.length,
+        collapsed,
+        renaming: this.state.renamingFolderId === folder.id,
+        downloadDisabled: this.state.downloadDisabled
+      },
+      {
+        onToggle: (id) => this.handlers.onToggleFolder(id),
+        onDownload: (id) => this.handlers.onDownloadFolder(id),
+        onStartRename: (id) => this.handlers.onStartRenameFolder(id),
+        onCommitRename: (id, name) => this.handlers.onCommitRenameFolder(id, name),
+        onCancelRename: () => this.handlers.onCancelRenameFolder(),
+        onDelete: (id) => this.handlers.onDeleteFolder(id)
+      }
+    );
+    group.update();
+    if (!collapsed) this.appendFolderRows(group.body, entries);
+    this.attachFolderTarget(group.el, folder.id);
+    this.el.appendChild(group.el);
+  }
+
+  /**
+   * Rows inside a folder are not reorderable, so there is no drop zone here:
+   * they only ever leave it, for another folder or for the main list. The
+   * rows that can be dragged (not playing now, not downloading) still are.
+   */
+  private appendFolderRows(parent: HTMLElement, entries: HistoryEntry[]): void {
+    for (const entry of entries) {
+      const row = new VideoRow({ entry, ...this.state.rowState(entry) }, this.handlers);
+      row.update();
+      if (row.el.draggable) this.attachDrag(row.el);
+      parent.appendChild(row.el);
+    }
+  }
+
+  private appendUnfiled(entries: HistoryEntry[]): void {
     if (!this.state.grouped) {
-      this.appendRows(this.el, this.state.entries);
+      this.appendRows(this.el, entries);
       return;
     }
 
-    for (const [domain, items] of groupByDomain(this.state.entries)) {
+    for (const [domain, items] of groupByDomain(entries)) {
       const collapsed = this.state.collapsedGroups.has(domain);
       const group = new VideoGroup(
         {
@@ -76,10 +161,15 @@ export class VideoList extends Component<VideoListState> {
       const rowState = this.state.rowState(entry);
       const row = new VideoRow({ entry, ...rowState }, this.handlers);
       row.update();
-      (row.el.draggable ? movable : loose).push(row);
+      (row.el.dataset.reorderable === 'true' ? movable : loose).push(row);
     }
 
-    for (const row of loose) parent.appendChild(row.el);
+    // Pinned rows sit outside every zone, but one that can be dragged still
+    // needs its handlers: it can be dropped on a folder.
+    for (const row of loose) {
+      if (row.el.draggable) this.attachDrag(row.el);
+      parent.appendChild(row.el);
+    }
     if (movable.length === 0) return;
 
     const zone = document.createElement('div');
@@ -103,8 +193,65 @@ export class VideoList extends Component<VideoListState> {
     row.addEventListener('dragend', () => {
       row.classList.remove('dragging');
       this.draggingKey = null;
-      this.el.querySelectorAll('.reorder-zone.drop-target')
-        .forEach((zone) => zone.classList.remove('drop-target'));
+      this.el.querySelectorAll('.drop-target')
+        .forEach((target) => target.classList.remove('drop-target'));
+      this.el.classList.remove('unfile-target');
+    });
+  }
+
+  /** The row being dragged, if it is one of ours. */
+  private draggedRow(): HTMLElement | null {
+    return this.draggingKey ? this.el.querySelector<HTMLElement>('.media-item.dragging') : null;
+  }
+
+  /** A folder takes any dragged row that is not already inside it. */
+  private attachFolderTarget(group: HTMLElement, folderId: string): void {
+    const accept = (event: DragEvent): HTMLElement | null => {
+      const dragged = this.draggedRow();
+      if (!dragged) return null;
+      // The list itself also listens, for rows being taken out of a folder.
+      // Anything over a folder is the folder's to handle, including a row
+      // dropped back where it already is, which must not leave the folder.
+      event.stopPropagation();
+      event.preventDefault();
+      if (dragged.dataset.folder === folderId) return null;
+      if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+      return dragged;
+    };
+
+    group.addEventListener('dragover', (event) => {
+      if (accept(event)) group.classList.add('drop-target');
+    });
+    group.addEventListener('dragleave', (event) => {
+      if (!group.contains(event.relatedTarget as Node)) group.classList.remove('drop-target');
+    });
+    group.addEventListener('drop', (event) => {
+      const dragged = accept(event);
+      group.classList.remove('drop-target');
+      if (dragged?.dataset.key) this.handlers.onDropToFolder([dragged.dataset.key], folderId);
+    });
+  }
+
+  /** Dropping a filed row on the main list takes it back out of its folder. */
+  private attachUnfileTarget(): void {
+    const accept = (event: DragEvent): HTMLElement | null => {
+      const dragged = this.draggedRow();
+      if (!dragged || !dragged.dataset.folder) return null;
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+      return dragged;
+    };
+
+    this.el.addEventListener('dragover', (event) => {
+      if (accept(event)) this.el.classList.add('unfile-target');
+    });
+    this.el.addEventListener('dragleave', (event) => {
+      if (!this.el.contains(event.relatedTarget as Node)) this.el.classList.remove('unfile-target');
+    });
+    this.el.addEventListener('drop', (event) => {
+      const dragged = accept(event);
+      this.el.classList.remove('unfile-target');
+      if (dragged?.dataset.key) this.handlers.onDropToFolder([dragged.dataset.key], null);
     });
   }
 

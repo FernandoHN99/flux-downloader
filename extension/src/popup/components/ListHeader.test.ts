@@ -4,7 +4,7 @@ import { ListHeader, type ListHeaderState } from './ListHeader';
 function mount(state: Partial<ListHeaderState> = {}) {
   const handlers = {
     onQuality: vi.fn(), onDownloadAll: vi.fn(), onClearAll: vi.fn(),
-    onClearSelected: vi.fn(), onSearch: vi.fn()
+    onClearSelected: vi.fn(), onSearch: vi.fn(), onNewFolder: vi.fn()
   };
   const header = new ListHeader({
     selectionMode: false, renaming: false, selectedCount: 0, batchQuality: 'best',
@@ -23,7 +23,7 @@ describe('ListHeader', () => {
 
   it('offers the quality toggle and Download all at rest — and no Clear', () => {
     const { header } = mount();
-    expect(buttons(header)).toEqual(['Best', 'Lowest', 'Download all']);
+    expect(buttons(header)).toEqual(['New folder', 'Best', 'Lowest', 'Download all']);
   });
 
   it('marks the chosen batch quality', () => {
@@ -108,3 +108,22 @@ describe('ListHeader', () => {
     });
   });
 });
+
+describe('ListHeader new folder', () => {
+  beforeEach(() => document.body.replaceChildren());
+
+  it('offers "New folder" at rest and reports the click', () => {
+    const { header, handlers } = mount();
+
+    (header.el.querySelector('#new-folder-btn') as HTMLButtonElement).click();
+
+    expect(handlers.onNewFolder).toHaveBeenCalled();
+  });
+
+  it('leaves it out while picking rows or renaming', () => {
+    expect(mount({ selectionMode: true }).header.el.querySelector('#new-folder-btn')).toBeNull();
+    document.body.replaceChildren();
+    expect(mount({ renaming: true }).header.el.querySelector('#new-folder-btn')).toBeNull();
+  });
+});
+

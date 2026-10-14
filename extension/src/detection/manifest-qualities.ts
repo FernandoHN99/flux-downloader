@@ -18,6 +18,30 @@ function variantLabel(name: string | undefined, height: number | undefined): str
   return name || (height ? `${height}p` : 'Video');
 }
 
+const DURATION_PROBE_LIMIT = 3;
+
+/**
+ * The length of a video whose master playlist does not state one: ask a media
+ * playlist. The last rendition goes first, because the first is the one a
+ * master can list without serving (a 4K that was never encoded answers 404),
+ * and a failure there used to leave every lesson without a length. Gives up
+ * after a few tries; the renditions are all the same video.
+ */
+export async function firstKnownDuration(
+  urls: readonly string[],
+  load: (url: string) => Promise<number | undefined>
+): Promise<number | undefined> {
+  for (const url of [...urls].reverse().slice(0, DURATION_PROBE_LIMIT)) {
+    try {
+      const seconds = await load(url);
+      if (typeof seconds === 'number' && Number.isFinite(seconds) && seconds > 0) return seconds;
+    } catch {
+      // A rendition that cannot be read says nothing about the others.
+    }
+  }
+  return undefined;
+}
+
 /**
  * Project a parsed HLS manifest into the choices shown by the popup and sent
  * to FFmpeg. Fetching the master/media playlists remains a background concern.

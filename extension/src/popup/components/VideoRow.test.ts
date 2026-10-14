@@ -12,12 +12,13 @@ const entry = (patch: Partial<HistoryEntry> = {}): HistoryEntry => ({
 function mount(state: Partial<VideoRowState> = {}) {
   const handlers = {
     onActivate: vi.fn(), onStartRename: vi.fn(), onCommitRename: vi.fn(),
-    onCancelRename: vi.fn(), onTrash: vi.fn(), onSelectQuality: vi.fn(), onDownload: vi.fn()
+    onCancelRename: vi.fn(), onTrash: vi.fn(), onSelectQuality: vi.fn(), onDownload: vi.fn(),
+    onToggleMove: vi.fn(), onMoveToFolder: vi.fn(), onNewFolderFor: vi.fn()
   };
   const row = new VideoRow({
     entry: entry(), isCurrent: false, isBusy: false, busyLabel: '', selectionMode: false,
     isPicked: false, isExpanded: false, isRenaming: false, downloadDisabled: false,
-    selectedQualityIndex: 0, ...state
+    selectedQualityIndex: 0, canMove: true, isMoving: false, folders: [], ...state
   }, handlers);
   document.body.appendChild(row.el);
   row.update();
@@ -35,13 +36,27 @@ describe('VideoRow', () => {
     const { row } = mount();
     expect(q(row, '.media-title-text')!.textContent).toBe('aula-08-hooks');
     expect(q(row, '.media-meta')!.textContent).toContain('HLS');
-    expect(q(row, '.media-meta')!.textContent).toContain('16:20');
+    expect(q(row, '.media-meta')!.textContent).toContain('16 min 20 s');
+  });
+
+  it('shows how long the video is instead of when it was detected', () => {
+    const { row } = mount();
+    const meta = q(row, '.media-meta')!.textContent!;
+
+    expect(meta).toBe('HLS · 16 min 20 s');
+    expect(meta).not.toMatch(/ago|just now/);
+  });
+
+  it('shows just the type when the length is not known', () => {
+    const { row } = mount({ entry: entry({ duration: undefined }) });
+
+    expect(q(row, '.media-meta')!.textContent).toBe('HLS');
   });
 
   describe('at rest', () => {
     it('offers rename and delete, and a grip to reorder', () => {
       const { row } = mount();
-      expect(visibleButtons(row)).toEqual(['Rename', 'Select to delete']);
+      expect(visibleButtons(row)).toEqual(['Move to folder', 'Rename', 'Select to delete']);
       expect(q(row, '.drag-handle')).not.toBeNull();
       expect(row.el.draggable).toBe(true);
     });
@@ -54,10 +69,23 @@ describe('VideoRow', () => {
   });
 
   describe('a current video', () => {
-    it('is flagged, pinned and takes no reorder gutter', () => {
+    it('is flagged and can be dragged, but is never reorderable', () => {
       const { row } = mount({ isCurrent: true });
       expect(q(row, '.current-badge')).not.toBeNull();
-      expect(q(row, '.drag-handle')).toBeNull();
+      expect(q(row, '.drag-handle')).not.toBeNull();
+      expect(row.el.draggable).toBe(true);
+      expect(row.el.dataset.reorderable).toBe('false');
+    });
+
+    it('says its grip drags into a folder, not to reorder', () => {
+      const { row } = mount({ isCurrent: true });
+
+      expect((q(row, '.drag-handle') as HTMLElement).title).toBe('Drag into a folder');
+    });
+
+    it('is still held in place while it is downloading', () => {
+      const { row } = mount({ isCurrent: true, isBusy: true });
+
       expect(row.el.draggable).toBe(false);
     });
 
@@ -202,3 +230,77 @@ describe('VideoRow', () => {
     expect(q(busy, '.failed-badge')).toBeNull();
   });
 });
+
+describe('VideoRow folders', () => {
+  beforeEach(() => document.body.replaceChildren());
+  const folders = [{ id: 'f1', name: 'Aulas' }, { id: 'f2', name: 'Cursos' }];
+  const choices = (row: VideoRow) =>
+    [...row.el.querySelectorAll('.move-choice')].map((b) => b.textContent);
+
+  it('offers "Move to folder" on an idle row', () => {
+    const { row } = mount();
+
+    expect(visibleButtons(row)).toContain('Move to folder');
+  });
+
+  it('offers it on the video playing now as well', () => {
+    const { row } = mount({ isCurrent: true });
+
+    expect(visibleButtons(row)).toContain('Move to folder');
+  });
+
+  it('hides it while the row is being downloaded or the list is being picked', () => {
+    expect(visibleButtons(mount({ canMove: false }).row)).not.toContain('Move to folder');
+  });
+
+  it('opens the choices when asked and reports the click', () => {
+    const { row, handlers } = mount();
+
+    (row.el.querySelector('.move-btn') as HTMLButtonElement).click();
+
+    expect(handlers.onToggleMove).toHaveBeenCalledWith('https://cdn.x/l8/aula-08-hooks.m3u8');
+  });
+
+  it('lists every folder, then the way to a new one', () => {
+    const { row } = mount({ isMoving: true, folders });
+
+    expect(choices(row)).toEqual(['Aulas', 'Cursos', 'New folder…']);
+  });
+
+  it('files the video into the folder that was picked', () => {
+    const { row, handlers } = mount({ isMoving: true, folders });
+
+    (row.el.querySelectorAll('.move-choice')[1] as HTMLButtonElement).click();
+
+    expect(handlers.onMoveToFolder)
+      .toHaveBeenCalledWith('https://cdn.x/l8/aula-08-hooks.m3u8', 'f2');
+  });
+
+  it('marks the folder it is already in and offers to take it out', () => {
+    const { row, handlers } = mount({
+      isMoving: true, folders, entry: entry({ folderId: 'f1' })
+    });
+
+    const [inFolder] = [...row.el.querySelectorAll('.move-choice')] as HTMLButtonElement[];
+    expect(inFolder.disabled).toBe(true);
+    expect(choices(row)).toContain('Remove from folder');
+
+    (row.el.querySelectorAll('.move-choice')[2] as HTMLButtonElement).click();
+    expect(handlers.onMoveToFolder)
+      .toHaveBeenCalledWith('https://cdn.x/l8/aula-08-hooks.m3u8', null);
+  });
+
+  it('starts a new folder for this video', () => {
+    const { row, handlers } = mount({ isMoving: true, folders });
+
+    (row.el.querySelector('.move-new') as HTMLButtonElement).click();
+
+    expect(handlers.onNewFolderFor).toHaveBeenCalledWith('https://cdn.x/l8/aula-08-hooks.m3u8');
+  });
+
+  it('carries its folder on the element so a drag knows where it came from', () => {
+    expect(mount({ entry: entry({ folderId: 'f1' }) }).row.el.dataset.folder).toBe('f1');
+    expect(mount().row.el.dataset.folder).toBeUndefined();
+  });
+});
+

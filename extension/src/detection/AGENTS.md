@@ -58,6 +58,16 @@ from detection into manifest fetching and FFmpeg arguments.
 Coverage: 38 HLS tests, 39 DASH tests. `quality-utils.ts` and `mpd-parser.ts`
 were deleted as unreachable duplicates — do not reintroduce them.
 
+## Lengths
+
+A master playlist rarely states a duration; a media playlist does.
+`firstKnownDuration` asks the renditions **starting from the last**, a few at
+most: a master can list a top rendition it never serves (a 4K answering 404),
+and asking only the first left every lesson without a length. Rows saved without
+one are backfilled from their stored renditions on `GET_HISTORY`/`REFRESH_TABS`,
+once per key per service-worker run (`backfillDurations`). A length the page's
+own `<video>` already reported is never replaced.
+
 ## Page-world traffic is untrusted
 
 `mse-bridge.ts` validates and reduces every MAIN-world event before it is

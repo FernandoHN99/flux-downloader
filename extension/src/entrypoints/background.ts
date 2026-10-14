@@ -8,6 +8,7 @@ import { DashParserWrapper } from '../detection/dash-parser';
 import { loadSettings, Settings, DEFAULT_SETTINGS } from '../shared/settings';
 import { videoKey } from '../detection/video-key';
 import { PageMetadata, TabStateStore } from '../catalog/tab-state';
+import { FolderStore } from '../catalog/folder-store';
 import { HistoryStore } from '../catalog/history-store';
 import { isMediaUrl, isYouTubeUrl, mediaTypeFromUrl } from '../detection/media-url';
 import {
@@ -26,6 +27,7 @@ import {
 } from '../detection/http-media';
 import {
   buildBatchDownloadPlans,
+  type BatchDownloadPlan,
   rankFallbackRenditions,
   ensureFilenameExtension,
   formatFfmpegError,
@@ -50,7 +52,7 @@ import { buildYtdlpVideo, fallbackYtdlpQualities } from '../detection/youtube';
 import { inferRelayCodec, mergeRelayCodecs, resolveRelayUrl } from '../detection/relay-codec';
 import { DownloadTracker } from '../download/download-tracker';
 import type { ActiveDownload } from '../download/download-tracker';
-import { buildDashQualities, buildHlsQualities } from '../detection/manifest-qualities';
+import { buildDashQualities, buildHlsQualities, firstKnownDuration } from '../detection/manifest-qualities';
 import { rewriteHlsManifestUris } from '../download/hls-rewrite';
 import { BatchRun } from '../download/batch-run';
 import { DownloadRunGate } from '../download/download-run-gate';
@@ -369,10 +371,31 @@ chrome.storage.onChanged.addListener((changes, area) => {
 const history = new HistoryStore({
   currentKeys: () => currentMediaPayload().currentKeys,
   keepHistory: async () => (await getSettings()).keepHistory,
-  broadcast: (entries) => {
-    popupPorts.forEach((port) => postPopup(port, { type: 'HISTORY_LIST', entries }));
-  }
+  broadcast: (entries) => { void postHistory(popupPorts, entries); }
 });
+
+/** The user's folders. The history list and the folders travel together. */
+const folderStore = new FolderStore({
+  changed: () => { void broadcastHistory(); }
+});
+
+/** Sends the history to `ports`, each video tagged with its folder. */
+async function postHistory(
+  ports: Iterable<chrome.runtime.Port>,
+  entries: HistoryEntry[]
+): Promise<void> {
+  try {
+    const [decorated, folders] = await Promise.all([folderStore.decorate(entries), folderStore.folders()]);
+    for (const port of ports) postPopup(port, { type: 'HISTORY_LIST', entries: decorated, folders });
+  } catch (error) {
+    console.warn('[Flux] Failed to send history:', error);
+  }
+}
+
+async function broadcastHistory(): Promise<void> {
+  await history.settled();
+  await postHistory(popupPorts, await history.decorate(await history.read()));
+}
 
 /** Records what a tab is playing, tagged with that tab's page identity. */
 function recordHistory(tabId: number, videos: VideoInfo[]): Promise<void> {
@@ -465,6 +488,21 @@ async function runBatchDownload(videos: VideoInfo[], tabId?: number, quality?: '
       return;
     }
 
+    // The user's folders live *inside* this run's Flux_ folder, so one run is
+    // one tidy tree: Flux_<time>/<folder>/video.mp4, with the videos that are
+    // in no folder loose at its top.
+    const filedUnder = new Map<BatchDownloadPlan, string>();
+    try {
+      for (const plan of plans) {
+        if (!plan.selected || !plan.filename) continue;
+        const filed = await folderDirectory(plan.source.url, directory);
+        if (filed) filedUnder.set(plan, filed);
+      }
+    } catch (error: unknown) {
+      popupPorts.forEach((port) => postPopup(port, { type: 'ERROR', message: describeCoAppError(error) }));
+      return;
+    }
+
     await runBatchPool(plans, async (plan) => {
       const video = plan.source;
       if (!plan.selected || !plan.filename) {
@@ -484,7 +522,7 @@ async function runBatchDownload(videos: VideoInfo[], tabId?: number, quality?: '
           tabId,
           video.url,
           true,
-          directory
+          filedUnder.get(plan) ?? directory
         );
         const downloadId = started?.downloadId;
         const cancelLateStart = state.attachDownload(video, downloadId);
@@ -593,14 +631,9 @@ async function handleInterceptedMedia(
       childUrls = parsed.childUrls;
       qualities = buildHlsQualities(parsed, referer);
 
-      // Fallback: fetch media playlist for duration if master had none
+      // A master rarely states a length; a media playlist does.
       if (!duration && parsed.variants.length > 0) {
-        try {
-          const mediaPlaylist = await M3U8ParserWrapper.fetchAndParse(parsed.variants[0].url, referer);
-          duration = mediaPlaylist.duration;
-        } catch {
-          // ignore
-        }
+        duration = await mediaPlaylistDuration(parsed.variants.map((variant) => variant.url), referer);
       }
     } catch (error) {
       console.warn('[Flux] Failed to parse HLS manifest:', error);
@@ -706,8 +739,9 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: PopupRequest): void 
           postPopup(port, { type: 'MEDIA_LIST', ...currentMediaPayload() });
           return history.settled()
             .then(() => history.read())
+            .then((entries) => { void backfillDurations(entries); return entries; })
             .then((entries) => history.decorate(entries))
-            .then((entries) => postPopup(port, { type: 'HISTORY_LIST', entries }));
+            .then((entries) => postHistory([port], entries));
         })
         .catch((error) => console.warn('[Flux] Failed to send refreshed history:', error));
       break;
@@ -739,8 +773,9 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: PopupRequest): void 
       history.schedulePruneIfOff();
       history.settled()
         .then(() => history.read())
+        .then((entries) => { void backfillDurations(entries); return entries; })
         .then((entries) => history.decorate(entries))
-        .then((entries) => postPopup(port, { type: 'HISTORY_LIST', entries }))
+        .then((entries) => postHistory([port], entries))
         .catch(() => postPopup(port, { type: 'HISTORY_LIST', entries: [] }));
       break;
 
@@ -760,12 +795,42 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: PopupRequest): void 
 
     case 'DELETE_HISTORY_ITEMS':
       history.remove(msg.keys || [])
+        .then(() => folderStore.forget(msg.keys || []))
         .catch((error) => console.warn('[Flux] Failed to delete history entries:', error));
       break;
 
     case 'CLEAR_HISTORY':
       history.clear()
+        .then(() => folderStore.forgetAll())
         .catch((error) => console.warn('[Flux] Failed to clear history:', error));
+      break;
+
+    case 'CREATE_FOLDER':
+      if (typeof msg.name === 'string') {
+        folderStore.create(msg.name, stringList(msg.keys))
+          .catch((error) => console.warn('[Flux] Failed to create folder:', error));
+      }
+      break;
+
+    case 'RENAME_FOLDER':
+      if (typeof msg.id === 'string' && typeof msg.name === 'string') {
+        folderStore.rename(msg.id, msg.name)
+          .catch((error) => console.warn('[Flux] Failed to rename folder:', error));
+      }
+      break;
+
+    case 'DELETE_FOLDER':
+      if (typeof msg.id === 'string') {
+        folderStore.remove(msg.id)
+          .catch((error) => console.warn('[Flux] Failed to delete folder:', error));
+      }
+      break;
+
+    case 'MOVE_TO_FOLDER':
+      if (msg.folderId === null || typeof msg.folderId === 'string') {
+        folderStore.move(stringList(msg.keys), msg.folderId)
+          .catch((error) => console.warn('[Flux] Failed to move videos:', error));
+      }
       break;
 
     case 'DOWNLOAD_ALL':
@@ -970,6 +1035,66 @@ async function rewriteHlsInput(
   };
 }
 
+/** The length of an HLS video, read from whichever of its renditions answers. */
+function mediaPlaylistDuration(urls: string[], referer?: string): Promise<number | undefined> {
+  return firstKnownDuration(urls, async (url) => {
+    const parsed = await M3U8ParserWrapper.fetchAndParse(url, referer);
+    return parsed.duration || undefined;
+  });
+}
+
+const durationLookups = new Set<string>();
+
+/**
+ * Rows saved before their length was known stay blank until the page is seen
+ * again, which for an old lesson is never. Ask their renditions once per
+ * service-worker run and write the answer back; the popup is updated by the
+ * store's own broadcast.
+ */
+async function backfillDurations(entries: HistoryEntry[]): Promise<void> {
+  const learned = new Map<string, number>();
+  for (const entry of entries) {
+    const key = videoKey(entry.url);
+    if (entry.duration || entry.type !== 'hls' || durationLookups.has(key)) continue;
+    const urls = (entry.qualities || [])
+      .filter((quality) => (quality.kind || 'video') === 'video')
+      .map((quality) => quality.url);
+    if (urls.length === 0) continue;
+    durationLookups.add(key);
+    const seconds = await mediaPlaylistDuration(urls, entry.referer || entry.pageUrl);
+    if (seconds) learned.set(key, seconds);
+  }
+  if (learned.size > 0) await history.setDurations(learned);
+}
+
+/** A popup message is untrusted: keep only the strings of a list. */
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+/**
+ * Where a video filed in one of the user's folders must be written: a
+ * sub-directory of `parentDirectory` (the download directory, or a batch run's
+ * Flux_ folder) named after the folder, created on demand. Undefined for a
+ * video that is not in a folder. A folder that cannot be created is an error,
+ * never a silent fallback to the wrong directory.
+ */
+async function folderDirectory(
+  sourceUrl: string | undefined,
+  parentDirectory = defaultDownloadDir
+): Promise<string | undefined> {
+  if (!sourceUrl) return undefined;
+  const name = await folderStore.directoryNameFor(sourceUrl).catch(() => undefined);
+  if (!name) return undefined;
+  const directory = joinOutputPath(parentDirectory, name, coappPlatform);
+  try {
+    await nativeClient.ensureDir(directory);
+  } catch (error: unknown) {
+    throw new Error(`Could not create folder "${name}": ${describeCoAppError(error)}`);
+  }
+  return directory;
+}
+
 /**
  * The next-best rendition of the same master that the server actually has.
  * The popup sends only the rendition it chose, so the siblings come from history.
@@ -1019,7 +1144,9 @@ async function startDownload(
   }
 
   const type = video.type === 'm3u8' ? 'hls' : video.type === 'mpd' ? 'dash' : video.type;
-  const directory = directoryOverride || defaultDownloadDir;
+  const directory = directoryOverride
+    || await folderDirectory(sourceUrl ?? video.url)
+    || defaultDownloadDir;
   let outFilename = ensureFilenameExtension(
     sanitizeFilename(filename || `${video.title || 'video'}`),
     getDefaultExtension(video, type)

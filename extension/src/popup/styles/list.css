@@ -241,7 +241,7 @@
 }
 
 #history-list {
-  max-height: min(430px, 68vh);
+  max-height: 455px;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;

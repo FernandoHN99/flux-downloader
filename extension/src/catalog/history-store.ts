@@ -1,6 +1,7 @@
 import type { HistoryEntry, VideoInfo } from '../shared/types';
 import { videoKey } from '../detection/video-key';
 import {
+  applyDurations,
   clearFailedMarkers,
   decorateHistoryEntries,
   dedupeHistoryEntries,
@@ -125,6 +126,11 @@ export class HistoryStore {
       [FAILED_KEY]: next.failed
     });
     await this.publish(await this.read());
+  }
+
+  /** Lengths learned from a media playlist after the row was already saved. */
+  setDurations(durations: ReadonlyMap<string, number>): Promise<void> {
+    return this.enqueue(() => this.commit((history) => applyDurations(history, durations)));
   }
 
   /**

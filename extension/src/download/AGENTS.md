@@ -62,6 +62,21 @@ include both time and a monotonic sequence because `Date.now()` alone collides
 during fan-out. Direct HTTP receives Referer/Origin and may itself use up to
 eight ranges; see `docs/performance.md`.
 
+## Folders and output directories
+
+A video filed in one of the user's folders downloads into a sub-directory named
+after the folder, created on demand (`folderDirectory()` in `background.ts`):
+
+- a **single** download goes to `<download dir>/<folder>/`;
+- a **batch** keeps the folders *inside* its run folder:
+  `<download dir>/Flux_<timestamp>/<folder>/video.mp4`, with the videos that are
+  in no folder loose at the top of `Flux_<timestamp>`. The run folder is always
+  created.
+
+A folder that cannot be created is an error — never a silent fallback to the
+wrong directory. The folder is looked up in the background by `videoKey`; the
+`folderId` the popup sends is not trusted.
+
 ## Native client
 
 `NativeClient` uses a 60-second timeout for ordinary RPC and **no timeout** for

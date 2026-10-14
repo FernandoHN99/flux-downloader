@@ -16,6 +16,7 @@ export interface ListHeaderHandlers {
   onClearAll(): void;
   onClearSelected(): void;
   onSearch(value: string): void;
+  onNewFolder(): void;
 }
 
 /**
@@ -56,7 +57,9 @@ export class ListHeader extends Component<ListHeaderState> {
       clearSelected.classList.add('danger');
       actions.append(clearAll, clearSelected);
     } else if (!renaming) {
-      actions.append(this.buildQualityToggle(batchQuality));
+      const newFolder = linkButton('new-folder-btn', 'New folder', () => this.handlers.onNewFolder());
+      newFolder.title = 'Create a folder to organise videos in';
+      actions.append(newFolder, this.buildQualityToggle(batchQuality));
       const downloadAll = linkButton('download-all-btn', 'Download all', () => this.handlers.onDownloadAll());
       downloadAll.disabled = downloadDisabled;
       actions.appendChild(downloadAll);

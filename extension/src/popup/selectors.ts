@@ -1,4 +1,4 @@
-import type { HistoryEntry } from '../shared/types';
+import type { HistoryEntry, VideoFolder } from '../shared/types';
 import { domainOf, videoKey } from '../detection/video-key';
 import type { AppState } from './state';
 
@@ -173,4 +173,62 @@ export function progressDetail(state: AppState): AppState['remote']['progress'] 
 /** Rows outside a reorder zone: pinned current ones, and any mid-download. */
 export function canReorder(state: AppState, key: string): boolean {
   return !isCurrent(state, key) && !isDownloading(state, key) && !state.ui.selectionMode;
+}
+
+/**
+ * Whether a row may be filed into a folder. A video playing right now can be;
+ * only one being written cannot be shuffled under its download, and the whole
+ * list holds still while rows are being picked for deletion.
+ */
+export function canMoveToFolder(state: AppState, key: string): boolean {
+  return !isDownloading(state, key) && !state.ui.selectionMode;
+}
+
+/**
+ * Every video not filed in a folder, whatever the search says: "all the loose
+ * ones" means all of them, not just the ones currently on screen.
+ */
+export function unfiledEntries(state: AppState): HistoryEntry[] {
+  const known = new Set(state.remote.folders.map((folder) => folder.id));
+  return orderedEntries(state).filter((entry) => !entry.folderId || !known.has(entry.folderId));
+}
+
+export interface FolderSection {
+  folder: VideoFolder;
+  entries: HistoryEntry[];
+}
+
+export interface FolderSplit {
+  /** Folders in the user's order, each with its videos in list order. */
+  sections: FolderSection[];
+  /** Everything not filed anywhere: what the site/flat list shows. */
+  unfiled: HistoryEntry[];
+}
+
+/**
+ * Separates filed videos from the rest. A folder is always listed so it can
+ * be dropped into while empty, except while searching, when only the folders
+ * that hold a match are worth showing.
+ */
+export function splitByFolder(
+  entries: HistoryEntry[],
+  folders: readonly VideoFolder[],
+  searching = false
+): FolderSplit {
+  const known = new Set(folders.map((folder) => folder.id));
+  const filed = new Map<string, HistoryEntry[]>();
+  const unfiled: HistoryEntry[] = [];
+  for (const entry of entries) {
+    if (entry.folderId && known.has(entry.folderId)) {
+      const bucket = filed.get(entry.folderId);
+      if (bucket) bucket.push(entry);
+      else filed.set(entry.folderId, [entry]);
+    } else {
+      unfiled.push(entry);
+    }
+  }
+  const sections = folders
+    .map((folder) => ({ folder, entries: filed.get(folder.id) ?? [] }))
+    .filter((section) => !searching || section.entries.length > 0);
+  return { sections, unfiled };
 }

@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import type { HistoryEntry } from '../shared/types';
 import { initialState, type AppState } from './state';
 import {
-  busyLabel, canReorder, downloadInProgress, groupByDomain,
-  isDownloading, orderedEntries, progressDetail, progressView, visibleEntries
+  busyLabel, canMoveToFolder, canReorder, downloadInProgress, groupByDomain,
+  isDownloading, splitByFolder, unfiledEntries, orderedEntries, progressDetail, progressView, visibleEntries
 } from './selectors';
 
 const entry = (title: string, url: string, pageUrl?: string): HistoryEntry =>
@@ -280,3 +280,83 @@ describe('orderedEntries shows a playable rendition, not its capture twin', () =
     expect(orderedEntries(state)).toHaveLength(2);
   });
 });
+
+describe('canMoveToFolder', () => {
+  it('lets an idle history row be filed', () => {
+    expect(canMoveToFolder(stateWith({ history: [entry('a', RS8)] }), RS8)).toBe(true);
+  });
+
+  it('lets the video playing now be filed too', () => {
+    expect(canMoveToFolder(stateWith({ currentKeys: new Set([RS9]) }), RS9)).toBe(true);
+  });
+
+  it('blocks a row that is being downloaded and the whole list while picking rows', () => {
+    expect(canMoveToFolder(stateWith({ manualDownloadKey: RS8 }), RS8)).toBe(false);
+    expect(canMoveToFolder(stateWith({}, { selectionMode: true }), RS8)).toBe(false);
+  });
+});
+
+describe('splitByFolder', () => {
+  const folders = [{ id: 'f1', name: 'Aulas' }, { id: 'f2', name: 'Cursos' }];
+  const filed = (title: string, url: string, folderId: string): HistoryEntry =>
+    ({ ...entry(title, url), folderId });
+
+  it('puts each video under its folder and leaves the rest unfiled, keeping order', () => {
+    const split = splitByFolder(
+      [filed('a', RS8, 'f1'), entry('loose', YT), filed('b', UDEMY, 'f1'), filed('c', RS9, 'f2')],
+      folders
+    );
+
+    expect(split.sections.map((s) => [s.folder.name, s.entries.map((e) => e.title)]))
+      .toEqual([['Aulas', ['a', 'b']], ['Cursos', ['c']]]);
+    expect(split.unfiled.map((e) => e.title)).toEqual(['loose']);
+  });
+
+  it('lists an empty folder so it can be dropped into', () => {
+    expect(splitByFolder([], folders).sections).toHaveLength(2);
+  });
+
+  it('hides folders without a match while searching', () => {
+    const split = splitByFolder([filed('a', RS8, 'f1')], folders, true);
+
+    expect(split.sections.map((s) => s.folder.id)).toEqual(['f1']);
+  });
+
+  it('treats a video pointing at a vanished folder as unfiled', () => {
+    const split = splitByFolder([filed('a', RS8, 'gone')], folders);
+
+    expect(split.unfiled).toHaveLength(1);
+  });
+});
+
+describe('unfiledEntries', () => {
+  const folders = [{ id: 'f1', name: 'Aulas' }];
+
+  it('lists the videos that are in no folder, the playing one included', () => {
+    const state = stateWith({
+      folders,
+      history: [{ ...entry('filed', RS8), folderId: 'f1' } as HistoryEntry, entry('loose', UDEMY), entry('playing', RS9)],
+      currentKeys: new Set([RS9])
+    });
+
+    expect(unfiledEntries(state).map((e) => e.title)).toEqual(['playing', 'loose']);
+  });
+
+  it('ignores the search: "all of them" means all of them', () => {
+    const state = stateWith(
+      { folders, history: [entry('alpha', RS8), entry('beta', UDEMY)] },
+      { search: 'alpha' }
+    );
+
+    expect(unfiledEntries(state)).toHaveLength(2);
+  });
+
+  it('counts a video whose folder no longer exists as unfiled', () => {
+    const state = stateWith({
+      folders, history: [{ ...entry('orphan', RS8), folderId: 'gone' } as HistoryEntry]
+    });
+
+    expect(unfiledEntries(state)).toHaveLength(1);
+  });
+});
+

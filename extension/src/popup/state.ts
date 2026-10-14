@@ -1,4 +1,4 @@
-import type { HistoryEntry } from '../shared/types';
+import type { HistoryEntry, VideoFolder } from '../shared/types';
 import type { BatchQuality, BatchStatus, ProgressDetail } from '../shared/popup-protocol';
 
 export type { BatchQuality, BatchStatus, ProgressDetail } from '../shared/popup-protocol';
@@ -9,6 +9,8 @@ export type { BatchQuality, BatchStatus, ProgressDetail } from '../shared/popup-
  */
 export interface RemoteState {
   history: HistoryEntry[];
+  /** The user's own folders, in the order they made them. */
+  folders: VideoFolder[];
   /** Videos any open tab is playing right now, by videoKey. */
   currentKeys: ReadonlySet<string>;
   batch: BatchStatus | null;
@@ -38,6 +40,12 @@ export interface UiState {
   renamingKey: string | null;
   collapsedGroups: ReadonlySet<string>;
   draggingKey: string | null;
+  /** The new-folder form is open; `keys` are the videos to file into it. */
+  creatingFolder: { keys: string[] } | null;
+  renamingFolderId: string | null;
+  collapsedFolders: ReadonlySet<string>;
+  /** The one row showing its "move to folder" choices. */
+  movingKey: string | null;
   batchQuality: BatchQuality;
   groupByDomain: boolean;
   /** Index into the expanded row's quality list. */
@@ -55,6 +63,7 @@ export function initialState(): AppState {
   return {
     remote: {
       history: [],
+      folders: [],
       currentKeys: new Set(),
       batch: null,
       manualDownloadKey: null,
@@ -72,6 +81,10 @@ export function initialState(): AppState {
       renamingKey: null,
       collapsedGroups: new Set(),
       draggingKey: null,
+      creatingFolder: null,
+      renamingFolderId: null,
+      collapsedFolders: new Set(),
+      movingKey: null,
       batchQuality: 'best',
       groupByDomain: false,
       selectedQualityIndex: 0,

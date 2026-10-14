@@ -26,6 +26,11 @@ export const PATHS = {
   confirm: ['M20 6 9 17l-5-5'],
   cancel: ['M18 6 6 18M6 6l12 12'],
   refresh: ['M20 11a8 8 0 0 0-14.9-3M4 3v5h5', 'M4 13a8 8 0 0 0 14.9 3M20 21v-5h-5'],
+  folder: ['M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z'],
+  folderPlus: [
+    'M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z',
+    'M12 11v6M9 14h6'
+  ],
   download: ['M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4', 'M7 10l5 5 5-5', 'M12 15V3']
 } as const;
 
@@ -44,15 +49,25 @@ export function downloadIcon(): SVGSVGElement {
   return el;
 }
 
+export function folderIcon(className = 'folder-glyph'): SVGSVGElement {
+  const el = svg(PATHS.folder as unknown as string[], 15, '2');
+  el.setAttribute('class', className);
+  return el;
+}
+
+export function folderPlusIcon(): SVGSVGElement {
+  return svg(PATHS.folderPlus as unknown as string[], 13, '2.2');
+}
+
 export function refreshIcon(): SVGSVGElement {
   return svg(PATHS.refresh as unknown as string[], 12, '2.2');
 }
 
-export function dragHandle(): HTMLElement {
+export function dragHandle(pinned = false): HTMLElement {
   const handle = document.createElement('span');
   handle.className = 'drag-handle';
   handle.setAttribute('aria-hidden', 'true');
-  handle.title = 'Drag to reorder';
+  handle.title = pinned ? 'Drag into a folder' : 'Drag to reorder or into a folder';
   const el = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   el.setAttribute('width', '12');
   el.setAttribute('height', '12');

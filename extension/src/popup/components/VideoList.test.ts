@@ -22,15 +22,20 @@ function mount(overrides: Partial<VideoListState> = {}) {
   const handlers = {
     onActivate: vi.fn(), onStartRename: vi.fn(), onCommitRename: vi.fn(), onCancelRename: vi.fn(),
     onTrash: vi.fn(), onSelectQuality: vi.fn(), onDownload: vi.fn(),
-    onReorder: vi.fn(), onToggleGroup: vi.fn(), onDownloadGroup: vi.fn()
+    onReorder: vi.fn(), onToggleGroup: vi.fn(), onDownloadGroup: vi.fn(),
+    onToggleMove: vi.fn(), onMoveToFolder: vi.fn(), onNewFolderFor: vi.fn(),
+    onToggleFolder: vi.fn(), onDownloadFolder: vi.fn(), onStartRenameFolder: vi.fn(),
+    onCommitRenameFolder: vi.fn(), onCancelRenameFolder: vi.fn(), onDeleteFolder: vi.fn(),
+    onCommitNewFolder: vi.fn(), onCommitNewFolderWithUnfiled: vi.fn(), onCancelNewFolder: vi.fn(), onDropToFolder: vi.fn()
   };
   const rowState = (e: HistoryEntry): Omit<VideoRowState, 'entry'> => ({
     isCurrent: CURRENT.has(e.url), isBusy: false, busyLabel: '', selectionMode: false,
     isPicked: false, isExpanded: false, isRenaming: false, downloadDisabled: false,
-    selectedQualityIndex: 0
+    selectedQualityIndex: 0, canMove: true, isMoving: false, folders: []
   });
   const list = new VideoList(
-    { entries: ENTRIES, grouped: false, collapsedGroups: new Set(),
+    { entries: ENTRIES, folders: [], searching: false, collapsedFolders: new Set(),
+      renamingFolderId: null, creatingFolder: null, unfiledCount: 0, grouped: false, collapsedGroups: new Set(),
       downloadDisabled: false, rowState, ...overrides },
     handlers
   );
@@ -67,9 +72,9 @@ describe('VideoList (flat)', () => {
     expect(titles(list.el.querySelector('.reorder-zone')!)).toEqual(['aula08', 'aula07', 'design']);
   });
 
-  it('gives a grip only to the rows that can move', () => {
+  it('gives every row that can be dragged a grip, the pinned ones included', () => {
     const { list } = mount();
-    expect(list.el.querySelectorAll('.drag-handle')).toHaveLength(3);
+    expect(list.el.querySelectorAll('.drag-handle')).toHaveLength(5);
     expect(list.el.querySelectorAll('.media-item')).toHaveLength(5);
   });
 
@@ -226,3 +231,203 @@ describe('entriesForDomain', () => {
       .toEqual(['ep12', 'aula08', 'aula07']);
   });
 });
+
+describe('VideoList folders', () => {
+  beforeEach(() => document.body.replaceChildren());
+
+  const FOLDERS = [{ id: 'f1', name: 'Aulas' }, { id: 'f2', name: 'Cursos' }];
+  const filed = (title: string, folderId: string) =>
+    ({ ...ENTRIES.find((e) => e.title === title)!, folderId }) as HistoryEntry;
+  const withFiled = () => ENTRIES.map((e) =>
+    e.title === 'aula08' ? filed('aula08', 'f1') : e.title === 'design' ? filed('design', 'f2') : e);
+  const group = (list: VideoList, id: string) =>
+    list.el.querySelector<HTMLElement>(`.user-folder[data-folder-id="${id}"]`)!;
+
+  it('shows the folders above the unfiled videos, each with its own', () => {
+    const { list } = mount({ entries: withFiled(), folders: FOLDERS });
+
+    const order = [...list.el.children].map((el) => el.className.split(' ')[0]);
+    expect(order.slice(0, 2)).toEqual(['media-group', 'media-group']);
+    expect(titles(group(list, 'f1'))).toEqual(['aula08']);
+    expect(titles(group(list, 'f2'))).toEqual(['design']);
+    expect(titles(list.el).filter((t) => ['ep12', 'deep house', 'aula07'].includes(t)))
+      .toEqual(['ep12', 'deep house', 'aula07']);
+  });
+
+  it('keeps a filed video out of the main list', () => {
+    const { list } = mount({ entries: withFiled(), folders: FOLDERS });
+
+    const loose = [...list.el.children].filter((el) => !el.classList.contains('user-folder'));
+    expect(loose.flatMap((el) => titles(el))).not.toContain('aula08');
+  });
+
+  it('lists an empty folder so a row can be dropped on it', () => {
+    const { list } = mount({ folders: FOLDERS });
+
+    expect(group(list, 'f1')).not.toBeNull();
+    expect(group(list, 'f1').querySelector('.group-count')!.textContent).toBe('0');
+  });
+
+  it('hides folders without a match while searching', () => {
+    const { list } = mount({ entries: [filed('aula08', 'f1')], folders: FOLDERS, searching: true });
+
+    expect(group(list, 'f1')).not.toBeNull();
+    expect(group(list, 'f2')).toBeNull();
+  });
+
+  it('collapses a folder body', () => {
+    const { list } = mount({
+      entries: withFiled(), folders: FOLDERS, collapsedFolders: new Set(['f1'])
+    });
+
+    expect(titles(group(list, 'f1'))).toEqual([]);
+  });
+
+  it('opens the new-folder form, saying how many videos it will hold', () => {
+    const { list } = mount({ creatingFolder: { keys: ['a', 'b'] } });
+
+    const input = list.el.querySelector<HTMLInputElement>('.folder-composer input')!;
+    expect(input.placeholder).toContain('2 videos');
+  });
+
+  it('creates the folder with the typed name on Enter', () => {
+    const { list, handlers } = mount({ creatingFolder: { keys: [] } });
+    const input = list.el.querySelector<HTMLInputElement>('.folder-composer input')!;
+
+    input.value = 'Meu curso';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+
+    expect(handlers.onCommitNewFolder).toHaveBeenCalledWith('Meu curso');
+  });
+
+  it('offers to create the folder with every video that is in no folder', () => {
+    const { list, handlers } = mount({ creatingFolder: { keys: [] }, unfiledCount: 4 });
+    const input = list.el.querySelector<HTMLInputElement>('.folder-composer input')!;
+    const all = list.el.querySelector<HTMLButtonElement>('.folder-add-all')!;
+
+    expect(all.textContent).toBe('Create with all 4 videos not in a folder');
+    input.value = 'Tudo';
+    all.click();
+
+    expect(handlers.onCommitNewFolderWithUnfiled).toHaveBeenCalledWith('Tudo');
+    expect(handlers.onCommitNewFolder).not.toHaveBeenCalled();
+  });
+
+  it('says "video" for a single loose one and hides the button when none are loose', () => {
+    const one = mount({ creatingFolder: { keys: [] }, unfiledCount: 1 });
+    expect(one.list.el.querySelector('.folder-add-all')!.textContent)
+      .toBe('Create with all 1 video not in a folder');
+
+    document.body.replaceChildren();
+    const none = mount({ creatingFolder: { keys: [] }, unfiledCount: 0 });
+    expect(none.list.el.querySelector('.folder-add-all')).toBeNull();
+  });
+
+  it('cancels the new-folder form on Escape', () => {
+    const { list, handlers } = mount({ creatingFolder: { keys: [] } });
+    const input = list.el.querySelector<HTMLInputElement>('.folder-composer input')!;
+
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+    expect(handlers.onCancelNewFolder).toHaveBeenCalled();
+  });
+
+  it('renames a folder from its heading', () => {
+    const { list, handlers } = mount({ folders: FOLDERS, renamingFolderId: 'f1' });
+    const input = group(list, 'f1').querySelector<HTMLInputElement>('.rename-input')!;
+
+    input.value = 'Novo nome';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+
+    expect(handlers.onCommitRenameFolder).toHaveBeenCalledWith('f1', 'Novo nome');
+  });
+
+  it('reports download, rename and delete from the folder heading', () => {
+    const { list, handlers } = mount({ entries: withFiled(), folders: FOLDERS });
+    const head = group(list, 'f1');
+
+    (head.querySelector('.folder-download') as HTMLButtonElement).click();
+    (head.querySelector('.icon-btn-rename') as HTMLButtonElement).click();
+    (head.querySelector('.folder-delete') as HTMLButtonElement).click();
+
+    expect(handlers.onDownloadFolder).toHaveBeenCalledWith('f1');
+    expect(handlers.onStartRenameFolder).toHaveBeenCalledWith('f1');
+    expect(handlers.onDeleteFolder).toHaveBeenCalledWith('f1');
+  });
+
+  it('cannot download an empty folder', () => {
+    const { list } = mount({ folders: FOLDERS });
+
+    expect((group(list, 'f1').querySelector('.folder-download') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  describe('dragging into folders', () => {
+    const drag = (target: HTMLElement, type: string, dragged?: HTMLElement) => {
+      const event = new MouseEvent(type, { bubbles: true, cancelable: true }) as any;
+      event.dataTransfer = { setData: vi.fn(), dropEffect: '', effectAllowed: '' };
+      if (dragged) dragged.classList.add('dragging');
+      target.dispatchEvent(event);
+      return event as Event;
+    };
+    const rowOf = (list: VideoList, title: string) =>
+      [...list.el.querySelectorAll<HTMLElement>('.media-item')]
+        .find((row) => row.querySelector('.media-title-text')!.textContent === title)!;
+
+    it('files a dragged row into the folder it is dropped on', () => {
+      const { list, handlers } = mount({ folders: FOLDERS });
+      const row = rowOf(list, 'aula07');
+
+      drag(row, 'dragstart');
+      row.classList.add('dragging');
+      drag(group(list, 'f2'), 'dragover');
+      drag(group(list, 'f2'), 'drop');
+
+      expect(handlers.onDropToFolder).toHaveBeenCalledWith(['https://cdn.rs.com/l7/aula07.m3u8'], 'f2');
+    });
+
+    it('takes a filed row back out when it is dropped on the main list', () => {
+      const { list, handlers } = mount({ entries: withFiled(), folders: FOLDERS });
+      const row = rowOf(list, 'aula08');
+
+      drag(row, 'dragstart');
+      row.classList.add('dragging');
+      drag(list.el, 'dragover');
+      drag(list.el, 'drop');
+
+      expect(handlers.onDropToFolder).toHaveBeenCalledWith(['https://cdn.rs.com/l8/aula08.m3u8'], null);
+    });
+
+    it('ignores a drop on the folder the row is already in', () => {
+      const { list, handlers } = mount({ entries: withFiled(), folders: FOLDERS });
+      const row = rowOf(list, 'aula08');
+
+      drag(row, 'dragstart');
+      row.classList.add('dragging');
+      drag(group(list, 'f1'), 'drop');
+
+      expect(handlers.onDropToFolder).not.toHaveBeenCalled();
+    });
+
+    it('files the video playing now when it is dropped on a folder', () => {
+      const { list, handlers } = mount({ folders: FOLDERS });
+      const row = rowOf(list, 'ep12');
+
+      expect(row.draggable).toBe(true);
+      drag(row, 'dragstart');
+      row.classList.add('dragging');
+      drag(group(list, 'f1'), 'dragover');
+      drag(group(list, 'f1'), 'drop');
+
+      expect(handlers.onDropToFolder).toHaveBeenCalledWith(['https://cdn.rs.com/l9/ep12.m3u8'], 'f1');
+    });
+
+    it('keeps the video playing now out of the reorder zone, so it can never be reordered', () => {
+      const { list } = mount({ folders: FOLDERS });
+      const zone = list.el.querySelector('.reorder-zone')!;
+
+      expect(zone.contains(rowOf(list, 'ep12'))).toBe(false);
+      expect(zone.contains(rowOf(list, 'aula07'))).toBe(true);
+    });
+  });
+});
+

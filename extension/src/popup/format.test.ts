@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import type { VideoInfo, VideoQuality } from '../shared/types';
 import {
-  formatBandwidth, formatDuration, formatETA, formatFileSize,
-  formatRelativeTime, formatSpeed, getQualityLabel, getSizeLabel, getTypeLabel
+  formatBandwidth, formatETA, formatFileSize,
+  formatLength, formatSpeed, getQualityLabel, getSizeLabel, getTypeLabel
 } from './format';
 
 describe('getQualityLabel', () => {
@@ -27,10 +27,17 @@ describe('getTypeLabel', () => {
   });
 });
 
-describe('formatDuration', () => {
-  it('drops the hour when there is none', () => expect(formatDuration(1523)).toBe('25:23'));
-  it('includes the hour when there is one', () => expect(formatDuration(3600)).toBe('1:00:00'));
-  it('pads seconds', () => expect(formatDuration(65)).toBe('1:05'));
+describe('formatLength', () => {
+  it('spells minutes and seconds', () => expect(formatLength(655)).toBe('10 min 55 s'));
+  it('pads the seconds after a minute', () => expect(formatLength(605)).toBe('10 min 05 s'));
+  it('keeps a whole minute readable', () => expect(formatLength(600)).toBe('10 min 00 s'));
+  it('shows only seconds under a minute', () => expect(formatLength(45)).toBe('45 s'));
+  it('does not fold minutes into hours', () => expect(formatLength(4503)).toBe('75 min 03 s'));
+  it('rounds a fractional length to the nearest second', () => {
+    expect(formatLength(655.3)).toBe('10 min 55 s');
+    expect(formatLength(244.5)).toBe('4 min 05 s');
+  });
+  it('never goes negative', () => expect(formatLength(-5)).toBe('0 s'));
 });
 
 describe('formatFileSize', () => {
@@ -53,17 +60,6 @@ describe('formatETA', () => {
   it('reads as minutes and seconds', () => expect(formatETA(92)).toBe('1:32'));
   it('switches to hours when long', () => expect(formatETA(7200)).toBe('2h 0m'));
   it('shows a placeholder when unknown', () => expect(formatETA(Infinity)).toBe('--:--'));
-});
-
-describe('formatRelativeTime', () => {
-  const ago = (ms: number) => formatRelativeTime(Date.now() - ms);
-  it('says just now under a minute', () => expect(ago(30_000)).toBe('just now'));
-  it('counts minutes', () => expect(ago(42 * 60_000)).toBe('42m ago'));
-  it('counts hours', () => expect(ago(5 * 3_600_000)).toBe('5h ago'));
-  it('counts days', () => expect(ago(2 * 86_400_000)).toBe('2d ago'));
-  it('never reads as negative when a clock is skewed', () => {
-    expect(formatRelativeTime(Date.now() + 60_000)).toBe('just now');
-  });
 });
 
 describe('getSizeLabel', () => {

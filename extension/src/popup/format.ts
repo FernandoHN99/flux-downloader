@@ -67,15 +67,17 @@ export function formatETA(seconds: number): string {
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
-export function formatDuration(seconds: number): string {
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  const secs = Math.floor(seconds % 60);
-  
-  if (hours > 0) {
-    return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  }
-  return `${minutes}:${secs.toString().padStart(2, '0')}`;
+/**
+ * How long a video is, spelled out so a row identifies it at a glance:
+ * "16 min 20 s", "45 s". Minutes are never folded into hours, because
+ * "75 min 03 s" is read faster than "1:15:03" in a list of lessons.
+ */
+export function formatLength(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds));
+  const minutes = Math.floor(total / 60);
+  const secs = total % 60;
+  if (minutes === 0) return `${secs} s`;
+  return `${minutes} min ${secs.toString().padStart(2, '0')} s`;
 }
 
 export function formatFileSize(bytes: number): string {
@@ -83,17 +85,6 @@ export function formatFileSize(bytes: number): string {
   if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
   if (bytes < 1073741824) return `${(bytes / 1048576).toFixed(1)} MB`;
   return `${(bytes / 1073741824).toFixed(2)} GB`;
-}
-
-export function formatRelativeTime(timestamp: number): string {
-  const seconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
-  if (seconds < 60) return 'just now';
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.round(hours / 24);
-  return `${days}d ago`;
 }
 
 export function getSizeLabel(quality: VideoQuality, video: VideoInfo): string | undefined {

@@ -1,0 +1,161 @@
+/* The folders the user makes inside Flux, and the controls that fill them. */
+
+.user-folder {
+  margin-bottom: 6px;
+  border-radius: var(--radius);
+}
+
+.folder-glyph {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
+.folder-head {
+  gap: 7px;
+}
+
+/* A folder's own actions appear on hover, like a row's. */
+.folder-actions {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.folder-head:hover .folder-actions,
+.folder-head:focus-within .folder-actions {
+  opacity: 1;
+}
+
+.folder-actions .icon-btn-sm:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.folder-delete:hover {
+  color: var(--error);
+}
+
+.folder-rename {
+  flex: 1;
+  min-width: 0;
+}
+
+/* An empty folder says where to drop, so it never looks like a bug. */
+.folder-body.empty:not([hidden])::before {
+  content: 'Drop videos here, or use the folder button on a row';
+  display: block;
+  padding: 8px 6px;
+  font-size: 10px;
+  color: var(--text-dim);
+  text-align: center;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.user-folder.drop-target,
+#history-list.unfile-target {
+  outline: 1px dashed var(--accent);
+  outline-offset: 2px;
+  background: var(--accent-soft);
+}
+
+#history-list.unfile-target {
+  background: none;
+}
+
+.folder-composer {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 3px 6px;
+  padding: 3px 6px;
+}
+
+.folder-composer {
+  flex-wrap: wrap;
+}
+
+.folder-composer .rename-input {
+  flex: 1;
+}
+
+/* Wraps under the name field so it never squeezes it. */
+.folder-add-all {
+  flex-basis: 100%;
+  padding: 5px 8px;
+  font-size: 11px;
+  font-family: inherit;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.folder-add-all:hover {
+  border-color: var(--accent);
+}
+
+.folder-add-all:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* "Move to folder" choices, under the row they belong to. */
+.move-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+  padding: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.move-choice {
+  padding: 5px 8px;
+  font-size: 11px;
+  font-family: inherit;
+  text-align: left;
+  color: var(--text);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.move-choice:hover:not(:disabled) {
+  background: var(--bg-active);
+}
+
+.move-choice:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.move-choice.current {
+  color: var(--text-dim);
+  cursor: default;
+}
+
+.move-choice.current::after {
+  content: ' ✓';
+  color: var(--accent);
+}
+
+.move-new {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+#new-folder-btn {
+  margin-right: 2px;
+}

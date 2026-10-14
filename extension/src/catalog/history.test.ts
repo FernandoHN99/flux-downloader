@@ -3,6 +3,7 @@ import type { HistoryEntry, VideoInfo } from '../shared/types';
 import {
   decorateHistoryEntries,
   clearFailedMarkers,
+  applyDurations,
   dedupeHistoryEntries,
   markHistoryDownloaded,
   markHistoryFailed,
@@ -385,6 +386,29 @@ describe('clearFailedMarkers', () => {
     const failed = ['https://cdn.test/a.mp4'];
 
     expect(clearFailedMarkers(failed, ['https://cdn.test/zzz.mp4'])).toBe(failed);
+  });
+});
+
+describe('applyDurations', () => {
+  const lesson = 'https://player.example/abc/playlist.m3u8?token=a';
+
+  it('fills in the length of a row that had none', () => {
+    const [filled] = applyDurations([entry({ url: lesson })], new Map([[videoKey(lesson), 244]]));
+
+    expect(filled.duration).toBe(244);
+  });
+
+  it('never replaces a length that is already known', () => {
+    const history = [entry({ url: lesson, duration: 655 })];
+
+    expect(applyDurations(history, new Map([[videoKey(lesson), 244]]))).toBe(history);
+  });
+
+  it('returns the same array when nothing matched', () => {
+    const history = [entry({ url: lesson })];
+
+    expect(applyDurations(history, new Map([['https://other/x', 9]]))).toBe(history);
+    expect(applyDurations(history, new Map())).toBe(history);
   });
 });
 

@@ -307,3 +307,26 @@ describe('HistoryStore.clearFailed', () => {
   });
 });
 
+describe('HistoryStore.setDurations', () => {
+  it('stores a learned length and republishes the list', async () => {
+    const { data } = fakeStorage({ mediaHistory: [entry('https://cdn.test/a.m3u8?token=1')] });
+    const { store, broadcast } = makeStore();
+
+    await store.setDurations(new Map([['https://cdn.test/a.m3u8', 244]]));
+
+    expect((data.mediaHistory as HistoryEntry[])[0].duration).toBe(244);
+    expect(broadcast.mock.lastCall?.[0][0].duration).toBe(244);
+  });
+
+  it('does not write when every row already had a length', async () => {
+    const { local } = fakeStorage({
+      mediaHistory: [{ ...entry('https://cdn.test/a.m3u8'), duration: 5 }]
+    });
+    const { store } = makeStore();
+
+    await store.setDurations(new Map([['https://cdn.test/a.m3u8', 244]]));
+
+    expect(local.set).not.toHaveBeenCalled();
+  });
+});
+

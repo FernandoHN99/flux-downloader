@@ -107,6 +107,29 @@ list to hold only what is playing.
 | `downloadedVideos` | stable media keys marked downloaded | 500 |
 | `failedVideos` | stable media keys marked failed | 500 |
 
+## Folders
+
+`folders.ts` (pure) and `folder-store.ts` (persisted, queued) own the user's
+folders. They are deliberately **separate from history**: detection prunes and
+rewrites history entries, while a folder is something the user built.
+
+| Key | Content |
+|---|---|
+| `videoFolders` | `{ id, name }[]`, in creation order |
+| `folderAssignments` | `{ [videoKey]: folderId }` |
+
+- Assignments are keyed by `videoKey`, so a re-signed link stays in its folder.
+  An assignment whose folder is gone is dropped on read.
+- `HistoryEntry.folderId` is set only when broadcasting (`FolderStore.decorate`),
+  and `HISTORY_LIST` carries `folders` with it. Never persist it on the entry.
+- Removing videos from history (`DELETE_HISTORY_ITEMS`, `CLEAR_HISTORY`) also
+  forgets their assignments.
+- A folder name is user input that becomes a **directory name**.
+  `folderDirectoryName` strips separators, leading dots, trailing dots/spaces and
+  Windows device names, so a folder can never write outside the download
+  directory. Names are unique by that directory, ignoring case.
+- The video playing now may be filed. Nothing here depends on current state.
+
 ## Source ownership
 
 `VideoInfo.url` and `VideoInfo.pageUrl` are different facts. `url` is the

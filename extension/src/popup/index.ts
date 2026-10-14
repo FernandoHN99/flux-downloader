@@ -8,11 +8,13 @@ import { RefreshButton } from './components/RefreshButton';
 import { VideoList } from './components/VideoList';
 import { entriesForDomain } from './components/VideoList';
 import type { VideoRowState } from './components/VideoRow';
+import { loadCollapsedFolders, saveCollapsedFolders } from './collapsed-folders';
 import { applyIncoming } from './incoming';
 import { Messenger } from './messages';
 import type { QualityOption } from './quality';
 import {
-  busyLabel, downloadInProgress, isCurrent, isDownloading, progressDetail, progressView, visibleEntries
+  busyLabel, canMoveToFolder, downloadInProgress, isCurrent, isDownloading, progressDetail,
+  progressView, unfiledEntries, visibleEntries
 } from './selectors';
 import { Store, type AppState, type BatchQuality } from './state';
 
@@ -47,12 +49,16 @@ class App {
         onDownloadAll: () => this.downloadAll(visibleEntries(this.store.get())),
         onClearAll: () => { this.messenger.send({ type: 'CLEAR_HISTORY' }); this.exitSelection(); },
         onClearSelected: () => this.deleteSelected(),
-        onSearch: (search) => this.store.setUi({ search })
+        onSearch: (search) => this.store.setUi({ search }),
+        onNewFolder: () => this.store.setUi({
+          creatingFolder: { keys: [] }, renamingFolderId: null, movingKey: null, expandedKey: null
+        })
       }
     );
 
     this.list = new VideoList(
-      { entries: [], grouped: false, collapsedGroups: new Set(),
+      { entries: [], folders: [], searching: false, collapsedFolders: new Set(),
+        renamingFolderId: null, creatingFolder: null, unfiledCount: 0, grouped: false, collapsedGroups: new Set(),
         downloadDisabled: false, rowState: (entry) => this.rowState(entry) },
       {
         onActivate: (key) => this.activate(key),
@@ -64,7 +70,24 @@ class App {
         onDownload: (option) => this.download(option),
         onReorder: (keys) => this.messenger.send({ type: 'REORDER_HISTORY', keys }),
         onToggleGroup: (domain) => this.toggleGroup(domain),
-        onDownloadGroup: (domain) => this.downloadGroup(domain)
+        onDownloadGroup: (domain) => this.downloadGroup(domain),
+        onToggleMove: (key) => this.toggleMove(key),
+        onMoveToFolder: (key, folderId) => this.moveToFolder([key], folderId),
+        onNewFolderFor: (key) => this.store.setUi({
+          creatingFolder: { keys: [key] }, movingKey: null, renamingFolderId: null
+        }),
+        onToggleFolder: (id) => this.toggleFolder(id),
+        onDownloadFolder: (id) => this.downloadFolder(id),
+        onStartRenameFolder: (id) => this.store.setUi({
+          renamingFolderId: id, creatingFolder: null, movingKey: null
+        }),
+        onCommitRenameFolder: (id, name) => this.commitRenameFolder(id, name),
+        onCancelRenameFolder: () => this.store.setUi({ renamingFolderId: null }),
+        onDeleteFolder: (id) => this.deleteFolder(id),
+        onCommitNewFolder: (name) => this.commitNewFolder(name),
+        onCommitNewFolderWithUnfiled: (name) => this.commitNewFolder(name, true),
+        onCancelNewFolder: () => this.store.setUi({ creatingFolder: null }),
+        onDropToFolder: (keys, folderId) => this.moveToFolder(keys, folderId)
       }
     );
   }
@@ -83,6 +106,9 @@ class App {
         groupByDomain: settings.groupByDomain
       });
     }
+
+    // Before the first render, so a folder the user closed never flashes open.
+    this.store.setUi({ collapsedFolders: await loadCollapsedFolders() });
 
     this.messenger.send({ type: 'GET_HISTORY' });
     this.messenger.send({ type: 'GET_BATCH_STATUS' });
@@ -126,12 +152,20 @@ class App {
 
     this.list.setState({
       entries,
+      folders: state.remote.folders,
+      searching: state.ui.search.trim() !== '',
+      collapsedFolders: state.ui.collapsedFolders,
+      renamingFolderId: state.ui.renamingFolderId,
+      creatingFolder: state.ui.creatingFolder,
+      unfiledCount: state.ui.creatingFolder ? unfiledEntries(state).length : 0,
       grouped: state.ui.groupByDomain,
       collapsedGroups: state.ui.collapsedGroups,
       downloadDisabled: blocked || state.ui.selectionMode,
       rowState: (entry) => this.rowState(entry)
     });
-    const empty = state.remote.history.length === 0;
+    // Folders the user made stay on screen even before any video is filed.
+    const empty = state.remote.history.length === 0 && state.remote.folders.length === 0
+      && state.ui.creatingFolder === null;
     this.root.empty.classList.toggle('hidden', !empty);
     this.root.section.classList.toggle('hidden', empty);
 
@@ -155,7 +189,10 @@ class App {
       isExpanded: state.ui.expandedKey === key,
       isRenaming: state.ui.renamingKey === key,
       downloadDisabled: downloadInProgress(state),
-      selectedQualityIndex: state.ui.selectedQualityIndex
+      selectedQualityIndex: state.ui.selectedQualityIndex,
+      canMove: canMoveToFolder(state, key),
+      isMoving: state.ui.movingKey === key,
+      folders: state.remote.folders
     };
   }
 
@@ -180,8 +217,59 @@ class App {
     if (ui.selectionMode) return this.toggleSelection(key);
     this.store.setUi({
       expandedKey: ui.expandedKey === key ? null : key,
-      selectedQualityIndex: 0
+      selectedQualityIndex: 0,
+      movingKey: null
     });
+  }
+
+  private toggleMove(key: string): void {
+    const { ui } = this.store.get();
+    this.store.setUi({
+      movingKey: ui.movingKey === key ? null : key,
+      expandedKey: null
+    });
+  }
+
+  /** Files videos into a folder, or (null) back out of one. */
+  private moveToFolder(keys: string[], folderId: string | null): void {
+    if (keys.length === 0) return;
+    this.messenger.send({ type: 'MOVE_TO_FOLDER', keys, folderId });
+    this.store.setUi({ movingKey: null });
+  }
+
+  /** `withUnfiled` also files every video that is in no folder into the new one. */
+  private commitNewFolder(name: string, withUnfiled = false): void {
+    const state = this.store.get();
+    const pending = state.ui.creatingFolder;
+    this.store.setUi({ creatingFolder: null });
+    if (!pending || !name.trim()) return;
+    const loose = withUnfiled ? unfiledEntries(state).map((entry) => videoKey(entry.url)) : [];
+    const keys = [...new Set([...pending.keys, ...loose])];
+    this.messenger.send({ type: 'CREATE_FOLDER', name: name.trim(), keys });
+  }
+
+  private commitRenameFolder(id: string, name: string): void {
+    this.store.setUi({ renamingFolderId: null });
+    const current = this.store.get().remote.folders.find((folder) => folder.id === id);
+    if (!name.trim() || name.trim() === current?.name) return;
+    this.messenger.send({ type: 'RENAME_FOLDER', id, name: name.trim() });
+  }
+
+  private deleteFolder(id: string): void {
+    this.messenger.send({ type: 'DELETE_FOLDER', id });
+  }
+
+  private toggleFolder(id: string): void {
+    const collapsed = new Set(this.store.get().ui.collapsedFolders);
+    if (collapsed.has(id)) collapsed.delete(id);
+    else collapsed.add(id);
+    this.store.setUi({ collapsedFolders: collapsed });
+    void saveCollapsedFolders(collapsed, this.store.get().remote.folders.map((folder) => folder.id));
+  }
+
+  /** Every video in a folder, downloaded into that folder. */
+  private downloadFolder(id: string): void {
+    this.downloadAll(visibleEntries(this.store.get()).filter((entry) => entry.folderId === id));
   }
 
   private toggleSelection(key: string): void {

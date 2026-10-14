@@ -1,4 +1,4 @@
-import type { HistoryEntry, VideoInfo } from './types';
+import type { HistoryEntry, VideoFolder, VideoInfo } from './types';
 
 export type BatchQuality = 'best' | 'worst';
 
@@ -46,12 +46,17 @@ export type PopupRequest =
   | { type: 'RENAME_VIDEO'; tabId: number | null; key: string; title: string }
   | { type: 'REORDER_HISTORY'; keys: string[] }
   | { type: 'DELETE_HISTORY_ITEMS'; keys: string[] }
-  | { type: 'CLEAR_HISTORY' };
+  | { type: 'CLEAR_HISTORY' }
+  | { type: 'CREATE_FOLDER'; name: string; keys?: string[] }
+  | { type: 'RENAME_FOLDER'; id: string; name: string }
+  | { type: 'DELETE_FOLDER'; id: string }
+  /** `folderId: null` takes the videos back out of any folder. */
+  | { type: 'MOVE_TO_FOLDER'; keys: string[]; folderId: string | null };
 
 /** Events and command results sent from the service worker to the popup. */
 export type PopupMessage =
   | { type: 'MEDIA_LIST'; videos: VideoInfo[]; currentKeys?: string[] }
-  | { type: 'HISTORY_LIST'; entries?: HistoryEntry[] }
+  | { type: 'HISTORY_LIST'; entries?: HistoryEntry[]; folders?: VideoFolder[] }
   | { type: 'BATCH_STATUS'; batch: BatchStatus | null }
   | { type: 'DOWNLOAD_STARTED'; success: boolean; downloadId?: string; error?: string }
   | { type: 'DOWNLOAD_CANCELLED'; success: boolean; error?: string }
@@ -78,7 +83,11 @@ const POPUP_REQUEST_TYPES = new Set<PopupRequest['type']>([
   'RENAME_VIDEO',
   'REORDER_HISTORY',
   'DELETE_HISTORY_ITEMS',
-  'CLEAR_HISTORY'
+  'CLEAR_HISTORY',
+  'CREATE_FOLDER',
+  'RENAME_FOLDER',
+  'DELETE_FOLDER',
+  'MOVE_TO_FOLDER'
 ]);
 
 /** Reject unrelated port traffic before routing by discriminant. */

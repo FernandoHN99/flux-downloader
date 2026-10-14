@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ParsedDash } from './dash-parser';
 import type { ParsedM3U8 } from './m3u8-parser';
-import { buildDashQualities, buildHlsQualities } from './manifest-qualities';
+import { buildDashQualities, buildHlsQualities, firstKnownDuration } from './manifest-qualities';
 
 function hls(overrides: Partial<ParsedM3U8> = {}): ParsedM3U8 {
   return {
@@ -162,3 +162,51 @@ describe('buildDashQualities', () => {
     ]);
   });
 });
+
+describe('firstKnownDuration', () => {
+  const load = (known: Record<string, number | undefined>) => async (url: string) => known[url];
+
+  it('answers from the first rendition that has a length', async () => {
+    const result = await firstKnownDuration(['a', 'b'], load({ a: undefined, b: 655 }));
+
+    expect(result).toBe(655);
+  });
+
+  it('starts from the last rendition: the top one is the one a master may list but not serve', async () => {
+    const asked: string[] = [];
+
+    await firstKnownDuration(['uhd', '1080', '360'], async (url) => { asked.push(url); return 10; });
+
+    expect(asked).toEqual(['360']);
+  });
+
+  it('skips a dead rendition and keeps going', async () => {
+    const result = await firstKnownDuration(['uhd', '1080', '720'], async (url) => {
+      if (url === '720') throw new Error('404');
+      return url === '1080' ? 244.3 : undefined;
+    });
+
+    expect(result).toBe(244.3);
+  });
+
+  it('gives up after a few tries instead of hammering every rendition', async () => {
+    const asked: string[] = [];
+
+    const result = await firstKnownDuration(['1', '2', '3', '4', '5'], async (url) => {
+      asked.push(url);
+      return undefined;
+    });
+
+    expect(result).toBeUndefined();
+    expect(asked).toHaveLength(3);
+  });
+
+  it('ignores a zero or non-finite length', async () => {
+    expect(await firstKnownDuration(['a', 'b'], load({ a: 0, b: Number.NaN }))).toBeUndefined();
+  });
+
+  it('answers nothing when there are no renditions', async () => {
+    expect(await firstKnownDuration([], load({}))).toBeUndefined();
+  });
+});
+
