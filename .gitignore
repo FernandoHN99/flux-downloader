@@ -67,7 +67,6 @@ coapp/dist/
 
 
 .opencode/
-.agents/
 agent-plan/
 
 # AGENTS.md and CLAUDE.md are tracked on purpose: they are the authoritative
