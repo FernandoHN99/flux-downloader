@@ -80,5 +80,7 @@ FFmpeg `out_time_ms` is treated as **nanoseconds** in this integration and
 divided by `1_000_000` for seconds. The field name is misleading; the tested
 behavior is correct.
 
-Output names are sanitized, and `file.uniquePath` appends `_1`, `_2`, … rather
+Batch names that collide are numbered oldest-first: the batch list is newest-first, so
+the last item is `_0` and the first is `_N` (every member of the group is suffixed,
+unique names stay bare). Output names are sanitized, and `file.uniquePath` appends `_1`, `_2`, … rather
 than overwriting an existing file.

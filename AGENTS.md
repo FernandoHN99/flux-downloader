@@ -76,15 +76,15 @@ never persisted. Re-run it after replacing the selected Node version too.
 
 ## Verification baseline
 
-As of 2026-09-04:
+As of 2026-10-14:
 
-- 42 extension test files and **564 tests** pass, plus 7 CoApp files with **21 tests** — 585 in total.
+- 42 extension test files and **566 tests** pass, plus 7 CoApp files with **21 tests** — 587 in total.
 - Tests use Vitest 3 with `happy-dom`; configuration is in `extension/vitest.config.ts`.
 - `NativeClient` is covered on the extension side. CoApp covers RPC, HTTP ranges/fallback/cancellation against loopback, line buffering, keyed progress arguments, and yt-dlp arguments; there are still no real FFmpeg/yt-dlp child-process integration tests and no linter.
 - The required final verification for code changes is `npm test` followed by `npm run build`.
 - Parser and component regressions should be protected with tests before or with a refactor.
 
-Do not keep reporting the 585 count after adding or removing tests without rerunning the suite.
+Do not keep reporting the 587 count after adding or removing tests without rerunning the suite.
 
 ## Extension build and loading
 

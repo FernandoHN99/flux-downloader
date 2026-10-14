@@ -53,10 +53,30 @@ export function buildBatchDownloadPlans(
     };
   });
 
-  const used = new Set<string>();
+  // The list is newest-first, so number each group of identical names from the
+  // end: the oldest video gets _0 and the newest gets _N. Every member of a
+  // colliding group is suffixed, including the first.
+  const groups = new Map<string, BatchDownloadPlan[]>();
   for (const plan of plans) {
     if (!plan.filename) continue;
-    const original = plan.filename;
+    const key = plan.filename.toLowerCase();
+    const group = groups.get(key);
+    if (group) group.push(plan);
+    else groups.set(key, [plan]);
+  }
+  const used = new Set<string>();
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    group.slice().reverse().forEach((plan, index) => {
+      plan.filename = appendFilenameSuffix(plan.filename as string, index);
+      used.add(plan.filename.toLowerCase());
+    });
+  }
+  // A suffixed name can still collide with another plan's own name.
+  for (const group of groups.values()) {
+    if (group.length > 1) continue;
+    const plan = group[0];
+    const original = plan.filename as string;
     let candidate = original;
     let suffix = 0;
     while (used.has(candidate.toLowerCase())) {

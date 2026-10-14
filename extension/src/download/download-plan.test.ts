@@ -66,7 +66,7 @@ describe('download filenames', () => {
     expect(ensureFilenameExtension('lesson.part', 'webm')).toBe('lesson.part.webm');
   });
 
-  it('preallocates distinct case-insensitive names for concurrent batch starts', () => {
+  it('numbers repeated names oldest-first: last in the list is _0, first is _N', () => {
     const first = video([quality(1080, { url: 'https://cdn.example/one' })]);
     first.title = 'Lesson: 1';
     const second = video([quality(720, { url: 'https://cdn.example/two' })]);
@@ -77,12 +77,49 @@ describe('download filenames', () => {
     const plans = buildBatchDownloadPlans([first, second, third], 'best');
 
     expect(plans.map((plan) => plan.filename)).toEqual([
-      'Lesson_ 1.mp4',
-      'lesson_ 1_1.mp4',
+      'Lesson_ 1_1.mp4',
+      'lesson_ 1_0.mp4',
       undefined
     ]);
     expect(plans[0].selected?.url).toBe('https://cdn.example/one');
     expect(plans[2].selected).toBeUndefined();
+  });
+
+  it('suffixes three repeated names from the oldest (last) as _0 and keeps unique names bare', () => {
+    const make = (title: string, url: string) => {
+      const item = video([quality(720, { url })]);
+      item.title = title;
+      return item;
+    };
+
+    const plans = buildBatchDownloadPlans([
+      make('Aula', 'https://cdn.example/new'),
+      make('Outra', 'https://cdn.example/other'),
+      make('Aula', 'https://cdn.example/mid'),
+      make('Aula', 'https://cdn.example/old')
+    ], 'best');
+
+    expect(plans.map((plan) => plan.filename)).toEqual([
+      'Aula_2.mp4',
+      'Outra.mp4',
+      'Aula_1.mp4',
+      'Aula_0.mp4'
+    ]);
+  });
+
+  it('never reuses a suffixed name already taken by a unique title', () => {
+    const make = (title: string) => {
+      const item = video([quality(720)]);
+      item.title = title;
+      return item;
+    };
+
+    const names = buildBatchDownloadPlans(
+      [make('Aula'), make('Aula_0'), make('Aula')],
+      'best'
+    ).map((plan) => plan.filename!.toLowerCase());
+
+    expect(new Set(names).size).toBe(names.length);
   });
 
   it.each([
