@@ -4,7 +4,7 @@ This directory documents the implementation in this repository. It no longer des
 
 The product name displayed in the browser is **Flux**. Internal packages, the native host, install paths, GitHub repository, and release artifacts continue to use **Flux Downloader**.
 
-Documentation baseline: **2026-09-03**, version `1.1.1` (the 2026-10-15 install, release and popup changes are described in the guides that cover them), including the component popup, pure content/background boundaries, `TabStateStore`, central all-tab refresh, source-page attribution, parser/manifest projection, download lifecycle/concurrency, native reconnect coverage, package validation, the extension watch workflow, compact progress panel, and flat-list reorder inset.
+Documentation baseline: **2026-09-03**, brought up to date on **2026-10-15** for 1.2.0 (install, release, popup and history changes are described in the guides that cover them), including the component popup, pure content/background boundaries, `TabStateStore`, central all-tab refresh, source-page attribution, parser/manifest projection, download lifecycle/concurrency, native reconnect coverage, package validation, the extension watch workflow, compact progress panel, and flat-list reorder inset.
 
 ## Start here
 
@@ -35,7 +35,7 @@ Documentation baseline: **2026-09-03**, version `1.1.1` (the 2026-10-15 install,
 - Top-level source page is kept separately from media/CDN URLs.
 - Vanilla TypeScript components with component-owned DOM and split CSS.
 - Per-tab background data is owned by one `TabStateStore`.
-- Vitest: 42 extension files / 564 tests plus 7 CoApp files / 21 tests (585 total).
+- Vitest: 45 extension files / 754 tests plus 8 CoApp files / 28 tests (782 total, 2026-10-15).
 - Content-side DOM/MSE transformations and background catalog/history/download rules live in focused tested modules rather than anonymous service-worker blocks.
 - One `DownloadRunGate` in the worker—not popup timing—enforces one user-visible run; a batch uses four native jobs concurrently.
 - `npm run dev:extension` watches all six browser bundles plus TypeScript; Chrome/Edge reloads remain manual.
