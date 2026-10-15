@@ -159,9 +159,13 @@ say "Installing Flux Downloader ($SOURCE)"
 mkdir -p "$INSTALL_DIR"
 
 if [[ "$SOURCE" == bundle ]]; then
-  cp "$SRC_HOST" "$INSTALL_DIR/main.bundle.cjs"
-  rm -rf "$INSTALL_DIR/extension"
-  cp -R "$SRC_EXTENSION" "$INSTALL_DIR/extension"
+  # Unless the archive was unpacked right on top of the install folder, in which
+  # case there is nothing to copy and deleting it first would delete the source.
+  if [[ "$SRC_EXTENSION" != "$INSTALL_DIR/extension" ]]; then
+    cp "$SRC_HOST" "$INSTALL_DIR/main.bundle.cjs"
+    rm -rf "$INSTALL_DIR/extension"
+    cp -R "$SRC_EXTENSION" "$INSTALL_DIR/extension"
+  fi
   HOST_ENTRY="$INSTALL_DIR/main.bundle.cjs"
   EXTENSION_FOLDER="$INSTALL_DIR/extension"
 else
@@ -316,6 +320,7 @@ Installed. One step is left, and only you can do it:
 
      $EXTENSION_FOLDER
 
+Already loaded it before? Click the reload icon on its card, then reload your pages.
 Open the extension's Settings page to check that it reaches the companion app.
 To remove everything later: $SCRIPT_DIR/install.sh --uninstall
 EOF
