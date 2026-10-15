@@ -1,35 +1,78 @@
 name: Release
 
+# A tag like v1.2.0 builds everything and publishes the release. The same jobs
+# run, without publishing, from the Actions tab and on pull requests that touch
+# the release machinery, so a broken pipeline is found before a tag needs it.
 on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/release.yml'
+      - 'scripts/**'
+      - 'coapp/scripts/**'
+      - 'coapp/src/installer.ts'
+      - 'extension/scripts/**'
 
 permissions:
-  contents: write
+  contents: read
+
+env:
+  IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
 
 jobs:
-  windows:
-    runs-on: windows-latest
-
+  portable:
+    name: macOS and Linux archive
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
-          node-version: 22.x
+          node-version: 22
           cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build extension and CoApp
-        shell: pwsh
+      - run: npm ci
+      - name: Check the tag matches the code
+        if: env.IS_TAG == 'true'
         run: |
-          $version = $env:GITHUB_REF_NAME.TrimStart('v')
-          $env:MEDIA_GRABBER_VERSION = $version
-          npm run build
+          code="$(node -p "require('./package.json').version")"
+          if [ "$code" != "${GITHUB_REF_NAME#v}" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match the version in package.json ($code). Run: npm run version:set -- ${GITHUB_REF_NAME#v}"
+            exit 1
+          fi
+          echo "FLUX_VERSION=$code" >> "$GITHUB_ENV"
+      - name: Build
+        run: |
+          npm run package:portable
           npm run package:extension
+          mkdir -p release
+          cp extension/FluxDownloader-extension.zip release/
+          cp THIRD_PARTY_NOTICES.md release/THIRD_PARTY_NOTICES.txt
+      - name: Check the install end to end
+        run: bash scripts/smoke-install.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: portable
+          path: release/*
+          if-no-files-found: error
+
+  windows:
+    name: Windows installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Stamp the tag's version
+        if: env.IS_TAG == 'true'
+        shell: pwsh
+        run: '"FLUX_VERSION=$($env:GITHUB_REF_NAME.TrimStart(''v''))" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8'
+      - name: Build extension and CoApp
+        run: npm run build
 
       - name: Prepare pinned runtime binaries
         shell: pwsh
@@ -37,7 +80,7 @@ jobs:
           New-Item -ItemType Directory -Force release | Out-Null
           New-Item -ItemType Directory -Force release-runtime | Out-Null
 
-          $ffmpegArchive = Join-Path $env:TEMP 'ffmpeg-8.0.1-essentials_build.zip'
+          $ffmpegArchive = Join-Path $env:TEMP 'ffmpeg-8.1.2-essentials_build.zip'
           Invoke-WebRequest -Uri 'https://github.com/GyanD/codexffmpeg/releases/download/8.1.2/ffmpeg-8.1.2-essentials_build.zip' -OutFile $ffmpegArchive
           Expand-Archive -Path $ffmpegArchive -DestinationPath (Join-Path $env:TEMP 'flux-ffmpeg') -Force
           $ffmpegRoot = Get-ChildItem (Join-Path $env:TEMP 'flux-ffmpeg') -Directory | Select-Object -First 1
@@ -53,7 +96,7 @@ jobs:
       - name: Build standalone CoApp and installer
         shell: pwsh
         run: |
-          $tag = $env:GITHUB_REF_NAME
+          $tag = if ($env:IS_TAG -eq 'true') { $env:GITHUB_REF_NAME } else { 'v0.0.0-dryrun' }
           $extensionId = node extension/scripts/get-extension-id.mjs extension/manifest.json
           node coapp/scripts/create-release-config.mjs release-config.json $env:GITHUB_REPOSITORY $tag $extensionId release/ffmpeg-win-x64.exe release/ffprobe-win-x64.exe release/yt-dlp-win-x64.exe
 
@@ -62,14 +105,59 @@ jobs:
           node coapp/scripts/build-sea.mjs coapp/dist/main.bundle.cjs release/FluxDownloader-CoApp-win-x64
           node coapp/scripts/build-sea.mjs coapp/dist/installer.bundle.cjs release/FluxDownloader-Setup-win-x64 --asset=release-config.json=release-config.json --gzip-asset=coapp.bin.gz=release/FluxDownloader-CoApp-win-x64.exe
 
-          Copy-Item 'extension/FluxDownloader-extension.zip' 'release/FluxDownloader-extension.zip'
-          Copy-Item 'THIRD_PARTY_NOTICES.md' 'release/THIRD_PARTY_NOTICES.txt'
-          node coapp/scripts/create-checksums.mjs release SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: release/*
+          if-no-files-found: error
 
-      - name: Publish GitHub Release
-        shell: pwsh
+  # Runs on every trigger so the checksums and the notes are exercised long
+  # before a tag needs them; only the last step is limited to tags.
+  publish:
+    name: Publish
+    needs: [portable, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+      - name: Checksums
+        working-directory: release
+        run: sha256sum -- * > SHA256SUMS.txt
+      - name: Release notes
+        run: |
+          cat > notes.md <<'NOTES'
+          ## Install
+
+          **macOS and Linux** (Node.js 18 or newer, plus FFmpeg):
+
+          ```bash
+          tar xzf flux-downloader-portable.tar.gz
+          cd flux-downloader-portable
+          ./install.sh
+          ```
+
+          **Windows:** run `FluxDownloader-Setup-win-x64.exe`.
+
+          Then load the extension: open `chrome://extensions`, turn on *Developer mode*, choose *Load unpacked*, and pick the folder the installer prints.
+
+          Every file is listed in `SHA256SUMS.txt`.
+
+          ## What changed
+          NOTES
+      - name: What would be published
+        if: env.IS_TAG != 'true'
+        run: ls -l release && cat release/SHA256SUMS.txt && cat notes.md
+      - name: Create the release
+        if: env.IS_TAG == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $assets = Get-ChildItem release -File | ForEach-Object { $_.FullName }
-          gh release create $env:GITHUB_REF_NAME $assets --title "Flux Downloader $env:GITHUB_REF_NAME" --generate-notes
+          gh release create "$GITHUB_REF_NAME" release/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Flux Downloader $GITHUB_REF_NAME" \
+            --notes-file notes.md \
+            --generate-notes

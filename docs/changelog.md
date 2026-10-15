@@ -2,9 +2,30 @@
 
 This is the project changelog. It replaces the old Video DownloadHelper historical timeline that previously occupied this file.
 
-## Unreleased — refactor baseline 2026-09-03
+## Unreleased — becomes 1.2.0
 
-This section describes commits after the `v1.1.1` tag on the current refactor line. These changes are not part of a tagged public release yet.
+Everything after the `v1.1.1` tag. Nothing here is in a tagged release yet.
+
+### Install and release (macOS, Linux, Windows)
+
+- Added `scripts/install.sh` for macOS and Linux: no root, no build. It installs the companion app in the user's data folder, registers it with every Chromium-based browser it finds (Chrome, Chromium, Brave, Edge, Vivaldi; previously only Chrome and Edge), checks for FFmpeg and yt-dlp, fetches yt-dlp on request with its published checksum, and uninstalls with `--uninstall`.
+- Added a portable archive, `flux-downloader-portable.tar.gz`: the built extension, the companion app as a single file with no dependencies, and the installer. The release workflow now builds it next to the Windows installer and only publishes when both succeed.
+- Added CI: tests on Linux, macOS and Windows, shellcheck, and an end-to-end install test that unpacks the archive, installs it, starts the host over native messaging, reinstalls and uninstalls.
+- `npm run version:set -- X.Y.Z` writes one version everywhere; a test fails if the files disagree. The CoApp's reported version used to be a hard-coded string.
+- `register-dev-host.sh` now calls `install.sh`. `FLUX_HOST_LOG` writes the host's log to a file.
+- Added `docs/install.md`, and rewrote `docs/releasing.md` for the new pipeline.
+
+### Popup and history
+
+- Select several videos with Shift-click (a range) or Ctrl/Cmd-click, and file them into a new or existing folder, or delete them, from a selection bar. Holding Shift previews the range. The new-folder form is in the fixed header, so it is visible when the list is scrolled.
+- Lessons clicked through quickly are no longer lost: a manifest that finishes loading after the page changed is now recorded in the history instead of dropped. A video shows as soon as its playlist is read; its length follows.
+- The history and the downloaded/failed markers are no longer capped (the history stopped at 50 rows), and the extension asks for `unlimitedStorage`.
+- Rows that a player titles alike (a course name on every lesson) take the name their own page URL gives them.
+- Restyled the popup on shared tokens (palette, type scale, spacing), removed duplicated CSS, monospace and all-caps labels, and made it 500px wide and as tall as its content. "Clear All" is now Select all, then Delete.
+
+### Refactor baseline 2026-09-03
+
+This section describes commits after the `v1.1.1` tag on the refactor line.
 
 ### Download acceleration
 
@@ -36,7 +57,7 @@ This section describes commits after the `v1.1.1` tag on the current refactor li
 - Rebranded the user-facing extension and popup to **Flux** while retaining MediaGrabber internal/release compatibility names. *(Superseded by the full rename above.)*
 - Replaced separate current/history presentations with one global list.
 - Current media from every open tab is pinned and visibly marked.
-- Added optional persisted history (maximum 50 entries) and **Only current** mode.
+- Added optional persisted history and **Only current** mode. *(The 50-entry cap was removed afterwards.)*
 - Added search, rename, stable drag reorder, bulk/selective delete, downloaded/failed markers, and expired-link checks.
 - Added Flat list and By site modes with collapsible/downloadable site groups.
 - Added sequential Best/Worst batch downloads in one `Flux_<timestamp>` folder.

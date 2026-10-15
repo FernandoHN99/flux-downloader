@@ -35,6 +35,9 @@ temp/
 # Test coverage
 coverage/
 
+# Release artifacts built by the packaging scripts
+release/
+
 # Chrome/Edge extension builds
 *.zip
 *.crx

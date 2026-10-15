@@ -11,12 +11,13 @@ import './file';
 import rpc from './rpc';
 import * as os from 'os';
 import * as path from 'path';
+import { VERSION } from './version';
 
 rpc.listen({
   ping: (arg: any) => arg,
 
   info: () => ({
-    version: '1.1.1',
+    version: VERSION,
     platform: process.platform,
     arch: process.arch,
     home: os.homedir() || process.env.HOME || process.env.USERPROFILE || '',

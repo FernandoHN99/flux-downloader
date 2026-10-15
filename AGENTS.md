@@ -29,7 +29,8 @@ Extension source is grouped by domain. Each domain folder carries its own `AGENT
 | `extension/src/popup/` | Component popup, settings page, component-scoped CSS | [AGENTS.md](extension/src/popup/AGENTS.md) |
 | `coapp/` | Native messaging host (`flux-downloader-coapp`) | |
 | `coapp/src/` | RPC, FFmpeg, yt-dlp, HTTP download, paths, registration, installer | [AGENTS.md](coapp/src/AGENTS.md) |
-| `coapp/scripts/` | SEA builds, release config/checksums, dev host registration (mac/Linux/Windows) | |
+| `coapp/scripts/` | SEA builds, release config/checksums, dev host registration, host smoke test | |
+| `scripts/` | macOS/Linux installer, portable archive, install smoke test, version bump | [docs/install.md](docs/install.md), [docs/releasing.md](docs/releasing.md) |
 | `docs/` | Current Flux Downloader implementation and release documentation | |
 | `.github/workflows/release.yml` | Windows x64 tagged-release pipeline | |
 
@@ -49,6 +50,9 @@ npm run package:extension  # extension/FluxDownloader-extension.zip
 npm run dev:extension      # extension tsc --noEmit + six esbuild watchers
 npm run dev:coapp          # CoApp tsc --watch
 cd coapp && npm start      # node dist/main.js
+npm run package:portable   # release/flux-downloader-portable.tar.gz (macOS/Linux archive)
+npm run smoke:install      # installs that archive in a throwaway HOME and starts the host
+npm run version:set -- X.Y.Z   # one version in every file
 ```
 
 `npm run dev:extension` watches all six extension outputs (`background`, `content`, `mse-inject`, popup JS/CSS, and settings) while a parallel TypeScript checker runs with `--noEmit`. It writes rebuilt bundles to `extension/dist/`, but it does not reload the unpacked extension or already-open pages in Chrome/Edge; do those reloads manually when their execution context must change.
@@ -61,14 +65,14 @@ node dist/native-autoinstall-cli.js register <extension-id>
 node dist/native-autoinstall-cli.js unregister
 ```
 
-For local development, prefer the dev-host scripts over calling
+For local development, prefer the install scripts over calling
 `native-autoinstall-cli.js` directly: it only writes a manifest pointing at a
 `coapp` binary that must already exist at the install root, so following it
-alone leaves the host unreachable. `coapp/scripts/register-dev-host.sh`
-(macOS/Linux) and `coapp/scripts/register-dev-host.ps1 -ExtensionId <id>`
-(Windows) instead build/register a launcher that execs this checkout's
-`dist/main.js`. Both derive the extension ID from `extension/manifest.json`
-automatically. Re-run the script after moving or renaming the repository —
+alone leaves the host unreachable. `scripts/install.sh` (macOS/Linux; the old
+`coapp/scripts/register-dev-host.sh` calls it) and
+`coapp/scripts/register-dev-host.ps1 -ExtensionId <id>` (Windows) instead
+register a launcher that execs this checkout's `dist/main.js`. Both derive the
+extension ID from `extension/manifest.json` automatically. Re-run the script after moving or renaming the repository —
 the launcher embeds absolute paths to the checkout and the physical Node
 runtime. The shell script deliberately uses `process.execPath`, not
 `command -v node`, so fnm's disposable per-shell `fnm_multishells` path is
