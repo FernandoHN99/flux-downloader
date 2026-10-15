@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Flux Downloader</title>
+  <meta name="description" content="Flux finds the video streams on any page, lets you pick the quality, and saves them to your own disk. Free, open source, and nothing leaves your machine.">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#0e1015">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Flux Downloader">
+  <meta property="og:description" content="Save the video your browser is already playing. Free, open source, local.">
+  <meta property="og:url" content="https://fernandohn99.github.io/flux-downloader/">
+  <meta name="twitter:card" content="summary">
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="stylesheet" href="site.css">
+  <noscript><style>.tabs [role="tabpanel"][hidden] { display: grid; } [role="tablist"] { display: none; }</style></noscript>
+</head>
+<body>
+  <a class="skip" href="#install">Skip to install</a>
+
+  <header class="top">
+    <div class="wrap top-inner">
+      <a class="brand" href="./">
+        <img src="icon.png" alt="" width="28" height="28">
+        <span>Flux Downloader</span>
+      </a>
+      <nav aria-label="Page">
+        <a href="#install">Install</a>
+        <a href="#faq">Questions</a>
+        <a href="https://github.com/FernandoHN99/flux-downloader">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero wrap" aria-labelledby="title">
+      <div class="hero-copy">
+        <h1 id="title">Save the video your browser is already playing.</h1>
+        <p class="lead">Flux finds the streams on any page, lets you pick the quality, and saves them to your own disk. It is free and open source, and nothing leaves your machine.</p>
+
+        <p class="actions">
+          <a class="button" id="download" href="https://github.com/FernandoHN99/flux-downloader/releases/latest/download/flux-downloader-portable.tar.gz">Download for macOS and Linux</a>
+          <a class="plain" href="https://github.com/FernandoHN99/flux-downloader">View the source</a>
+        </p>
+        <p class="note" id="download-note">
+          Using Windows? <a id="download-other" href="https://github.com/FernandoHN99/flux-downloader/releases/latest/download/FluxDownloader-Setup-win-x64.exe">Get the Windows installer</a>.
+          Everything is on the <a href="https://github.com/FernandoHN99/flux-downloader/releases/latest">releases page</a>, with checksums.
+        </p>
+      </div>
+
+      <figure class="demo">
+        <div class="demo-frame" data-demo>
+          <iframe src="demo/" title="The Flux popup, running on sample lessons" width="500" height="580"></iframe>
+        </div>
+        <figcaption>This is the real popup, on sample lessons. Click a row, then Shift-click another to pick everything between, and put it in a folder.</figcaption>
+      </figure>
+    </section>
+
+    <section class="wrap facts" aria-labelledby="what">
+      <h2 id="what">What it does</h2>
+      <dl>
+        <div>
+          <dt>It finds the stream for you</dt>
+          <dd>HLS, DASH, plain MP4 and WebM, and players that keep their stream out of sight inside the page. Open a video, click the icon, and it is in the list.</dd>
+        </div>
+        <div>
+          <dt>It keeps a course in order</dt>
+          <dd>One list across every tab, grouped by site or by folders you make. Search, rename, drag to reorder, and Shift-click to select a run of lessons.</dd>
+        </div>
+        <div>
+          <dt>It saves with FFmpeg, on your computer</dt>
+          <dd>HLS and DASH are copied without re-encoding, direct files use up to eight connections, and a batch runs four at a time. There are no accounts and no telemetry.</dd>
+        </div>
+        <div>
+          <dt>It is honest about its limits</dt>
+          <dd>It does not break DRM, so protected streams will not work. You are responsible for what you save: keep to what you have the right to keep.</dd>
+        </div>
+      </dl>
+    </section>
+
+    <section class="wrap install" id="install" aria-labelledby="install-title">
+      <h2 id="install-title">Install it in two steps</h2>
+      <p class="intro">Flux has an extension, which finds videos, and a small companion app, which saves them. A browser cannot write files or run FFmpeg by itself.</p>
+
+      <ol class="steps">
+        <li>
+          <h3>Install the companion app</h3>
+          <div class="tabs" data-tabs>
+            <div role="tablist" aria-label="Operating system">
+              <button role="tab" type="button" id="tab-unix" aria-controls="panel-unix" aria-selected="true">macOS and Linux</button>
+              <button role="tab" type="button" id="tab-win" aria-controls="panel-win" aria-selected="false" tabindex="-1">Windows</button>
+            </div>
+
+            <div role="tabpanel" id="panel-unix" aria-labelledby="tab-unix">
+              <p>Download <a href="https://github.com/FernandoHN99/flux-downloader/releases/latest/download/flux-downloader-portable.tar.gz">flux-downloader-portable.tar.gz</a>, then run this in the folder you saved it to:</p>
+              <div class="code">
+                <pre><code>tar xzf flux-downloader-portable.tar.gz
+cd flux-downloader-portable
+./install.sh</code></pre>
+                <button class="copy" type="button" aria-label="Copy these commands">Copy</button>
+              </div>
+              <p>It needs no root. It registers the companion with every Chromium-based browser it finds, and tells you if <a href="https://nodejs.org">Node.js</a> 18 or newer or FFmpeg is missing and how to install it. For YouTube, add <code>--yt-dlp</code>.</p>
+            </div>
+
+            <div role="tabpanel" id="panel-win" aria-labelledby="tab-win" hidden>
+              <p>Download and run <a href="https://github.com/FernandoHN99/flux-downloader/releases/latest/download/FluxDownloader-Setup-win-x64.exe">FluxDownloader-Setup-win-x64.exe</a>. It brings its own FFmpeg and yt-dlp, checked against known hashes, and registers with Chrome and Edge.</p>
+              <p>Then download <a href="https://github.com/FernandoHN99/flux-downloader/releases/latest/download/FluxDownloader-extension.zip">FluxDownloader-extension.zip</a> and extract it somewhere you will keep it.</p>
+            </div>
+          </div>
+        </li>
+        <li>
+          <h3>Load the extension</h3>
+          <p>This is the one step that cannot be scripted, because the browser asks you for it.</p>
+          <ol class="sub">
+            <li>Open <code>chrome://extensions</code> (or <code>edge://extensions</code>, <code>brave://extensions</code>).</li>
+            <li>Turn on <strong>Developer mode</strong>.</li>
+            <li>Click <strong>Load unpacked</strong> and choose the extension folder. The installer prints its path; on Windows it is the folder you extracted.</li>
+          </ol>
+          <p>Open the extension's Settings to check that it can reach the companion app. If it cannot, the <a href="https://github.com/FernandoHN99/flux-downloader/blob/main/docs/install.md#troubleshooting">troubleshooting guide</a> covers the usual causes.</p>
+        </li>
+      </ol>
+    </section>
+
+    <section class="wrap faq" id="faq" aria-labelledby="faq-title">
+      <h2 id="faq-title">Questions</h2>
+
+      <details>
+        <summary>Is this allowed?</summary>
+        <p>Flux is a tool, like a browser's own save button. What you save is your responsibility. Keep to media you have the right to keep: your own, public domain or licensed, or what a site's terms allow. It does not circumvent DRM, so protected streams do not work.</p>
+      </details>
+      <details>
+        <summary>Why is it not on the Chrome Web Store?</summary>
+        <p>Stores restrict downloaders. Flux is distributed here instead, and you load it as an unpacked extension. The upside is that every line is in front of you, and you can build it yourself from the source.</p>
+      </details>
+      <details>
+        <summary>Does it send anything anywhere?</summary>
+        <p>No telemetry, no accounts, no analytics, and this page loads nothing from third parties. The extension talks to the companion app on your computer, and the companion talks to the sites you download from. The <a href="https://github.com/FernandoHN99/flux-downloader/blob/main/docs/PRIVACY.md">privacy notes</a> list what is stored and where.</p>
+      </details>
+      <details>
+        <summary>Which browsers work?</summary>
+        <p>Chrome, Edge, Brave, Chromium and Vivaldi on macOS and Linux; Chrome and Edge on Windows. Firefox is not supported. Browsers installed as a Snap or Flatpak run in a sandbox that cannot start the companion app.</p>
+      </details>
+      <details>
+        <summary>How do I update it?</summary>
+        <p>Download the new release and run the installer again, then click the reload icon on the extension's card and reload the pages you had open.</p>
+      </details>
+      <details>
+        <summary>It does not see my video.</summary>
+        <p>Start playing it first, then click <strong>Refresh tabs</strong> in the popup. Pages that were open before you loaded the extension need a reload.</p>
+      </details>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <div class="wrap foot-inner">
+      <p>Flux Downloader is MIT licensed. It does not bypass DRM; save only what you are allowed to save.</p>
+      <p class="foot-links">
+        <a href="https://github.com/FernandoHN99/flux-downloader">Source</a>
+        <a href="https://github.com/FernandoHN99/flux-downloader/releases">Releases</a>
+        <a href="https://github.com/FernandoHN99/flux-downloader/issues">Issues</a>
+        <a href="https://github.com/FernandoHN99/flux-downloader/blob/main/docs/install.md">Install guide</a>
+      </p>
+    </div>
+  </footer>
+
+  <script src="site.js"></script>
+</body>
+</html>

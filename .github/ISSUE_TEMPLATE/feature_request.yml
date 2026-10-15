@@ -1,0 +1,29 @@
+name: Feature request
+description: Suggest something Flux should do
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Flux detects media a page is already playing and saves it. It does not bypass DRM and does not add site-specific scrapers for protected content, so requests for those will be declined.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The problem, not the solution. What is hard or impossible today?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like it to do?
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What have you tried instead?
+  - type: checkboxes
+    id: help
+    attributes:
+      label: Would you like to build it?
+      options:
+        - label: I would be happy to open a pull request

@@ -1,4 +1,6 @@
-# Product & business planning
+# Product & business planning (archived)
+
+> **Archived.** Flux is distributed on GitHub only. It is not published on a store and it is not for sale, so the plans below were dropped. They are kept as a record of the thinking, not as a to-do list.
 
 This directory is separate from the rest of `docs/`: everything else documents
 *how the code works today*. Everything here documents *where the product is
@@ -18,7 +20,7 @@ docs instead.
 ## Where things stand (2026-09-03)
 
 - Product name shown to users: **Flux**. Internal package/repo/native-host name: **Flux Downloader**. Both docs sets use whichever name that document already established — don't rename mid-file.
-- Currently distributed via **GitHub Releases as an unpacked extension**, not the Chrome Web Store. See `docs/STORE_LISTING.md` for the store copy already drafted for that future listing.
+- Currently distributed via **GitHub Releases as an unpacked extension**, not the Chrome Web Store. See `docs/archive/store-listing.md` for the store copy already drafted for that future listing.
 - **No backend exists.** Everything today is the extension + local CoApp talking over native messaging. `backend-roadmap.md` describes a system that has not been started.
 - Three feature branches carry work not yet on `main`: `refactor/popup-components` (component-based popup rewrite, current `HEAD` as of this writing), `feat/faster-hls-downloads` (parallel HLS segment prefetch), `feat/history-and-unique-filenames` (history/batch download/rename/reorder). The launch plan assumes these land on `main` first — see the "Before launch" checklist in `mvp-launch-plan.md`.
 

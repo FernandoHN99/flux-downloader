@@ -13,6 +13,9 @@
 *.js text
 *.css text
 *.html text
+*.sh text eol=lf
+*.mjs text
+*.yml text
 
 # Executables
 *.exe binary

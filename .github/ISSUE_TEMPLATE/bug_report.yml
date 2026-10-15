@@ -1,0 +1,69 @@
+name: Bug report
+description: Something does not work the way it should
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. Please check the [troubleshooting guide](https://github.com/FernandoHN99/flux-downloader/blob/main/docs/install.md#troubleshooting) first.
+        **Do not paste private or signed video URLs**: they can give access to your account. Describe the site instead, or remove the query string.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: And what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How can we see it happen?
+      description: The shortest steps that reproduce it. Which kind of page and stream (HLS, DASH, MP4, YouTube, something else)?
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Flux version
+      description: Shown on the extension's card in chrome://extensions
+      placeholder: "1.2.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options: [macOS, Linux, Windows, Other]
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and version
+      placeholder: Chrome 140, Brave 1.80, Edge 140…
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How did you install it?
+      options: [Portable archive and install.sh, Windows installer, From source, Other]
+    validations:
+      required: true
+  - type: input
+    id: node
+    attributes:
+      label: Node.js version (macOS and Linux)
+      description: Output of `node --version`
+  - type: textarea
+    id: settings
+    attributes:
+      label: What does the extension's Settings page say about the companion app?
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: >
+        Console errors from the service worker (chrome://extensions, Details, "service worker") help for detection problems.
+        For companion app problems, reinstall with `FLUX_HOST_LOG=$HOME/flux-host.log ./install.sh`, reproduce, and paste the file after removing any URLs you do not want to share.
+      render: text
