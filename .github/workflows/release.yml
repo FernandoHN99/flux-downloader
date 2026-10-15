@@ -27,8 +27,8 @@ jobs:
     name: macOS and Linux archive
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -51,7 +51,7 @@ jobs:
           cp THIRD_PARTY_NOTICES.md release/THIRD_PARTY_NOTICES.txt
       - name: Check the install end to end
         run: bash scripts/smoke-install.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: portable
           path: release/*
@@ -61,8 +61,8 @@ jobs:
     name: Windows installer
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -105,7 +105,7 @@ jobs:
           node coapp/scripts/build-sea.mjs coapp/dist/main.bundle.cjs release/FluxDownloader-CoApp-win-x64
           node coapp/scripts/build-sea.mjs coapp/dist/installer.bundle.cjs release/FluxDownloader-Setup-win-x64 --asset=release-config.json=release-config.json --gzip-asset=coapp.bin.gz=release/FluxDownloader-CoApp-win-x64.exe
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows
           path: release/*
@@ -120,8 +120,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           path: release
           merge-multiple: true
