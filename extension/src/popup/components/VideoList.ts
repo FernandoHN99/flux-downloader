@@ -2,7 +2,6 @@ import type { HistoryEntry, VideoFolder } from '../../shared/types';
 import { domainOf, videoKey } from '../../detection/video-key';
 import { groupByDomain, splitByFolder } from '../selectors';
 import { Component } from './base';
-import { FolderComposer } from './FolderComposer';
 import { FolderGroup } from './FolderGroup';
 import { VideoGroup } from './VideoGroup';
 import { VideoRow, type VideoRowHandlers, type VideoRowState } from './VideoRow';
@@ -14,10 +13,8 @@ export interface VideoListState {
   searching: boolean;
   collapsedFolders: ReadonlySet<string>;
   renamingFolderId: string | null;
-  /** The new-folder form is open, with how many videos it will receive. */
-  creatingFolder: { keys: string[] } | null;
-  /** Videos in no folder, offered to the new-folder form as one click. */
-  unfiledCount: number;
+  /** Where a Shift-click range would start, so the rows it would pick can preview. */
+  rangeAnchor: string | null;
   grouped: boolean;
   collapsedGroups: ReadonlySet<string>;
   downloadDisabled: boolean;
@@ -35,9 +32,6 @@ export interface VideoListHandlers extends VideoRowHandlers {
   onCommitRenameFolder(id: string, name: string): void;
   onCancelRenameFolder(): void;
   onDeleteFolder(id: string): void;
-  onCommitNewFolder(name: string): void;
-  onCommitNewFolderWithUnfiled(name: string): void;
-  onCancelNewFolder(): void;
   /** A dragged row was dropped on a folder, or (null) back on the main list. */
   onDropToFolder(keys: string[], folderId: string | null): void;
 }
@@ -53,6 +47,8 @@ export interface VideoListHandlers extends VideoRowHandlers {
  */
 export class VideoList extends Component<VideoListState> {
   private draggingKey: string | null = null;
+  /** The row under the pointer, which a held Shift previews a range up to. */
+  private hovered: HTMLElement | null = null;
 
   constructor(state: VideoListState, private readonly handlers: VideoListHandlers) {
     super({ className: 'video-list', state });
@@ -60,24 +56,14 @@ export class VideoList extends Component<VideoListState> {
     this.el.setAttribute('role', 'listbox');
     this.el.setAttribute('aria-label', 'Detected media');
     this.attachUnfileTarget();
+    this.attachRangePreview();
   }
 
   protected render(): void {
+    // The rows below are about to be replaced, and the pointer's row with them.
+    this.hovered = null;
     this.el.replaceChildren();
-    const { creatingFolder, folders, searching } = this.state;
-
-    if (creatingFolder) {
-      const composer = new FolderComposer(
-        { videoCount: creatingFolder.keys.length, unfiledCount: this.state.unfiledCount },
-        {
-          onCommit: (name) => this.handlers.onCommitNewFolder(name),
-          onCommitWithUnfiled: (name) => this.handlers.onCommitNewFolderWithUnfiled(name),
-          onCancel: () => this.handlers.onCancelNewFolder()
-        }
-      );
-      composer.update();
-      this.el.appendChild(composer.el);
-    }
+    const { folders, searching } = this.state;
 
     // The user's folders come first, then whatever is not filed anywhere.
     const split = splitByFolder(this.state.entries, folders, searching);
@@ -180,6 +166,39 @@ export class VideoList extends Component<VideoListState> {
     }
     this.attachDropZone(zone);
     parent.appendChild(zone);
+  }
+
+  /**
+   * While Shift is held, the rows a click would pick light up: from the anchor
+   * to the row under the pointer. Done on the DOM rather than through state,
+   * because the pointer moves far faster than the list should be rebuilt.
+   */
+  private attachRangePreview(): void {
+    this.el.addEventListener('mouseover', (event) => {
+      const target = event.target as Element | null;
+      this.hovered = target?.closest<HTMLElement>('.media-item') ?? null;
+      this.previewRange(event.shiftKey);
+    });
+    this.el.addEventListener('mouseleave', () => {
+      this.hovered = null;
+      this.previewRange(false);
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Shift') this.previewRange(true);
+    });
+    document.addEventListener('keyup', (event) => {
+      if (event.key === 'Shift') this.previewRange(false);
+    });
+    window.addEventListener('blur', () => this.previewRange(false));
+  }
+
+  private previewRange(shiftHeld: boolean): void {
+    const rows = [...this.el.querySelectorAll<HTMLElement>('.media-item')];
+    const anchor = this.state.rangeAnchor;
+    const from = shiftHeld && anchor ? rows.findIndex((row) => row.dataset.key === anchor) : -1;
+    const to = this.hovered ? rows.indexOf(this.hovered) : -1;
+    const [first, last] = from < 0 || to < 0 ? [-1, -2] : [Math.min(from, to), Math.max(from, to)];
+    rows.forEach((row, index) => row.classList.toggle('range-preview', index >= first && index <= last));
   }
 
   private attachDrag(row: HTMLElement): void {

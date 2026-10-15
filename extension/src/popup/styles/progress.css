@@ -1,7 +1,7 @@
 /* The progress panel, shared by one-off and batch runs. */
 
 .download-progress {
-  padding: 8px 12px;
+  padding: var(--space-2) var(--space-3);
   border-top: 1px solid var(--border-soft);
 }
 
@@ -9,9 +9,9 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
   margin-bottom: 6px;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   min-width: 0;
 }
 
@@ -19,15 +19,14 @@
   color: var(--text);
   font-weight: 600;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   flex-shrink: 0;
 }
 
 #progress-percent {
   color: var(--accent);
   font-weight: 700;
-  font-family: ui-monospace, 'Cascadia Code', 'SF Mono', monospace;
-  font-size: 13px;
+  font-size: var(--fs-md);
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
 }
@@ -61,9 +60,8 @@
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--text-muted);
-  font-family: ui-monospace, 'Cascadia Code', 'SF Mono', monospace;
   font-variant-numeric: tabular-nums;
 }
 
@@ -80,8 +78,8 @@
 
 .download-progress .btn-cancel {
   flex-shrink: 0;
-  padding: 1px 6px;
-  font-size: 10px;
+  padding: 2px 8px;
+  font-size: var(--fs-xs);
   line-height: 14px;
   background: var(--error-soft);
   color: var(--error);

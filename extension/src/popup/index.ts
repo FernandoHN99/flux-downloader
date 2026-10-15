@@ -7,14 +7,14 @@ import { ProgressPanel } from './components/ProgressPanel';
 import { RefreshButton } from './components/RefreshButton';
 import { VideoList } from './components/VideoList';
 import { entriesForDomain } from './components/VideoList';
-import type { VideoRowState } from './components/VideoRow';
+import type { RowModifiers, VideoRowState } from './components/VideoRow';
 import { loadCollapsedFolders, saveCollapsedFolders } from './collapsed-folders';
 import { applyIncoming } from './incoming';
 import { Messenger } from './messages';
 import type { QualityOption } from './quality';
 import {
-  busyLabel, canMoveToFolder, downloadInProgress, isCurrent, isDownloading, progressDetail,
-  progressView, unfiledEntries, visibleEntries
+  busyLabel, canMoveToFolder, displayOrder, downloadInProgress, isCurrent, isDownloading,
+  keysBetween, orderedEntries, progressDetail, progressView, unfiledEntries, visibleEntries
 } from './selectors';
 import { Store, type AppState, type BatchQuality } from './state';
 
@@ -42,30 +42,37 @@ class App {
     this.refresh = new RefreshButton({ refreshing: false }, () => this.refreshTabs());
 
     this.header = new ListHeader(
-      { selectionMode: false, renaming: false, selectedCount: 0, batchQuality: 'best',
-        downloadDisabled: false, search: '' },
+      { selectionMode: false, renaming: false, selectedCount: 0, visibleCount: 0, totalCount: 0,
+        batchQuality: 'best', downloadDisabled: false, search: '', folders: [], canUnfile: false,
+        movingSelection: false, creatingFolder: null },
       {
         onQuality: (quality) => this.setBatchQuality(quality),
         onDownloadAll: () => this.downloadAll(visibleEntries(this.store.get())),
-        onClearAll: () => { this.messenger.send({ type: 'CLEAR_HISTORY' }); this.exitSelection(); },
-        onClearSelected: () => this.deleteSelected(),
         onSearch: (search) => this.store.setUi({ search }),
-        onNewFolder: () => this.store.setUi({
-          creatingFolder: { keys: [] }, renamingFolderId: null, movingKey: null, expandedKey: null
-        })
+        onNewFolder: () => this.openNewFolder(),
+        onSelectAll: () => this.selectAll(),
+        onExitSelection: () => this.exitSelection(),
+        onDeleteSelected: () => this.deleteSelected(),
+        onToggleMoveSelection: () => this.store.setUi({
+          movingSelection: !this.store.get().ui.movingSelection
+        }),
+        onMoveSelectedTo: (folderId) => this.moveSelectedTo(folderId),
+        onCommitNewFolder: (name) => this.commitNewFolder(name),
+        onCommitNewFolderWithUnfiled: (name) => this.commitNewFolder(name, true),
+        onCancelNewFolder: () => this.store.setUi({ creatingFolder: null })
       }
     );
 
     this.list = new VideoList(
       { entries: [], folders: [], searching: false, collapsedFolders: new Set(),
-        renamingFolderId: null, creatingFolder: null, unfiledCount: 0, grouped: false, collapsedGroups: new Set(),
+        renamingFolderId: null, rangeAnchor: null, grouped: false, collapsedGroups: new Set(),
         downloadDisabled: false, rowState: (entry) => this.rowState(entry) },
       {
-        onActivate: (key) => this.activate(key),
+        onActivate: (key, modifiers) => this.activate(key, modifiers),
         onStartRename: (key) => this.store.setUi({ renamingKey: key, expandedKey: null }),
         onCommitRename: (key, title) => this.commitRename(key, title),
         onCancelRename: () => this.store.setUi({ renamingKey: null }),
-        onTrash: (key) => this.enterSelection(key),
+        onSelect: (key) => this.enterSelection(key),
         onSelectQuality: (index) => this.store.setUi({ selectedQualityIndex: index }),
         onDownload: (option) => this.download(option),
         onReorder: (keys) => this.messenger.send({ type: 'REORDER_HISTORY', keys }),
@@ -84,9 +91,6 @@ class App {
         onCommitRenameFolder: (id, name) => this.commitRenameFolder(id, name),
         onCancelRenameFolder: () => this.store.setUi({ renamingFolderId: null }),
         onDeleteFolder: (id) => this.deleteFolder(id),
-        onCommitNewFolder: (name) => this.commitNewFolder(name),
-        onCommitNewFolderWithUnfiled: (name) => this.commitNewFolder(name, true),
-        onCancelNewFolder: () => this.store.setUi({ creatingFolder: null }),
         onDropToFolder: (keys, folderId) => this.moveToFolder(keys, folderId)
       }
     );
@@ -132,6 +136,13 @@ class App {
     document.getElementById('error-dismiss')?.addEventListener('click', () => {
       this.store.setUi({ error: null });
     });
+    // Esc backs out one step: the name field first, then the picking itself.
+    document.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape' || event.target instanceof HTMLInputElement) return;
+      const { ui } = this.store.get();
+      if (ui.creatingFolder) this.store.setUi({ creatingFolder: null });
+      else if (ui.selectionMode) this.exitSelection();
+    });
   }
 
   private render(state: AppState): void {
@@ -141,13 +152,25 @@ class App {
     this.progress.setState({ view: progressView(state), detail: progressDetail(state) });
     this.refresh.setState({ refreshing: state.ui.refreshing });
 
+    const { ui, remote } = state;
     this.header.setState({
-      selectionMode: state.ui.selectionMode,
-      renaming: state.ui.renamingKey !== null,
-      selectedCount: state.ui.selectedForDeletion.size,
-      batchQuality: state.ui.batchQuality,
+      selectionMode: ui.selectionMode,
+      renaming: ui.renamingKey !== null,
+      selectedCount: ui.selected.size,
+      visibleCount: ui.selectionMode ? displayOrder(state).length : entries.length,
+      totalCount: orderedEntries(state).length,
+      batchQuality: ui.batchQuality,
       downloadDisabled: blocked,
-      search: state.ui.search
+      search: ui.search,
+      folders: remote.folders,
+      canUnfile: ui.selectionMode && entries.some((entry) =>
+        Boolean(entry.folderId) && ui.selected.has(videoKey(entry.url))),
+      movingSelection: ui.movingSelection,
+      creatingFolder: ui.creatingFolder ? {
+        videoCount: ui.creatingFolder.keys.length,
+        // Someone who picked their videos has already chosen which ones.
+        unfiledCount: ui.selectionMode ? 0 : unfiledEntries(state).length
+      } : null
     });
 
     this.list.setState({
@@ -156,8 +179,7 @@ class App {
       searching: state.ui.search.trim() !== '',
       collapsedFolders: state.ui.collapsedFolders,
       renamingFolderId: state.ui.renamingFolderId,
-      creatingFolder: state.ui.creatingFolder,
-      unfiledCount: state.ui.creatingFolder ? unfiledEntries(state).length : 0,
+      rangeAnchor: state.ui.selectionAnchor ?? state.ui.expandedKey,
       grouped: state.ui.groupByDomain,
       collapsedGroups: state.ui.collapsedGroups,
       downloadDisabled: blocked || state.ui.selectionMode,
@@ -185,7 +207,7 @@ class App {
       isBusy: isDownloading(state, key),
       busyLabel: busyLabel(state, key),
       selectionMode: state.ui.selectionMode,
-      isPicked: state.ui.selectedForDeletion.has(key),
+      isPicked: state.ui.selected.has(key),
       isExpanded: state.ui.expandedKey === key,
       isRenaming: state.ui.renamingKey === key,
       downloadDisabled: downloadInProgress(state),
@@ -211,10 +233,15 @@ class App {
     });
   }
 
-  /** A click on a row: a tick while picking, otherwise open or close it. */
-  private activate(key: string): void {
+  /**
+   * A click on a row. Shift picks everything from the last row picked (or
+   * opened) to this one; Ctrl/Cmd, or any click while picking, flips this row;
+   * a plain click otherwise opens or closes it.
+   */
+  private activate(key: string, modifiers: RowModifiers): void {
     const { ui } = this.store.get();
-    if (ui.selectionMode) return this.toggleSelection(key);
+    if (modifiers.range) return this.selectRange(key);
+    if (modifiers.toggle || ui.selectionMode) return this.toggleSelection(key);
     this.store.setUi({
       expandedKey: ui.expandedKey === key ? null : key,
       selectedQualityIndex: 0,
@@ -237,6 +264,15 @@ class App {
     this.store.setUi({ movingKey: null });
   }
 
+  /** Opens the new-folder form, for the picked videos if some are picked. */
+  private openNewFolder(): void {
+    const { ui } = this.store.get();
+    this.store.setUi({
+      creatingFolder: { keys: ui.selectionMode ? [...ui.selected] : [] },
+      renamingFolderId: null, movingKey: null, expandedKey: null, movingSelection: false
+    });
+  }
+
   /** `withUnfiled` also files every video that is in no folder into the new one. */
   private commitNewFolder(name: string, withUnfiled = false): void {
     const state = this.store.get();
@@ -246,6 +282,14 @@ class App {
     const loose = withUnfiled ? unfiledEntries(state).map((entry) => videoKey(entry.url)) : [];
     const keys = [...new Set([...pending.keys, ...loose])];
     this.messenger.send({ type: 'CREATE_FOLDER', name: name.trim(), keys });
+    // The picked videos are filed now; keeping them picked would offer to file
+    // or delete them a second time.
+    if (state.ui.selectionMode) this.exitSelection();
+  }
+
+  private moveSelectedTo(folderId: string | null): void {
+    this.moveToFolder([...this.store.get().ui.selected], folderId);
+    this.exitSelection();
   }
 
   private commitRenameFolder(id: string, name: string): void {
@@ -272,32 +316,77 @@ class App {
     this.downloadAll(visibleEntries(this.store.get()).filter((entry) => entry.folderId === id));
   }
 
+  /** Flips one row, starting to pick if nothing is picked yet. */
   private toggleSelection(key: string): void {
-    const picked = new Set(this.store.get().ui.selectedForDeletion);
+    const { ui } = this.store.get();
+    if (!ui.selectionMode) return this.enterSelection(key);
+    const picked = new Set(ui.selected);
     if (picked.has(key)) picked.delete(key);
     else picked.add(key);
     // Emptying the selection leaves the mode, so there is no way to be stuck.
     if (picked.size === 0) return this.exitSelection();
-    this.store.setUi({ selectedForDeletion: picked });
+    this.store.setUi({ selected: picked, selectionAnchor: key, movingSelection: false });
+  }
+
+  /** Picks every row between the anchor and `key`, on top of what is picked. */
+  private selectRange(key: string): void {
+    const state = this.store.get();
+    const { ui } = state;
+    const anchor = ui.selectionAnchor ?? ui.expandedKey;
+    if (!anchor) return this.enterSelection(key);
+
+    // A row being written cannot be filed or dropped from under its download.
+    const spanned = keysBetween(displayOrder(state), anchor, key)
+      .filter((spannedKey) => !isDownloading(state, spannedKey));
+    this.store.setUi({
+      selectionMode: true,
+      selected: new Set([...(ui.selectionMode ? ui.selected : []), ...spanned]),
+      selectionAnchor: key,
+      expandedKey: null,
+      renamingKey: null,
+      movingKey: null,
+      movingSelection: false
+    });
+  }
+
+  private selectAll(): void {
+    const state = this.store.get();
+    const keys = displayOrder(state).filter((key) => !isDownloading(state, key));
+    if (keys.length === 0) return;
+    this.store.setUi({ selected: new Set(keys), movingSelection: false });
   }
 
   private enterSelection(key: string): void {
     this.store.setUi({
       selectionMode: true,
-      selectedForDeletion: new Set([key]),
+      selected: new Set([key]),
+      selectionAnchor: key,
       expandedKey: null,
-      renamingKey: null
+      renamingKey: null,
+      movingKey: null,
+      creatingFolder: null
     });
   }
 
   private exitSelection(): void {
-    this.store.setUi({ selectionMode: false, selectedForDeletion: new Set() });
+    this.store.setUi({
+      selectionMode: false,
+      selected: new Set(),
+      selectionAnchor: null,
+      movingSelection: false,
+      creatingFolder: null
+    });
   }
 
   private deleteSelected(): void {
-    const keys = [...this.store.get().ui.selectedForDeletion];
+    const state = this.store.get();
+    const keys = [...state.ui.selected];
     if (keys.length === 0) return;
-    this.messenger.send({ type: 'DELETE_HISTORY_ITEMS', keys });
+    // Everything picked is the whole list: wipe it, which also drops the rows
+    // a master playlist hides, rather than leaving them behind to resurface.
+    const everything = orderedEntries(state).map((entry) => videoKey(entry.url));
+    const wipe = everything.every((key) => state.ui.selected.has(key));
+    this.messenger.send(wipe ? { type: 'CLEAR_HISTORY' } : { type: 'DELETE_HISTORY_ITEMS', keys });
     this.exitSelection();
   }
 

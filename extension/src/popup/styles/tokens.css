@@ -1,7 +1,72 @@
-/* Palette, reset and the page box. Flux is dark-only. */
+/* The palette, the type scale, the spacing steps, the reset and the page box.
+   Flux is dark-only. Every other stylesheet takes its colour, size and space
+   from here; a value that is not a token should be one used exactly once. */
+
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* Surfaces, from the page outward. */
+  --bg:            #0e1015;
+  --bg-elevated:   #181b22;
+  --bg-hover:      #21252e;
+  --bg-active:     #2a2f3a;
+  --border:        #252832;
+  --border-soft:   #1e2129;
+
+  /* Text. `dim` is the quietest that still reads on `bg-elevated`. */
+  --text:          #e9ebf1;
+  --text-muted:    #9097a5;
+  --text-dim:      #7f8796;
+
+  /* Violet means "selected" or "the main action", and nothing else. */
+  --accent:        #7958f5;
+  --accent-hover:  #6a47ff;
+  --accent-soft:   rgba(121, 88, 245, 0.14);
+  --accent-wash:   rgba(121, 88, 245, 0.07);
+  --accent-text:   #b8a6ff;
+
+  /* State only: this page and finished work, a failure and what deletes. */
+  --success:       #34d399;
+  --success-soft:  rgba(52, 211, 153, 0.12);
+  --error:         #f87171;
+  --error-soft:    rgba(248, 113, 113, 0.12);
+  --warning:       #fbbf24;
+
+  /* Type. One family; weight does the work that size does elsewhere. The
+     scale is small on purpose: a popup has 600px to show a list in. */
+  --font:          system-ui, -apple-system, 'Segoe UI Variable', 'Segoe UI', sans-serif;
+  --fs-xs:         10px;
+  --fs-sm:         11px;
+  --fs-md:         12px;
+  --fs-lg:         13px;
+
+  /* Space, on a 4px step. */
+  --space-1:       4px;
+  --space-2:       8px;
+  --space-3:       12px;
+  --space-4:       16px;
+
+  /* Shape: panels and rows, then controls, then pills. */
+  --radius:        10px;
+  --radius-sm:     6px;
+  --radius-pill:   999px;
+
+  --focus-ring:    0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+::selection {
+  background: var(--accent-soft);
+}
 
 html {
-  font-size: 14px;
+  font-size: var(--fs-md);
   width: 100%;
   min-width: 0;
   max-width: 100%;
@@ -9,17 +74,19 @@ html {
   overflow-x: hidden;
 }
 
+/* Chrome sizes an action popup to its content, up to about 800x600. The
+   height follows the list, so a short list is a short popup. Sizes here are
+   fixed pixels on purpose: viewport units collapse the popup to a pixel. */
 body {
-  font-family: system-ui, -apple-system, 'Segoe UI Variable', 'Segoe UI', sans-serif;
-  width: 468px;
+  font-family: var(--font);
+  width: 500px;
   height: auto;
-  min-height: 546px;
+  min-height: 380px;
   max-height: 600px;
-  font-size: 14px;
+  font-size: var(--fs-md);
   color: var(--text);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
-  transition: background-color 0.2s, color 0.2s;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
   overflow-x: hidden;

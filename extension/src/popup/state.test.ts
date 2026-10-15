@@ -11,11 +11,11 @@ describe('Store', () => {
 
   it('patches one half without touching the other', () => {
     const store = new Store();
-    store.setUi({ selectionMode: true, selectedForDeletion: new Set(['a']) });
+    store.setUi({ selectionMode: true, selected: new Set(['a']) });
     store.setRemote({ history: [{ id: '1' } as never] });
 
     expect(store.get().ui.selectionMode).toBe(true);
-    expect(store.get().ui.selectedForDeletion.has('a')).toBe(true);
+    expect(store.get().ui.selected.has('a')).toBe(true);
     expect(store.get().remote.history).toHaveLength(1);
   });
 
@@ -23,11 +23,11 @@ describe('Store', () => {
   // to wipe what the user was in the middle of doing.
   it('leaves an in-flight selection alone when remote data arrives', () => {
     const store = new Store();
-    store.setUi({ selectionMode: true, selectedForDeletion: new Set(['x']), renamingKey: 'y' });
+    store.setUi({ selectionMode: true, selected: new Set(['x']), renamingKey: 'y' });
     store.setRemote({ history: [], currentKeys: new Set(['z']) });
 
     expect(store.get().ui.selectionMode).toBe(true);
-    expect(store.get().ui.selectedForDeletion.has('x')).toBe(true);
+    expect(store.get().ui.selected.has('x')).toBe(true);
     expect(store.get().ui.renamingKey).toBe('y');
   });
 

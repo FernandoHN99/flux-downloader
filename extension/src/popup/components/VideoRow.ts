@@ -25,12 +25,21 @@ export interface VideoRowState {
   folders: VideoFolder[];
 }
 
+/** What the user held down while clicking a row. */
+export interface RowModifiers {
+  /** Shift: pick every row from the last one picked to this one. */
+  range: boolean;
+  /** Ctrl or Cmd: pick or drop this row alone, without opening it. */
+  toggle: boolean;
+}
+
 export interface VideoRowHandlers {
-  onActivate(key: string): void;
+  onActivate(key: string, modifiers: RowModifiers): void;
   onStartRename(key: string): void;
   onCommitRename(key: string, title: string): void;
   onCancelRename(): void;
-  onTrash(key: string): void;
+  /** Starts picking rows, with this one picked. */
+  onSelect(key: string): void;
   onSelectQuality(index: number): void;
   onDownload(option: QualityOption): void;
   onToggleMove(key: string): void;
@@ -44,7 +53,7 @@ export interface VideoRowHandlers {
  * download options underneath.
  *
  * Starting a flow narrows the row to that flow. Renaming leaves only the
- * confirm and cancel controls; picking rows to delete leaves only the tick.
+ * confirm and cancel controls; picking rows leaves only the tick.
  * Both used to be enforced from a stylesheet, where one rule silently got the
  * wrong body and stopped hiding anything.
  */
@@ -55,12 +64,16 @@ export class VideoRow extends Component<VideoRowState> {
     super({ className: 'media-item media-item-history', state });
     this.el.setAttribute('role', 'option');
     this.el.tabIndex = 0;
-    this.el.addEventListener('click', () => this.activate());
+    this.el.addEventListener('click', (event) => this.activate(event));
+    // A Shift-click would otherwise paint a text selection across the rows.
+    this.el.addEventListener('mousedown', (event) => {
+      if (event.shiftKey) event.preventDefault();
+    });
     this.el.addEventListener('keydown', (event) => {
       if (event.target !== this.el) return;
       if (event.key !== 'Enter' && event.key !== ' ') return;
       event.preventDefault();
-      this.activate();
+      this.activate(event);
     });
   }
 
@@ -68,9 +81,12 @@ export class VideoRow extends Component<VideoRowState> {
     return videoKey(this.state.entry.url);
   }
 
-  private activate(): void {
+  private activate(event: MouseEvent | KeyboardEvent): void {
     if (this.state.isBusy && !this.state.selectionMode) return;
-    this.handlers.onActivate(this.key);
+    this.handlers.onActivate(this.key, {
+      range: event.shiftKey,
+      toggle: event.metaKey || event.ctrlKey
+    });
   }
 
   protected render(): void {
@@ -112,7 +128,7 @@ export class VideoRow extends Component<VideoRowState> {
     // Last, so it sits against the row's right edge rather than riding along
     // with the title.
     if (isCurrent) {
-      head.appendChild(badge('current-badge', 'current', 'Detected on the page you have open'));
+      head.appendChild(badge('current-badge', 'On this page', 'Detected on the page you have open'));
     }
 
     if (this.state.isMoving && this.state.canMove && !selectionMode && !isBusy) {
@@ -167,18 +183,20 @@ export class VideoRow extends Component<VideoRowState> {
     text.textContent = entry.title || 'Unknown Video';
     title.appendChild(text);
     if (entry.failed && !isBusy) {
-      title.appendChild(badge('failed-badge', 'error', 'Last download failed'));
+      title.appendChild(badge('failed-badge', 'Failed', 'Last download failed'));
     }
     info.appendChild(title);
 
     const meta = document.createElement('div');
     meta.className = 'media-meta';
-    meta.textContent = isBusy ? busyLabel : [
-      getTypeLabel(entry.type),
-      // The length, not when it was detected: it is what tells one lesson from
-      // the next at a glance.
-      entry.duration ? formatLength(entry.duration) : ''
-    ].filter(Boolean).join(' · ');
+    if (isBusy) {
+      meta.textContent = busyLabel;
+    } else {
+      // The length leads, not when it was detected: it is what tells one
+      // lesson from the next at a glance. The type is the quieter fact.
+      if (entry.duration) meta.append(textSpan('media-length', formatLength(entry.duration)), ' ');
+      meta.appendChild(textSpan('media-kind', getTypeLabel(entry.type)));
+    }
     info.appendChild(meta);
 
     return info;
@@ -282,14 +300,22 @@ export class VideoRow extends Component<VideoRowState> {
       this.handlers.onStartRename(this.key);
     });
 
-    const remove = iconButton('remove', 'Select to delete');
-    remove.classList.add('remove-btn');
-    remove.addEventListener('click', (event) => {
+    // Picking is for several at once: to file them, or to delete them.
+    const select = iconButton('select', 'Select (Shift-click to select a range)');
+    select.classList.add('select-btn');
+    select.addEventListener('click', (event) => {
       event.stopPropagation();
-      this.handlers.onTrash(this.key);
+      this.handlers.onSelect(this.key);
     });
 
-    actions.append(rename, remove);
+    actions.append(rename, select);
     return actions;
   }
+}
+
+function textSpan(className: string, text: string): HTMLElement {
+  const el = document.createElement('span');
+  el.className = className;
+  el.textContent = text;
+  return el;
 }

@@ -38,11 +38,11 @@ describe('MEDIA_LIST', () => {
 
   // The whole point of the remote/ui split.
   it('leaves a rename and a selection in progress alone', () => {
-    store.setUi({ renamingKey: RS8, selectionMode: true, selectedForDeletion: new Set([RS9]) });
+    store.setUi({ renamingKey: RS8, selectionMode: true, selected: new Set([RS9]) });
     applyIncoming(store, { type: 'MEDIA_LIST', videos: [], currentKeys: [RS9] });
     expect(store.get().ui.renamingKey).toBe(RS8);
     expect(store.get().ui.selectionMode).toBe(true);
-    expect(store.get().ui.selectedForDeletion.has(RS9)).toBe(true);
+    expect(store.get().ui.selected.has(RS9)).toBe(true);
   });
 });
 

@@ -12,7 +12,7 @@ const entry = (patch: Partial<HistoryEntry> = {}): HistoryEntry => ({
 function mount(state: Partial<VideoRowState> = {}) {
   const handlers = {
     onActivate: vi.fn(), onStartRename: vi.fn(), onCommitRename: vi.fn(),
-    onCancelRename: vi.fn(), onTrash: vi.fn(), onSelectQuality: vi.fn(), onDownload: vi.fn(),
+    onCancelRename: vi.fn(), onSelect: vi.fn(), onSelectQuality: vi.fn(), onDownload: vi.fn(),
     onToggleMove: vi.fn(), onMoveToFolder: vi.fn(), onNewFolderFor: vi.fn()
   };
   const row = new VideoRow({
@@ -35,15 +35,15 @@ describe('VideoRow', () => {
   it('shows the title and what the video is', () => {
     const { row } = mount();
     expect(q(row, '.media-title-text')!.textContent).toBe('aula-08-hooks');
-    expect(q(row, '.media-meta')!.textContent).toContain('HLS');
-    expect(q(row, '.media-meta')!.textContent).toContain('16 min 20 s');
+    expect(q(row, '.media-kind')!.textContent).toBe('HLS');
+    expect(q(row, '.media-length')!.textContent).toBe('16 min 20 s');
   });
 
   it('shows how long the video is instead of when it was detected', () => {
     const { row } = mount();
     const meta = q(row, '.media-meta')!.textContent!;
 
-    expect(meta).toBe('HLS · 16 min 20 s');
+    expect(meta).toBe('16 min 20 s HLS');
     expect(meta).not.toMatch(/ago|just now/);
   });
 
@@ -56,7 +56,7 @@ describe('VideoRow', () => {
   describe('at rest', () => {
     it('offers rename and delete, and a grip to reorder', () => {
       const { row } = mount();
-      expect(visibleButtons(row)).toEqual(['Move to folder', 'Rename', 'Select to delete']);
+      expect(visibleButtons(row)).toEqual(['Move to folder', 'Rename', 'Select (Shift-click to select a range)']);
       expect(q(row, '.drag-handle')).not.toBeNull();
       expect(row.el.draggable).toBe(true);
     });
@@ -64,7 +64,9 @@ describe('VideoRow', () => {
     it('reports a click so the row can open', () => {
       const { row, handlers } = mount();
       row.el.click();
-      expect(handlers.onActivate).toHaveBeenCalledWith('https://cdn.x/l8/aula-08-hooks.m3u8');
+      expect(handlers.onActivate).toHaveBeenCalledWith(
+        'https://cdn.x/l8/aula-08-hooks.m3u8', { range: false, toggle: false }
+      );
     });
   });
 
@@ -98,8 +100,8 @@ describe('VideoRow', () => {
 
     it('can still be deleted even though it never reorders', () => {
       const { row, handlers } = mount({ isCurrent: true });
-      row.el.querySelector<HTMLButtonElement>('.remove-btn')!.click();
-      expect(handlers.onTrash).toHaveBeenCalled();
+      row.el.querySelector<HTMLButtonElement>('.select-btn')!.click();
+      expect(handlers.onSelect).toHaveBeenCalled();
     });
   });
 
@@ -124,6 +126,47 @@ describe('VideoRow', () => {
     });
   });
 
+  describe('modifier clicks', () => {
+    const KEY = 'https://cdn.x/l8/aula-08-hooks.m3u8';
+
+    it('reports a plain click as neither a range nor a toggle', () => {
+      const { row, handlers } = mount();
+      row.el.click();
+      expect(handlers.onActivate).toHaveBeenCalledWith(KEY, { range: false, toggle: false });
+    });
+
+    it('reports Shift as a range', () => {
+      const { row, handlers } = mount();
+      row.el.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }));
+      expect(handlers.onActivate).toHaveBeenCalledWith(KEY, { range: true, toggle: false });
+    });
+
+    it('reports Ctrl and Cmd as a toggle', () => {
+      const { row, handlers } = mount();
+      row.el.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }));
+      row.el.dispatchEvent(new MouseEvent('click', { bubbles: true, metaKey: true }));
+      expect(handlers.onActivate).toHaveBeenNthCalledWith(1, KEY, { range: false, toggle: true });
+      expect(handlers.onActivate).toHaveBeenNthCalledWith(2, KEY, { range: false, toggle: true });
+    });
+
+    it('reports Shift+Enter from the keyboard as a range too', () => {
+      const { row, handlers } = mount();
+      row.el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true }));
+      expect(handlers.onActivate).toHaveBeenCalledWith(KEY, { range: true, toggle: false });
+    });
+
+    it('keeps a Shift-click from painting a text selection across the rows', () => {
+      const { row } = mount();
+      const down = new MouseEvent('mousedown', { bubbles: true, cancelable: true, shiftKey: true });
+      row.el.dispatchEvent(down);
+      expect(down.defaultPrevented).toBe(true);
+
+      const plain = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+      row.el.dispatchEvent(plain);
+      expect(plain.defaultPrevented).toBe(false);
+    });
+  });
+
   // The flow-isolation rule, enforced here rather than in a stylesheet where
   // one rule silently stopped hiding anything.
   describe('while renaming', () => {
@@ -131,7 +174,7 @@ describe('VideoRow', () => {
       const { row } = mount({ isRenaming: true });
       expect(visibleButtons(row)).toEqual(['Save title', 'Cancel rename']);
       expect(q(row, '.rename-btn')).toBeNull();
-      expect(q(row, '.remove-btn')).toBeNull();
+      expect(q(row, '.select-btn')).toBeNull();
       expect(q(row, '.drag-handle')).toBeNull();
       expect(q(row, '.current-badge')).toBeNull();
     });

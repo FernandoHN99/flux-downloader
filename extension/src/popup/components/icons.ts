@@ -23,6 +23,7 @@ function svg(paths: string[], size = 13, width = '2.5'): SVGSVGElement {
 export const PATHS = {
   rename: ['M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z'],
   remove: ['M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6'],
+  select: ['M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z', 'M8.5 12.5l2.5 2.5 4.5-5'],
   confirm: ['M20 6 9 17l-5-5'],
   cancel: ['M18 6 6 18M6 6l12 12'],
   refresh: ['M20 11a8 8 0 0 0-14.9-3M4 3v5h5', 'M4 13a8 8 0 0 0 14.9 3M20 21v-5h-5'],

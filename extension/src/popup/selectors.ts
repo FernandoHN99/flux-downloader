@@ -77,6 +77,40 @@ export function visibleEntries(state: AppState): HistoryEntry[] {
   return orderedEntries(state).filter((entry) => matchesSearch(entry, state.ui.search));
 }
 
+/**
+ * Keys of the rows on screen, top to bottom: the folders first, then what is
+ * loose. A collapsed folder or site hides its rows, so a range cannot run
+ * through them.
+ */
+export function displayOrder(state: AppState): string[] {
+  const { search, collapsedFolders, collapsedGroups } = state.ui;
+  const split = splitByFolder(visibleEntries(state), state.remote.folders, search.trim() !== '');
+  const keys: string[] = [];
+  const add = (entries: HistoryEntry[]): void => {
+    for (const entry of entries) keys.push(videoKey(entry.url));
+  };
+
+  for (const { folder, entries } of split.sections) {
+    if (!collapsedFolders.has(folder.id)) add(entries);
+  }
+  if (!state.ui.groupByDomain) {
+    add(split.unfiled);
+    return keys;
+  }
+  for (const [domain, entries] of groupByDomain(split.unfiled)) {
+    if (!collapsedGroups.has(domain)) add(entries);
+  }
+  return keys;
+}
+
+/** Every key from `from` to `to` inclusive, in either direction. */
+export function keysBetween(order: readonly string[], from: string, to: string): string[] {
+  const start = order.indexOf(from);
+  const end = order.indexOf(to);
+  if (start < 0 || end < 0) return [to];
+  return order.slice(Math.min(start, end), Math.max(start, end) + 1);
+}
+
 /** One bucket per site, in the order the sites first appear. */
 export function groupByDomain(entries: HistoryEntry[]): Map<string, HistoryEntry[]> {
   const groups = new Map<string, HistoryEntry[]>();

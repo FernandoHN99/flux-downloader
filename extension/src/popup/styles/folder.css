@@ -47,8 +47,8 @@
 .folder-body.empty:not([hidden])::before {
   content: 'Drop videos here, or use the folder button on a row';
   display: block;
-  padding: 8px 6px;
-  font-size: 10px;
+  padding: var(--space-2) 6px;
+  font-size: var(--fs-xs);
   color: var(--text-dim);
   text-align: center;
   border: 1px dashed var(--border);
@@ -68,14 +68,14 @@
 
 .folder-composer {
   display: flex;
-  align-items: center;
-  gap: 5px;
-  margin: 0 3px 6px;
-  padding: 3px 6px;
-}
-
-.folder-composer {
   flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: var(--space-2);
+  padding: var(--space-1) 6px;
+  background: var(--accent-soft);
+  border-radius: var(--radius-sm);
+  animation: bar-in 0.14s ease-out;
 }
 
 .folder-composer .rename-input {
@@ -85,11 +85,11 @@
 /* Wraps under the name field so it never squeezes it. */
 .folder-add-all {
   flex-basis: 100%;
-  padding: 5px 8px;
-  font-size: 11px;
+  padding: 6px 8px;
+  font-size: var(--fs-sm);
   font-family: inherit;
   font-weight: 600;
-  color: var(--accent);
+  color: var(--accent-text);
   background: var(--accent-soft);
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
@@ -111,15 +111,15 @@
   flex-direction: column;
   gap: 2px;
   margin-top: 6px;
-  padding: 4px;
+  padding: var(--space-1);
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
 }
 
 .move-choice {
-  padding: 5px 8px;
-  font-size: 11px;
+  padding: 6px var(--space-2);
+  font-size: var(--fs-sm);
   font-family: inherit;
   text-align: left;
   color: var(--text);
@@ -156,6 +156,22 @@
   font-weight: 600;
 }
 
-#new-folder-btn {
-  margin-right: 2px;
+/* Where the selection's videos can go, under the bar that opened it. */
+.selection-move {
+  margin: calc(var(--space-1) * -1) 0 var(--space-2);
+  max-height: 150px;
+  overflow-y: auto;
+  background: var(--bg-elevated);
+}
+
+.selection-move .move-choice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 7px var(--space-2);
+}
+
+.selection-move .folder-glyph {
+  width: 14px;
+  height: 14px;
 }

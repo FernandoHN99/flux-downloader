@@ -33,8 +33,13 @@ export interface RemoteState {
 export interface UiState {
   search: string;
   refreshing: boolean;
+  /** Rows are being picked, to file into a folder or to delete. */
   selectionMode: boolean;
-  selectedForDeletion: ReadonlySet<string>;
+  selected: ReadonlySet<string>;
+  /** Where a Shift-click range starts: the row last picked or opened. */
+  selectionAnchor: string | null;
+  /** The "move to folder" choices are open under the selection bar. */
+  movingSelection: boolean;
   /** The one row showing its download options. */
   expandedKey: string | null;
   renamingKey: string | null;
@@ -76,7 +81,9 @@ export function initialState(): AppState {
       search: '',
       refreshing: false,
       selectionMode: false,
-      selectedForDeletion: new Set(),
+      selected: new Set(),
+      selectionAnchor: null,
+      movingSelection: false,
       expandedKey: null,
       renamingKey: null,
       collapsedGroups: new Set(),

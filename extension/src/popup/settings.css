@@ -45,9 +45,9 @@ html {
 
 body {
   font-family: system-ui, -apple-system, 'Segoe UI Variable', 'Segoe UI', sans-serif;
-  width: 468px;
+  width: 500px;
   height: auto;
-  min-height: 546px;
+  min-height: 380px;
   max-height: 600px;
   font-size: 12px;
   color: var(--text);

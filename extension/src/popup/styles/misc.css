@@ -1,107 +1,7 @@
-/* Buttons, the error strip, and utilities. */
+/* Buttons, the download options under a row, the error strip, utilities. */
 
-/* ═══════════════════════════════════════════════════════
-   Flux — Popup Styles
-   Refined minimalism · Dark-first · Indigo accent
-   ═══════════════════════════════════════════════════════ */
+/* ═══ Download options, revealed under the row they belong to ═══ */
 
-/* Flux is dark-only. */
-:root,
-[data-theme="dark"] {
-  color-scheme: dark;
-  --bg:            #0e1015;
-  --bg-elevated:   #181b22;
-  --bg-hover:      #21252e;
-  --bg-active:     #2a2f3a;
-  --border:        #252832;
-  --border-soft:   #1e2129;
-  --text:          #e9ebf1;
-  --text-muted:    #8b919e;
-  --text-dim:      #7f8796;
-  --accent:        #7958f5;
-  --accent-hover:  #6a47ff;
-  --accent-soft:   rgba(121, 88, 245, 0.14);
-  --accent-text:   #b8a6ff;
-  --success:       #34d399;
-  --success-soft:  rgba(52, 211, 153, 0.12);
-  --error:         #f87171;
-  --error-soft:    rgba(248, 113, 113, 0.12);
-  --warning:       #fbbf24;
-  --radius:        10px;
-  --radius-sm:     6px;
-  --focus-ring:    0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
-}
-
-/* ── Reset ── */
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-::selection {
-  background: var(--accent-soft);
-}
-
-/* ═══ Container ═══ */
-.popup-container {
-  display: flex;
-  flex-direction: column;
-  min-height: 420px;
-}
-
-/* ═══ Header ═══ */
-.popup-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 7px 12px;
-  border-bottom: 1px solid var(--border-soft);
-}
-
-/* ═══ Status Bar ═══ */
-.status-bar {
-  padding: 5px 12px;
-  font-size: 10px;
-  color: var(--text-muted);
-  font-weight: 500;
-  background: var(--bg);
-  border-bottom: 1px solid var(--border-soft);
-}
-
-/* ═══ Empty State ═══ */
-.empty-state {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 48px 32px;
-  gap: 12px;
-  text-align: center;
-}
-
-/* ═══ Media List ═══ */
-.media-list {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 8px;
-  max-height: 320px;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
-}
-
-/* The always-visible line: icon, title, actions. */
-.media-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-
-/* Download options, revealed under the row they belong to. */
 .media-expand {
   display: flex;
   flex-direction: column;
@@ -118,240 +18,17 @@
   background: var(--bg);
 }
 
-/* A row mid-download: no actions, no dragging, just a spinner. */
-.media-item.busy {
-  cursor: default;
-  opacity: 0.85;
-}
-
-/* The site's icon, which becomes a download button while the row is pointed
-   at — one click takes everything the site has. */
-.group-icon {
-  position: relative;
-  flex-shrink: 0;
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  border: none;
-  background: none;
-  color: var(--accent);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* Sits behind the favicon and shows through when the site has none. */
-.group-folder {
-  position: absolute;
-  inset: 0;
-  margin: auto;
-  width: 13px;
-  height: 10px;
-  border: 1.5px solid currentColor;
-  border-radius: 2px;
-  opacity: 0.55;
-  z-index: -1;
-  transition: opacity 0.12s;
-}
-
-/* Thumbnail / Icon */
-.media-thumbnail-wrapper {
-  width: 64px;
-  height: 40px;
-  margin-right: 12px;
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-  flex-shrink: 0;
-  background: var(--bg-active);
-  position: relative;
-}
-
-.media-source {
-  font-size: 11px;
-  color: var(--text-dim);
-  margin-top: 2px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* ═══ History ═══ */
-.history-section {
-  border-top: 1px solid var(--border-soft);
-  padding: 10px 8px 8px;
-}
-
-/* The site's icon, which becomes a download button while the row is pointed
-   at — one click takes everything the site has. */
-.group-icon {
-  position: relative;
-  flex-shrink: 0;
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  border: none;
-  background: none;
-  color: var(--accent);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* Sits behind the favicon and shows through when the site has none. */
-.group-folder {
-  position: absolute;
-  inset: 0;
-  margin: auto;
-  width: 13px;
-  height: 10px;
-  border: 1.5px solid currentColor;
-  border-radius: 2px;
-  opacity: 0.55;
-  z-index: -1;
-  transition: opacity 0.12s;
-}
-
-/* Thumbnail / Icon */
-.media-thumbnail-wrapper {
-  width: 64px;
-  height: 40px;
-  margin-right: 12px;
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-  flex-shrink: 0;
-  background: var(--bg-active);
-  position: relative;
-}
-
-.media-source {
-  font-size: 11px;
-  color: var(--text-dim);
-  margin-top: 2px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* ═══ History ═══ */
-.history-section {
-  border-top: 1px solid var(--border-soft);
-  padding: 10px 8px 8px;
-}
-
-.btn-link {
-  background: none;
-  border: none;
-  padding: 2px 4px;
-  font-size: 11px;
-  color: var(--text-dim);
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-}
-
-.btn-link:hover {
-  color: var(--text);
-  background: var(--bg-hover);
-}
-
-.btn-link:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
-.btn-link:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-.btn-link:disabled:hover {
-  color: var(--text-dim);
-  background: none;
-}
-
-/* Denser rows so the drag handle and rename button fit */
-.media-item-history {
-  opacity: 0.82;
-}
-
-.btn-link.danger-solid {
-  padding: 2px 8px;
-  color: #fff;
-  background: var(--error);
-  border-radius: var(--radius-sm);
-  font-weight: 600;
-}
-
-.btn-link.danger-solid:hover {
-  color: #fff;
-  background: var(--error);
-  filter: brightness(1.1);
-}
-
-.btn-link.danger {
-  color: var(--error);
-  font-weight: 600;
-}
-
-.btn-link.danger:hover {
-  color: var(--error);
-  background: var(--error-soft);
-}
-
-/* ═══ Media Details / Quality ═══ */
-
-#media-title {
-  flex: 1;
-  font-size: 11px;
-  font-weight: 600;
-  margin-bottom: 0;
-  color: var(--text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  text-wrap: balance;
-}
-
-/* Quick buttons */
-.quick-options {
-  display: flex;
-  gap: 4px;
-  margin-bottom: 4px;
-}
-
-/* Quality option rows */
-.quality-option {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  padding: 5px 8px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: background-color 0.15s, border-color 0.15s;
-  gap: 0;
-  min-width: 0;
-}
-
-/* ═══ Download Section ═══ */
-
-.filename-input {
-  margin-bottom: 10px;
-}
-
 /* ═══ Buttons ═══ */
+
 .btn {
-  padding: 6px 14px;
+  padding: 7px 14px;
   border: none;
   border-radius: var(--radius-sm);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   cursor: pointer;
   transition: background-color 0.15s, color 0.15s, transform 0.1s;
   font-family: inherit;
-  letter-spacing: 0.01em;
 }
 
 .btn-primary {
@@ -379,30 +56,16 @@
   box-shadow: var(--focus-ring);
 }
 
-.btn-secondary {
-  background: var(--bg-hover);
-  color: var(--text);
-}
-
-.btn-secondary:hover {
-  background: var(--bg-active);
-}
-
-.btn-secondary:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
 /* ═══ Error ═══ */
+
 .error {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 16px;
+  padding: var(--space-2) var(--space-3);
   background: var(--error-soft);
-  border-top: 1px solid transparent;
   color: var(--error);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 500;
 }
 
@@ -434,9 +97,8 @@
   opacity: 1;
 }
 
-/* ═══ Footer ═══ */
+/* ═══ Reduced motion ═══ */
 
-/* ═══ Reduced Motion ═══ */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -448,6 +110,7 @@
 }
 
 /* ═══ Utility ═══ */
+
 .hidden {
   display: none !important;
 }

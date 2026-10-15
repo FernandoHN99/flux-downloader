@@ -2,8 +2,9 @@ import { describe, it, expect } from 'vitest';
 import type { HistoryEntry } from '../shared/types';
 import { initialState, type AppState } from './state';
 import {
-  busyLabel, canMoveToFolder, canReorder, downloadInProgress, groupByDomain,
-  isDownloading, splitByFolder, unfiledEntries, orderedEntries, progressDetail, progressView, visibleEntries
+  busyLabel, canMoveToFolder, canReorder, displayOrder, downloadInProgress, groupByDomain,
+  isDownloading, keysBetween, splitByFolder, unfiledEntries, orderedEntries, progressDetail,
+  progressView, visibleEntries
 } from './selectors';
 
 const entry = (title: string, url: string, pageUrl?: string): HistoryEntry =>
@@ -360,3 +361,61 @@ describe('unfiledEntries', () => {
   });
 });
 
+describe('displayOrder', () => {
+  const folders = [{ id: 'f1', name: 'Aulas' }];
+  const filed = (title: string, url: string) => ({ ...entry(title, url), folderId: 'f1' }) as HistoryEntry;
+  const A = 'https://cdn.example/a.m3u8';
+  const B = 'https://cdn.example/b.m3u8';
+  const C = 'https://cdn.example/c.m3u8';
+
+  it('lists a flat list in the order it is shown', () => {
+    const state = stateWith({ history: [entry('a', A), entry('b', B), entry('c', C)] });
+    expect(displayOrder(state)).toEqual([A, B, C]);
+  });
+
+  it('puts the folders first, as the list draws them', () => {
+    const state = stateWith({ folders, history: [entry('a', A), filed('b', B), entry('c', C)] });
+    expect(displayOrder(state)).toEqual([B, A, C]);
+  });
+
+  it('leaves out the rows of a collapsed folder, which are not on screen', () => {
+    const state = stateWith(
+      { folders, history: [entry('a', A), filed('b', B)] },
+      { collapsedFolders: new Set(['f1']) }
+    );
+    expect(displayOrder(state)).toEqual([A]);
+  });
+
+  it('follows the site groups when grouped, and skips a collapsed site', () => {
+    const history = [
+      entry('a', A, 'https://one.example/1'),
+      entry('b', B, 'https://two.example/1'),
+      entry('c', C, 'https://one.example/2')
+    ];
+    expect(displayOrder(stateWith({ history }, { groupByDomain: true }))).toEqual([A, C, B]);
+    expect(displayOrder(stateWith({ history }, { groupByDomain: true, collapsedGroups: new Set(['one.example']) })))
+      .toEqual([B]);
+  });
+
+  it('keeps only what the search leaves on screen', () => {
+    const state = stateWith({ history: [entry('alpha', A), entry('beta', B)] }, { search: 'bet' });
+    expect(displayOrder(state)).toEqual([B]);
+  });
+});
+
+describe('keysBetween', () => {
+  const order = ['a', 'b', 'c', 'd', 'e'];
+
+  it('spans both ends, in either direction', () => {
+    expect(keysBetween(order, 'b', 'd')).toEqual(['b', 'c', 'd']);
+    expect(keysBetween(order, 'd', 'b')).toEqual(['b', 'c', 'd']);
+  });
+
+  it('is just the one row when both ends are the same', () => {
+    expect(keysBetween(order, 'c', 'c')).toEqual(['c']);
+  });
+
+  it('falls back to the target alone when the anchor is not on screen', () => {
+    expect(keysBetween(order, 'gone', 'c')).toEqual(['c']);
+  });
+});

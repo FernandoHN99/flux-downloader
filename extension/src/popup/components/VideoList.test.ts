@@ -21,12 +21,12 @@ const CURRENT = new Set(['https://cdn.rs.com/l9/ep12.m3u8', 'https://youtube.com
 function mount(overrides: Partial<VideoListState> = {}) {
   const handlers = {
     onActivate: vi.fn(), onStartRename: vi.fn(), onCommitRename: vi.fn(), onCancelRename: vi.fn(),
-    onTrash: vi.fn(), onSelectQuality: vi.fn(), onDownload: vi.fn(),
+    onSelect: vi.fn(), onSelectQuality: vi.fn(), onDownload: vi.fn(),
     onReorder: vi.fn(), onToggleGroup: vi.fn(), onDownloadGroup: vi.fn(),
     onToggleMove: vi.fn(), onMoveToFolder: vi.fn(), onNewFolderFor: vi.fn(),
     onToggleFolder: vi.fn(), onDownloadFolder: vi.fn(), onStartRenameFolder: vi.fn(),
     onCommitRenameFolder: vi.fn(), onCancelRenameFolder: vi.fn(), onDeleteFolder: vi.fn(),
-    onCommitNewFolder: vi.fn(), onCommitNewFolderWithUnfiled: vi.fn(), onCancelNewFolder: vi.fn(), onDropToFolder: vi.fn()
+    onDropToFolder: vi.fn()
   };
   const rowState = (e: HistoryEntry): Omit<VideoRowState, 'entry'> => ({
     isCurrent: CURRENT.has(e.url), isBusy: false, busyLabel: '', selectionMode: false,
@@ -35,7 +35,7 @@ function mount(overrides: Partial<VideoListState> = {}) {
   });
   const list = new VideoList(
     { entries: ENTRIES, folders: [], searching: false, collapsedFolders: new Set(),
-      renamingFolderId: null, creatingFolder: null, unfiledCount: 0, grouped: false, collapsedGroups: new Set(),
+      renamingFolderId: null, rangeAnchor: null, grouped: false, collapsedGroups: new Set(),
       downloadDisabled: false, rowState, ...overrides },
     handlers
   );
@@ -283,53 +283,63 @@ describe('VideoList folders', () => {
     expect(titles(group(list, 'f1'))).toEqual([]);
   });
 
-  it('opens the new-folder form, saying how many videos it will hold', () => {
-    const { list } = mount({ creatingFolder: { keys: ['a', 'b'] } });
+  describe('previewing a Shift range', () => {
+    const rows = (list: VideoList) => [...list.el.querySelectorAll<HTMLElement>('.media-item')];
+    const previewed = (list: VideoList) =>
+      rows(list).filter((row) => row.classList.contains('range-preview')).map((row) => row.dataset.key);
+    const hover = (row: HTMLElement, shiftKey: boolean) =>
+      row.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, shiftKey }));
 
-    const input = list.el.querySelector<HTMLInputElement>('.folder-composer input')!;
-    expect(input.placeholder).toContain('2 videos');
-  });
+    it('lights the rows between the anchor and the pointer while Shift is held', () => {
+      const probe = mount();
+      const [first, , third] = rows(probe.list).map((row) => row.dataset.key!);
+      document.body.replaceChildren();
+      const { list } = mount({ rangeAnchor: first });
 
-  it('creates the folder with the typed name on Enter', () => {
-    const { list, handlers } = mount({ creatingFolder: { keys: [] } });
-    const input = list.el.querySelector<HTMLInputElement>('.folder-composer input')!;
+      hover(rows(list)[2], true);
 
-    input.value = 'Meu curso';
-    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      expect(previewed(list)).toEqual(rows(list).slice(0, 3).map((row) => row.dataset.key));
+      expect(previewed(list)).toContain(third);
+    });
 
-    expect(handlers.onCommitNewFolder).toHaveBeenCalledWith('Meu curso');
-  });
+    it('lights the range upward as well as downward', () => {
+      const probe = mount();
+      const last = rows(probe.list).at(-1)!.dataset.key!;
+      document.body.replaceChildren();
+      const { list } = mount({ rangeAnchor: last });
 
-  it('offers to create the folder with every video that is in no folder', () => {
-    const { list, handlers } = mount({ creatingFolder: { keys: [] }, unfiledCount: 4 });
-    const input = list.el.querySelector<HTMLInputElement>('.folder-composer input')!;
-    const all = list.el.querySelector<HTMLButtonElement>('.folder-add-all')!;
+      hover(rows(list).at(-3)!, true);
 
-    expect(all.textContent).toBe('Create with all 4 videos not in a folder');
-    input.value = 'Tudo';
-    all.click();
+      expect(previewed(list)).toHaveLength(3);
+    });
 
-    expect(handlers.onCommitNewFolderWithUnfiled).toHaveBeenCalledWith('Tudo');
-    expect(handlers.onCommitNewFolder).not.toHaveBeenCalled();
-  });
+    it('lights nothing without Shift, or without an anchor', () => {
+      const probe = mount();
+      const first = rows(probe.list)[0].dataset.key!;
+      document.body.replaceChildren();
+      const withAnchor = mount({ rangeAnchor: first });
+      hover(rows(withAnchor.list)[2], false);
+      expect(previewed(withAnchor.list)).toEqual([]);
 
-  it('says "video" for a single loose one and hides the button when none are loose', () => {
-    const one = mount({ creatingFolder: { keys: [] }, unfiledCount: 1 });
-    expect(one.list.el.querySelector('.folder-add-all')!.textContent)
-      .toBe('Create with all 1 video not in a folder');
+      document.body.replaceChildren();
+      const noAnchor = mount();
+      hover(rows(noAnchor.list)[2], true);
+      expect(previewed(noAnchor.list)).toEqual([]);
+    });
 
-    document.body.replaceChildren();
-    const none = mount({ creatingFolder: { keys: [] }, unfiledCount: 0 });
-    expect(none.list.el.querySelector('.folder-add-all')).toBeNull();
-  });
+    it('follows the Shift key itself, and lets go when it is released', () => {
+      const probe = mount();
+      const first = rows(probe.list)[0].dataset.key!;
+      document.body.replaceChildren();
+      const { list } = mount({ rangeAnchor: first });
 
-  it('cancels the new-folder form on Escape', () => {
-    const { list, handlers } = mount({ creatingFolder: { keys: [] } });
-    const input = list.el.querySelector<HTMLInputElement>('.folder-composer input')!;
+      hover(rows(list)[1], false);
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift' }));
+      expect(previewed(list)).toHaveLength(2);
 
-    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-
-    expect(handlers.onCancelNewFolder).toHaveBeenCalled();
+      document.dispatchEvent(new KeyboardEvent('keyup', { key: 'Shift' }));
+      expect(previewed(list)).toEqual([]);
+    });
   });
 
   it('renames a folder from its heading', () => {

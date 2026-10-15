@@ -19,7 +19,7 @@ exists.
 | Half | Owner | Contents |
 |---|---|---|
 | `RemoteState` | background | history, currentKeys, batch, activeDownload, progress |
-| `UiState` | popup | search, refresh, selection, expansion, rename, grouping, dragging, quality choice, status, errors |
+| `UiState` | popup | search, refresh, selection (`selectionMode`, `selected`, `selectionAnchor`, `movingSelection`), expansion, rename, grouping, dragging, quality choice, status, errors |
 
 Incoming background updates replace `RemoteState` and **must never reset
 in-progress UI state**. A background message arriving mid-rename used to wipe
@@ -46,15 +46,47 @@ list logic there, not in a component.
   explicit `.reorder-zone` containers; pinned and busy rows sit outside them.
   In grouped mode a drop stays inside its site; in flat mode the zone carries a
   3px inline inset so its dashed border is not clipped.
-- Selection/delete, rename, search, quality expansion, single download, grouped
+- Selection, rename, search, quality expansion, single download, grouped
   download and batch download all operate on the same entries.
+
+## Picking rows
+
+Picking is for acting on several videos at once: file them into a folder, move
+them, or delete them. It is one mode (`selectionMode`), entered three ways:
+the row's **Select** button, **Shift-click** or **Ctrl/Cmd-click** on any row.
+
+- **Shift-click** picks every row from the anchor to the clicked one, on top of
+  what is already picked, then moves the anchor there, so Shift-clicks chain.
+  The anchor is the row last picked, or, before anything is picked, the row
+  last opened. With neither, it picks just that row. The range is computed from
+  `displayOrder(state)` (pure, in `selectors.ts`): rows as the list draws them,
+  folders first, skipping collapsed folders and sites and anything the search
+  hides. Rows being downloaded are skipped, like they cannot be filed.
+- **Ctrl/Cmd-click**, or any plain click while picking, flips one row. Dropping
+  the last picked row leaves the mode.
+- While Shift is held, `VideoList` previews the rows a click would pick
+  (`.range-preview`). That is done on the DOM, not through the store: the pointer
+  moves far faster than the list should be rebuilt.
+- The **selection bar** replaces the action bar in place: `N selected`, Select
+  all, **New folder**, **Move to…** (only once a folder exists) and **Delete**.
+  Esc backs out one step: the name form first, then the picking.
+- **Delete** sends `DELETE_HISTORY_ITEMS`, unless every video is picked, when it
+  sends `CLEAR_HISTORY`: that also drops the rows a master playlist hides, which
+  would otherwise resurface. There is no separate "Clear all" button.
+- New folder from a selection files exactly the picked videos (the "Create with
+  all N videos not in a folder" shortcut is not offered: they already chose),
+  then leaves the mode. Cancelling the form, or leaving the name empty, keeps
+  the picks.
 
 ## Row line
 
-A row's meta line is the type and the **length** spelled out (`formatLength`:
-"10 min 55 s", "45 s", never folded into hours). It deliberately does not show
-when the video was detected: the length is what tells one lesson from the next.
-A video with no known length shows just its type.
+A row's meta line is the **length** spelled out (`formatLength`: "10 min 55 s",
+"45 s", never folded into hours) followed by the quieter type ("HLS"). It
+deliberately does not show when the video was detected: the length is what tells
+one lesson from the next. A video with no known length shows just its type.
+The two are separate spans (`.media-length`, `.media-kind`), not a string joined
+with a dot. The row's badges are plain words ("On this page", "Failed"), not
+capitals.
 
 ## Folders
 
@@ -76,14 +108,18 @@ searching.
 - The new-folder form has a second button, **Create with all N videos not in a
   folder** (`unfiledEntries`): every loose video, the playing one included,
   filed in one click. It counts the whole history, not the search results, and
-  is hidden when nothing is loose.
+  is hidden when nothing is loose or when the form was opened from a selection.
+- The form lives in `ListHeader`, above the scroll box, not at the top of the
+  list: after picking forty rows the list is scrolled, and the field has to be
+  where the user is looking. Opening it replaces the action bar.
 - Whether each folder is collapsed is remembered across popup sessions under its
   own `collapsedFolders` storage key (`collapsed-folders.ts`), not in settings:
   the settings page rewrites the whole settings object and could clobber it. It
   is loaded before the first render so a closed folder never flashes open, and
   ids of deleted folders are dropped on every save. New folders start open.
 - Rows inside a folder are not reorderable, so folders have no reorder zone.
-- Creating and renaming use `FolderComposer` / `FolderGroup`'s inline input,
+- Creating and renaming use `FolderComposer` (mounted by `ListHeader`) and
+  `FolderGroup`'s inline input,
   tagged with `data-focus-id` like the row rename so redraws keep the caret.
 - Deleting a folder never deletes its videos; they return to the main list.
 - Row/list/header handler objects are required: tests must supply the folder
@@ -102,20 +138,28 @@ CoApp jobs inside that lease. Disabling popup buttons is feedback, not the lock.
 
 ## Styles
 
-Bundled from `styles/index.css`, split into `tokens`, `shell`, `list`, `row`,
-`quality`, `progress`, `misc` and `animations`. Keep component rules in the
-matching file.
+Bundled from `styles/index.css`, split into `tokens`, `shell`, `list`, `folder`,
+`row`, `quality`, `progress`, `misc` and `animations`. Keep component rules in
+the matching file. `tokens.css` holds the palette, the type scale
+(`--fs-xs/sm/md/lg` = 10/11/12/13px: small on purpose, a popup has 600px to show
+a list in), the 4px spacing steps and the radii; use them instead of literals,
+and keep text at 10px or more. Violet means "selected"
+or "the main action", green and red only mark state. Type is one family (the
+system UI font), weight and tabular numerals do the work: no monospace, no
+all-caps labels.
 
 **Chrome action popups need explicit pixel sizing.** Do not replace the fixed
 width/min/max-height with `100vw`, `100vh` or `min()` viewport units — Chrome
 can collapse the popup to about one pixel.
 
-Current size: **468px wide, 546–600px tall** (the settings page matches, so the
-popup does not jump when you open it). Chrome caps an action popup at about
-800×600, so height cannot grow past 600; the list takes the rest as a fixed
-`455px` scroll box so the page itself never gets a second scrollbar. The list
-used to use `min(430px, 68vh)`, which collapses to 0 whenever the viewport has
-no height yet — fixed pixels only.
+Current size: **500px wide, 380–600px tall**: the height follows the content, so
+a short list is a short popup (the settings page shares the width). Chrome caps
+an action popup at about 800×600, so height cannot grow past 600; the list is a
+`390px` scroll box (`350px` while the download panel takes room, via
+`.with-progress` on the section) so the page itself never gets a second
+scrollbar, even with the new-folder form open. The list used to use
+`min(430px, 68vh)`, which collapses to 0 whenever the viewport has no height
+yet — fixed pixels only.
 
 The settings page stays a small separate static page (`settings.html`,
 `settings.ts`, `settings.css`) on purpose.
