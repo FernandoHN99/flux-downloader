@@ -87,7 +87,7 @@ export interface NativeMessagingTarget {
 export function nativeMessagingTargets(
   platform: NodeJS.Platform = process.platform,
   home: string = os.homedir(),
-  configHome: string | undefined = process.env.XDG_CONFIG_HOME
+  env: NodeJS.ProcessEnv = process.env
 ): NativeMessagingTarget[] {
   if (platform === 'darwin') {
     const support = path.posix.join(home, 'Library', 'Application Support');
@@ -100,7 +100,7 @@ export function nativeMessagingTargets(
     ];
   }
   if (platform === 'linux') {
-    const config = configHome || path.posix.join(home, '.config');
+    const config = env.XDG_CONFIG_HOME || path.posix.join(home, '.config');
     return [
       { browser: 'Google Chrome', dir: path.posix.join(config, 'google-chrome', 'NativeMessagingHosts') },
       { browser: 'Chromium', dir: path.posix.join(config, 'chromium', 'NativeMessagingHosts') },

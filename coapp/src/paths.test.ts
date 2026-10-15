@@ -45,9 +45,9 @@ describe('native messaging targets', () => {
   });
 
   it('lists them for Linux under ~/.config, or under XDG_CONFIG_HOME when it is set', () => {
-    expect(nativeMessagingTargets('linux', '/home/ana', undefined)[0].dir)
+    expect(nativeMessagingTargets('linux', '/home/ana', {})[0].dir)
       .toBe('/home/ana/.config/google-chrome/NativeMessagingHosts');
-    expect(nativeMessagingTargets('linux', '/home/ana', '/home/ana/cfg')[0].dir)
+    expect(nativeMessagingTargets('linux', '/home/ana', { XDG_CONFIG_HOME: '/home/ana/cfg' })[0].dir)
       .toBe('/home/ana/cfg/google-chrome/NativeMessagingHosts');
   });
 
@@ -56,7 +56,7 @@ describe('native messaging targets', () => {
   });
 
   it('registers only with browsers whose profile folder exists', () => {
-    const targets = nativeMessagingTargets('linux', '/home/ana', undefined);
+    const targets = nativeMessagingTargets('linux', '/home/ana', {});
     const present = new Set(['/home/ana/.config/chromium', '/home/ana/.config/microsoft-edge']);
 
     const installed = installedNativeMessagingTargets(targets, (folder) => present.has(folder));
@@ -65,7 +65,7 @@ describe('native messaging targets', () => {
   });
 
   it('falls back to Chrome when no browser has run yet', () => {
-    const targets = nativeMessagingTargets('linux', '/home/ana', undefined);
+    const targets = nativeMessagingTargets('linux', '/home/ana', {});
 
     expect(installedNativeMessagingTargets(targets, () => false).map((target) => target.browser))
       .toEqual(['Google Chrome']);
@@ -83,7 +83,7 @@ describe('native messaging targets', () => {
     for (const platform of ['darwin', 'linux'] as const) {
       const { base, variable } = roots[platform];
       const home = platform === 'darwin' ? '/Users/ana' : '/home/ana';
-      for (const { dir } of nativeMessagingTargets(platform, home, undefined)) {
+      for (const { dir } of nativeMessagingTargets(platform, home, {})) {
         const relative = path.posix.relative(base, dir);
         expect(script, `${platform}: ${relative}`).toContain(`${variable}/${relative}`);
       }

@@ -192,15 +192,15 @@ chmod 755 "$LAUNCHER"
 note "companion app: $LAUNCHER"
 
 "$NODE_BIN" -e '
-  const [launcher, id] = process.argv.slice(1);
+  const [name, launcher, id] = process.argv.slice(1);
   process.stdout.write(JSON.stringify({
-    name: "'"$HOST_NAME"'",
+    name,
     description: "Flux Downloader companion application",
     path: launcher,
     type: "stdio",
     allowed_origins: [`chrome-extension://${id}/`]
   }, null, 2) + "\n");
-' "$LAUNCHER" "$EXTENSION_ID" >"$INSTALL_DIR/$MANIFEST_FILE"
+' "$HOST_NAME" "$LAUNCHER" "$EXTENSION_ID" >"$INSTALL_DIR/$MANIFEST_FILE"
 
 # Register with the browsers that are installed, told by their profile folder.
 # One that has never been started has none yet, so Chrome is the fallback.
