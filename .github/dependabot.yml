@@ -14,6 +14,10 @@ updates:
     ignore:
       - dependency-name: '*'
         update-types: ['version-update:semver-major']
+      # A 0.x minor is a breaking change, and 0.3 rewrites the chrome.* types the
+      # whole extension compiles against. Migrate it on purpose, not by bot.
+      - dependency-name: '@types/chrome'
+        update-types: ['version-update:semver-minor']
 
   # The workflows' actions, together, once a month. CI runs on the pull request.
   - package-ecosystem: github-actions
