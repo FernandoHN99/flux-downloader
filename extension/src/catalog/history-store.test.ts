@@ -330,3 +330,29 @@ describe('HistoryStore.setDurations', () => {
   });
 });
 
+describe('HistoryStore shared titles', () => {
+  const page = (slug: string) => `https://app.rocketseat.com.br/jornada/aula/${slug}`;
+
+  it('names lessons apart as they are recorded', async () => {
+    fakeStorage();
+    const { store } = makeStore();
+
+    await store.record([video('https://cdn.example/a/playlist.m3u8', 'Curso')], { pageUrl: page('primeira-aula') });
+    await store.record([video('https://cdn.example/b/playlist.m3u8', 'Curso')], { pageUrl: page('segunda-aula') });
+
+    expect((await store.read()).map((item) => item.title).sort()).toEqual(['Primeira Aula', 'Segunda Aula']);
+  });
+
+  it('repairs a list an older build stored with one name on every row', async () => {
+    const { data } = fakeStorage({
+      mediaHistory: [
+        { ...entry('https://cdn.example/a/playlist.m3u8'), title: 'Curso', pageUrl: page('primeira-aula') },
+        { ...entry('https://cdn.example/b/playlist.m3u8'), title: 'Curso', pageUrl: page('segunda-aula') }
+      ]
+    });
+    const { store } = makeStore();
+
+    expect((await store.read()).map((item) => item.title)).toEqual(['Primeira Aula', 'Segunda Aula']);
+    expect((data.mediaHistory as HistoryEntry[]).map((item) => item.title)).toEqual(['Primeira Aula', 'Segunda Aula']);
+  });
+});

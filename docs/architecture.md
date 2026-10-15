@@ -201,8 +201,8 @@ History is one list shared by all tabs, not a current-tab list plus a separate h
 
 - Fresh detections merge at the front.
 - Current media from every open tab is marked through `currentKeys` and pinned by popup selectors.
-- Default maximum history length: 50.
-- Downloaded/failed marker lists each keep up to 500 stable keys.
+- History length is not capped (the manifest declares `unlimitedStorage`).
+- Downloaded/failed marker lists keep every stable key.
 - History read-modify-write operations are serialized through `historyWrites`.
 - Rename, delete, clear, and reorder all use the same queue.
 - `keepHistory=false` immediately prunes storage to current media and keeps pruning as tabs change.

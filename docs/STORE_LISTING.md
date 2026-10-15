@@ -78,6 +78,7 @@ Read the complete [privacy policy](PRIVACY.md).
 | `webRequest` | identify media manifests and response types |
 | `tabs` / `activeTab` | query current/open tabs; `activeTab` is declared although current lookup uses `tabs` |
 | `storage` | keep local settings/history/status |
+| `unlimitedStorage` | let the local history grow past the default browser storage quota |
 | `nativeMessaging` | ask the local companion to download/convert |
 | `notifications` | report local completion/failure |
 | `favicon` | show browser-provided source-site icons |

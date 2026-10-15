@@ -72,6 +72,14 @@ Two more rules keep that true for a page that streams over MSE:
   (`HistoryStore.clearFailed`): they are hints from earlier attempts, and a row
   must not show an error nobody just caused.
 
+- A course player titles its tab after the course, so every lesson would come
+  back with one name. `distinguishSharedTitles` runs on every read and every
+  merge: when one name is shared by videos from different pages, the rows still
+  wearing it take the name their own page URL gives them (`titleFromPageUrl`),
+  and the shared name moves to `pageTitle`, which keeps the rule stable when a
+  lesson is detected again under the old name. A title the user typed is never
+  touched, and a URL that names nothing leaves the title as it was.
+
 When two rows collapse, the first keeps its position (the user may have dragged
 it there) and only takes fields the later row can fill in.
 
@@ -103,9 +111,14 @@ list to hold only what is playing.
 
 | Key | Content | Limit |
 |---|---|---|
-| `mediaHistory` | `HistoryEntry[]` with source/media URLs and metadata | 50, newest/current merge |
-| `downloadedVideos` | stable media keys marked downloaded | 500 |
-| `failedVideos` | stable media keys marked failed | 500 |
+| `mediaHistory` | `HistoryEntry[]` with source/media URLs and metadata | none, newest/current merge |
+| `downloadedVideos` | stable media keys marked downloaded | none |
+| `failedVideos` | stable media keys marked failed | none |
+
+Nothing here is capped, and the manifest declares `unlimitedStorage` so the
+`chrome.storage.local` quota cannot stop a write either. A cap used to drop the
+oldest rows once duplicate rows filled it, so the early lessons of a long course
+vanished from the list while later ones kept arriving.
 
 ## Folders
 

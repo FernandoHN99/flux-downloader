@@ -5,6 +5,7 @@ import {
   clearFailedMarkers,
   applyDurations,
   dedupeHistoryEntries,
+  distinguishSharedTitles,
   markHistoryDownloaded,
   markHistoryFailed,
   mergeDetectedVideosIntoHistory,
@@ -82,6 +83,16 @@ describe('mergeDetectedVideosIntoHistory', () => {
     const merged = mergeDetectedVideosIntoHistory([older, oldest], [video()], {}, 10, 2);
 
     expect(merged.map((item) => item.id)).toEqual(['video-1', 'old']);
+  });
+
+  it('keeps every video when no limit is given', () => {
+    const lessons = Array.from({ length: 120 }, (_, index) =>
+      video({ id: `lesson-${index}`, url: `https://cdn.example.com/lesson-${index}/playlist.m3u8` }));
+    const first = mergeDetectedVideosIntoHistory([], lessons.slice(0, 60), {}, 10);
+    const merged = mergeDetectedVideosIntoHistory(first, lessons.slice(60), {}, 20);
+
+    expect(merged).toHaveLength(120);
+    expect(new Set(merged.map((item) => item.id)).size).toBe(120);
   });
 });
 
@@ -164,6 +175,13 @@ describe('history download markers', () => {
       .toEqual({ downloaded: [], failed: [key] });
     const markers = { downloaded: [], failed: [key] };
     expect(markHistoryFailed(markers, key, 10)).toBe(markers);
+  });
+
+  it('keeps every marked key when no limit is given', () => {
+    const many = Array.from({ length: 700 }, (_, index) => `key-${index}`);
+
+    expect(markHistoryDownloaded({ downloaded: many, failed: [] }, key).downloaded).toHaveLength(701);
+    expect(markHistoryFailed({ downloaded: [], failed: many }, key).failed).toHaveLength(701);
   });
 });
 
@@ -412,3 +430,80 @@ describe('applyDurations', () => {
   });
 });
 
+describe('distinguishSharedTitles', () => {
+  const COURSE = 'Pages Router | Next.js | Rocketseat';
+  const lesson = (slug: string, patch: Partial<HistoryEntry> = {}): HistoryEntry => entry({
+    id: slug,
+    title: COURSE,
+    url: `https://cdn.example/${slug}/playlist.m3u8`,
+    pageUrl: `https://app.rocketseat.com.br/jornada/next-js/aula/${slug}`,
+    ...patch
+  });
+
+  it('names each lesson after its own page when the player titles them all alike', () => {
+    const next = distinguishSharedTitles([lesson('criando-a-pagina-de-blog'), lesson('finalizando-o-search')]);
+
+    expect(next.map((item) => item.title)).toEqual(['Criando A Pagina De Blog', 'Finalizando O Search']);
+  });
+
+  it('keeps the shared name as the page title, so it can be recognised again', () => {
+    const [first] = distinguishSharedTitles([lesson('a-aula'), lesson('outra-aula')]);
+
+    expect(first.pageTitle).toBe(COURSE);
+  });
+
+  it('leaves a title that only one page uses', () => {
+    const history = [lesson('a-aula', { title: 'Aula A' }), lesson('outra-aula', { title: 'Aula B' })];
+
+    expect(distinguishSharedTitles(history)).toBe(history);
+  });
+
+  it('leaves two videos on the same page alone: they are renditions, not lessons', () => {
+    const pageUrl = 'https://app.rocketseat.com.br/jornada/next-js/aula/a-aula';
+    const history = [lesson('a-aula', { pageUrl }), lesson('a-aula-720', { pageUrl })];
+
+    expect(distinguishSharedTitles(history)).toBe(history);
+  });
+
+  it('never renames a title the user typed', () => {
+    const typed = lesson('a-aula', { title: 'Minha aula', titleByUser: true });
+    const [kept, renamed] = distinguishSharedTitles([typed, lesson('b-aula'), lesson('c-aula')]);
+
+    expect(kept.title).toBe('Minha aula');
+    expect(renamed.title).toBe('B Aula');
+  });
+
+  it('keeps the title when the page URL says nothing', () => {
+    const bare = lesson('x', { pageUrl: 'https://app.rocketseat.com.br/watch' });
+    const history = [bare, lesson('outra-aula')];
+
+    expect(distinguishSharedTitles(history)[0].title).toBe(COURSE);
+  });
+
+  it('also names a row that had no title at all', () => {
+    const next = distinguishSharedTitles([
+      lesson('a-aula'),
+      lesson('b-aula', { title: 'Unknown Video', pageTitle: COURSE })
+    ]);
+
+    expect(next[1].title).toBe('B Aula');
+  });
+
+  it('does not let a later detection under the old name undo it', () => {
+    const named = distinguishSharedTitles([lesson('a-aula'), lesson('b-aula')]);
+    const again = mergeDetectedVideosIntoHistory(
+      named,
+      [video({ url: 'https://cdn.example/a-aula/playlist.m3u8', title: COURSE })],
+      { pageUrl: 'https://app.rocketseat.com.br/jornada/next-js/aula/a-aula' },
+      99
+    );
+
+    expect(distinguishSharedTitles(again).map((item) => item.title)).toEqual(['A Aula', 'B Aula']);
+  });
+
+  it('returns the same array once every lesson has its own name', () => {
+    const named = distinguishSharedTitles([lesson('a-aula'), lesson('b-aula')]);
+
+    expect(distinguishSharedTitles(named)).toBe(named);
+  });
+});

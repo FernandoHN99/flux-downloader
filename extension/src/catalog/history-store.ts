@@ -5,6 +5,7 @@ import {
   clearFailedMarkers,
   decorateHistoryEntries,
   dedupeHistoryEntries,
+  distinguishSharedTitles,
   markHistoryDownloaded,
   markHistoryFailed,
   mergeDetectedVideosIntoHistory,
@@ -15,11 +16,12 @@ import {
   sameHistoryContent
 } from './history';
 
+// Neither the list nor the markers are capped: a capped list silently dropped
+// the oldest lessons of a long course once duplicate rows filled it. Storage is
+// local, and the manifest asks for `unlimitedStorage` so the quota never bites.
 const HISTORY_KEY = 'mediaHistory';
-const HISTORY_LIMIT = 50;
 const DOWNLOADED_KEY = 'downloadedVideos';
 const FAILED_KEY = 'failedVideos';
-const DOWNLOADED_LIMIT = 500;
 
 export interface PageContext {
   pageUrl?: string;
@@ -47,7 +49,7 @@ export class HistoryStore {
 
   /**
    * Reads the stored list, collapsing any duplicate rows a previous build
-   * persisted. The cleaned list is written back so the repair happens once
+   * persisted and naming apart the lessons a page titled alike. The cleaned list is written back so the repair happens once
    * rather than on every read.
    */
   async read(): Promise<HistoryEntry[]> {
@@ -55,7 +57,7 @@ export class HistoryStore {
     const entries = stored[HISTORY_KEY];
     if (!Array.isArray(entries)) return [];
 
-    const deduped = dedupeHistoryEntries(entries);
+    const deduped = distinguishSharedTitles(dedupeHistoryEntries(entries));
     if (deduped !== entries) {
       await chrome.storage.local.set({ [HISTORY_KEY]: deduped });
     }
@@ -118,7 +120,7 @@ export class HistoryStore {
     const key = videoKey(url);
     const [downloaded, failed] = await this.readMarkers();
     const markers = { downloaded, failed };
-    const next = markHistoryDownloaded(markers, key, DOWNLOADED_LIMIT);
+    const next = markHistoryDownloaded(markers, key);
     if (next === markers) return;
 
     await chrome.storage.local.set({
@@ -148,7 +150,7 @@ export class HistoryStore {
     const key = videoKey(url);
     const [, failed] = await this.readMarkers();
     const markers = { downloaded: [], failed };
-    const next = markHistoryFailed(markers, key, DOWNLOADED_LIMIT);
+    const next = markHistoryFailed(markers, key);
     if (next === markers) return;
     await chrome.storage.local.set({ [FAILED_KEY]: next.failed });
     await this.publish(await this.read());
@@ -178,13 +180,12 @@ export class HistoryStore {
 
   private async merge(videos: VideoInfo[], page: PageContext): Promise<void> {
     const history = await this.read();
-    const next = mergeDetectedVideosIntoHistory(
+    const next = distinguishSharedTitles(mergeDetectedVideosIntoHistory(
       history,
       videos,
       { pageUrl: page.pageUrl, pageTitle: page.pageTitle },
-      Date.now(),
-      HISTORY_LIMIT
-    );
+      Date.now()
+    ));
     await this.forgetFailuresOfReplacedLinks(history, next);
     if (sameHistoryContent(next, history)) return;
     await chrome.storage.local.set({ [HISTORY_KEY]: next });

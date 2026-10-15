@@ -32,6 +32,21 @@ MV3 service workers are killed and restarted freely. Nothing may assume it has
 been alive since the tab loaded: if `GET_MEDIA` arrives with no tab media
 state, the worker requests a rescan rather than answering empty.
 
+### A manifest that finishes after the page changed
+
+A course player is a single-page app: clicking the next lesson navigates without
+a reload, and `tabs.onUpdated` resets the tab's state at once. A manifest whose
+parse is still in flight then belongs to a page that was left. It must not
+appear in the tab's list, but it was seen, so `handleInterceptedMedia` still
+records it in the history, under the page that played it
+(`recordSupersededVideo`, only for a master with renditions, and only while
+history is kept). Dropping it silently is why fast clicking through a course
+used to lose lessons.
+
+The length is read after the row is shown (`learnLength`), not before: the row
+appears as soon as the master is parsed, and the length joins it a moment later
+(`setDurations` when the page has moved on).
+
 ### Refresh flow
 
 One user-facing action, **Refresh tabs**. `refreshOpenTabs()` runs, in order:

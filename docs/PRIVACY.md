@@ -86,6 +86,7 @@ Current `extension/manifest.json` permissions:
 | Permission | Why it is used |
 |---|---|
 | `storage` | save local settings, history, and status markers |
+| `unlimitedStorage` | keep the whole local history without the browser's storage quota stopping writes |
 | `downloads` | declared in the manifest; current file writes use CoApp and the code does not call `chrome.downloads` |
 | `nativeMessaging` | connect to the local CoApp |
 | `tabs` | query open tabs for current media and all-tab refresh |

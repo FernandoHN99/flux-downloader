@@ -1,5 +1,6 @@
 import type { HistoryEntry, VideoInfo } from '../shared/types';
 import { videoKey } from '../detection/video-key';
+import { titleFromPageUrl } from '../detection/media-title';
 
 export interface HistoryPageContext {
   pageUrl?: string;
@@ -17,7 +18,7 @@ export function mergeDetectedVideosIntoHistory(
   videos: VideoInfo[],
   context: HistoryPageContext,
   now: number,
-  limit: number
+  limit = Infinity
 ): HistoryEntry[] {
   const previous = new Map(history.map((entry) => [videoKey(entry.url), entry]));
 
@@ -113,6 +114,49 @@ export function dedupeHistoryEntries(history: HistoryEntry[]): HistoryEntry[] {
     byKey.set(key, held ? preferRicher(held, sound) : sound);
   }
   return byKey.size === history.length && !repaired ? history : [...byKey.values()];
+}
+
+/** What a row is called when nothing at all could name it. */
+const PLACEHOLDER_TITLE = 'Unknown Video';
+
+/**
+ * A course player titles its tab after the course, not the lesson, so every
+ * lesson comes back as the same row name. When one name is shared by videos
+ * from different pages, the ones still wearing it take the name their own page
+ * URL gives them ("…/aula/criando-a-pagina-de-blog"). The shared name moves to
+ * `pageTitle`, which keeps the rule stable: a lesson detected again under the
+ * old name is renamed again, instead of flipping back.
+ *
+ * A title the user typed is never touched, and a page whose URL names nothing
+ * keeps what it had. Returns the same array when nothing changed.
+ */
+export function distinguishSharedTitles(history: HistoryEntry[]): HistoryEntry[] {
+  const nameOf = (entry: HistoryEntry): string =>
+    entry.titleByUser ? '' : (entry.pageTitle || entry.title || '').trim();
+
+  const pagesByName = new Map<string, Set<string>>();
+  for (const entry of history) {
+    const name = nameOf(entry);
+    if (!name || !entry.pageUrl) continue;
+    const pages = pagesByName.get(name);
+    if (pages) pages.add(entry.pageUrl);
+    else pagesByName.set(name, new Set([entry.pageUrl]));
+  }
+
+  let changed = false;
+  const next = history.map((entry) => {
+    const name = nameOf(entry);
+    if (!name || !entry.pageUrl || (pagesByName.get(name)?.size ?? 0) < 2) return entry;
+
+    const title = (entry.title || '').trim();
+    if (title !== name && title !== PLACEHOLDER_TITLE) return entry;
+    const own = titleFromPageUrl(entry.pageUrl);
+    if (!own || own === entry.title) return entry;
+
+    changed = true;
+    return { ...entry, title: own, pageTitle: entry.pageTitle || name };
+  });
+  return changed ? next : history;
 }
 
 /**
@@ -232,7 +276,7 @@ export interface DownloadMarkers {
 export function markHistoryDownloaded(
   markers: DownloadMarkers,
   key: string,
-  limit: number
+  limit = Infinity
 ): DownloadMarkers {
   const alreadyDownloaded = markers.downloaded.includes(key);
   if (alreadyDownloaded && !markers.failed.includes(key)) return markers;
@@ -247,7 +291,7 @@ export function markHistoryDownloaded(
 export function markHistoryFailed(
   markers: DownloadMarkers,
   key: string,
-  limit: number
+  limit = Infinity
 ): DownloadMarkers {
   if (markers.failed.includes(key)) return markers;
   return {

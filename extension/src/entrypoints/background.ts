@@ -16,7 +16,8 @@ import {
   mergeChildUrls,
   mergeQualities,
   upsertDetectedVideo,
-  visibleVideos
+  visibleVideos,
+  worthKeepingAfterNavigation
 } from '../catalog/video-catalog';
 import {
   getContentType,
@@ -623,6 +624,8 @@ async function handleInterceptedMedia(
   let childUrls: string[] | undefined;
   let duration: number | undefined;
   let fileSize: number | undefined;
+  // Renditions to ask for a length once the row is already listed.
+  let lengthFrom: string[] = [];
 
   if (type === 'hls') {
     try {
@@ -631,10 +634,9 @@ async function handleInterceptedMedia(
       childUrls = parsed.childUrls;
       qualities = buildHlsQualities(parsed, referer);
 
-      // A master rarely states a length; a media playlist does.
-      if (!duration && parsed.variants.length > 0) {
-        duration = await mediaPlaylistDuration(parsed.variants.map((variant) => variant.url), referer);
-      }
+      // A master rarely states a length; a media playlist does. Asking costs
+      // more round trips, so it happens after the row is shown, not before.
+      if (!duration) lengthFrom = parsed.variants.map((variant) => variant.url);
     } catch (error) {
       console.warn('[Flux] Failed to parse HLS manifest:', error);
       seen.delete(url);
@@ -688,8 +690,7 @@ async function handleInterceptedMedia(
     }
   }
 
-  if (!tabStates.isCurrentPageGeneration(tabId, generation)) return;
-  upsertVideo(tabId, {
+  const detected: VideoInfo = {
     id: generateVideoId(url),
     title,
     url,
@@ -701,9 +702,52 @@ async function handleInterceptedMedia(
     duration: duration || metadata?.duration,
     thumbnail: metadata?.thumbnail,
     fileSize
-  });
+  };
 
+  if (tabStates.isCurrentPageGeneration(tabId, generation)) {
+    upsertVideo(tabId, detected);
+  } else if (!await recordSupersededVideo(detected, metadata?.title)) {
+    return;
+  }
   console.log('[Flux] Intercepted media:', url, type);
+
+  if (lengthFrom.length > 0) await learnLength(tabId, generation, detected, lengthFrom);
+}
+
+/**
+ * A manifest finished loading after its tab had moved on to another page —
+ * clicking through a course does that, one lesson a second. The tab's list
+ * must not show it (it belongs to the page that was left), but the history
+ * should: it was seen, under the page that played it. Returns whether it was
+ * kept.
+ */
+async function recordSupersededVideo(video: VideoInfo, pageTitle?: string): Promise<boolean> {
+  if (!worthKeepingAfterNavigation(video)) return false;
+  try {
+    if (!(await getSettings()).keepHistory) return false;
+    await history.record([video], { pageUrl: video.pageUrl, pageTitle });
+    return true;
+  } catch (error) {
+    console.warn('[Flux] Failed to record a superseded detection:', error);
+    return false;
+  }
+}
+
+/** Reads the length of a video that is already listed, and adds it to its row. */
+async function learnLength(
+  tabId: number,
+  generation: number,
+  video: VideoInfo,
+  renditionUrls: string[]
+): Promise<void> {
+  const seconds = await mediaPlaylistDuration(renditionUrls, video.referer);
+  if (!seconds) return;
+  if (tabStates.isCurrentPageGeneration(tabId, generation)) {
+    upsertVideo(tabId, { ...video, duration: seconds });
+    return;
+  }
+  await history.setDurations(new Map([[videoKey(video.url), seconds]]))
+    .catch(() => { /* the row simply stays without a length */ });
 }
 
 // --- Popup communication ---

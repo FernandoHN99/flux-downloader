@@ -35,6 +35,16 @@ export function visibleVideos(videos: VideoInfo[], pageUrl?: string): VideoInfo[
 }
 
 /**
+ * Whether a detection that finished after its tab navigated away deserves a
+ * history row. A master playlist does; a bare media playlist is one rendition
+ * of a video whose master is a row of its own, and would only be a duplicate.
+ */
+export function worthKeepingAfterNavigation(video: VideoInfo): boolean {
+  if (video.type === 'hls' || video.type === 'dash') return (video.qualities?.length ?? 0) > 0;
+  return true;
+}
+
+/**
  * Whether a network-seen manifest is already represented, so fetching and
  * parsing it again would only produce a duplicate. Another host serving the
  * same path is a redirect chain and counts as covered. A bare sighting on the

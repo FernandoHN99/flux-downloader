@@ -5,7 +5,8 @@ import {
   mergeChildUrls,
   mergeQualities,
   upsertDetectedVideo,
-  visibleVideos
+  visibleVideos,
+  worthKeepingAfterNavigation
 } from './video-catalog';
 
 function quality(url: string, height = 720): VideoQuality {
@@ -240,3 +241,21 @@ describe('isManifestCovered', () => {
   });
 });
 
+
+describe('worthKeepingAfterNavigation', () => {
+  it('keeps a master playlist that lists renditions', () => {
+    expect(worthKeepingAfterNavigation(
+      video({ type: 'hls', url: 'https://cdn.example/lesson/playlist.m3u8', qualities: [quality('https://cdn.example/lesson/720.m3u8')] })
+    )).toBe(true);
+  });
+
+  it('drops a bare media playlist, which is one rendition of a row that already exists', () => {
+    expect(worthKeepingAfterNavigation(
+      video({ type: 'hls', url: 'https://cdn.example/lesson/720.m3u8', qualities: [] })
+    )).toBe(false);
+  });
+
+  it('keeps a plain file, which has no master to stand in for it', () => {
+    expect(worthKeepingAfterNavigation(video({ type: 'mp4', qualities: [] }))).toBe(true);
+  });
+});
