@@ -25,7 +25,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/popup-selection.png" width="440" alt="The Flux popup listing sixteen lessons, with four of them selected and a bar offering New folder and Delete">
+  <img src="docs/images/demo.gif" width="440" alt="A short recording of the Flux popup: Shift-click two lessons to select the run between them, choose New folder, name it, and the four lessons move into it">
 </p>
 
 ## What it does

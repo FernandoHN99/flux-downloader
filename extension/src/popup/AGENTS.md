@@ -161,6 +161,12 @@ scrollbar, even with the new-folder form open. The list used to use
 `min(430px, 68vh)`, which collapses to 0 whenever the viewport has no height
 yet — fixed pixels only.
 
+Design work on the popup uses the project skill `frontend-design`
+(`.claude/skills/frontend-design`, invoke it as `/frontend-design`). The look is
+a choice, not a default: dark, violet only for "selected" and "the main action",
+the system font, sentence case, no monospace, no all-caps. Refine it; do not
+swap it for a template.
+
 The settings page stays a small separate static page (`settings.html`,
 `settings.ts`, `settings.css`) on purpose.
 

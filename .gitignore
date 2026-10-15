@@ -75,5 +75,10 @@ coapp/dist/
 .opencode/
 agent-plan/
 
+# Personal Claude Code settings and previews. The project's skills, under
+# .claude/skills, are shared and stay tracked.
+.claude/settings.local.json
+.claude/launch.json
+
 # AGENTS.md and CLAUDE.md are tracked on purpose: they are the authoritative
 # guides for anyone (human or agent) working in this repository.
