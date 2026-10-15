@@ -13,11 +13,11 @@
     "test:watch": "vitest"
   },
   "devDependencies": {
-    "@types/chrome": "^0.0.260",
-    "@types/node": "^22.0.0",
-    "esbuild": "^0.28.0",
+    "@types/chrome": "^0.0.332",
+    "@types/node": "^22.20.5",
+    "esbuild": "^0.28.2",
     "happy-dom": "^16.8.1",
-    "typescript": "^6.0.2",
+    "typescript": "^6.0.3",
     "vitest": "^3.2.7"
   }
 }
