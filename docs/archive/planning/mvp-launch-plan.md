@@ -1,5 +1,7 @@
 # MVP launch plan — Chrome Web Store, zero backend
 
+> **Archived.** Flux is distributed on GitHub only. It is not published on a store and it is not for sale, so the plans below were dropped. They are kept as a record of the thinking, not as a to-do list.
+
 Goal: get Flux in front of real users through the official Chrome Web Store
 listing, with no backend, no accounts, no payment — and use that to decide
 whether Phase 2 (backend) and Phase 3 (monetization) are worth building at
@@ -53,7 +55,7 @@ what's actually shipping, not against a branch that might change.
 
 ### Store listing content
 
-Most of this is already drafted in `docs/STORE_LISTING.md` — reuse it, don't
+Most of this is already drafted in `docs/archive/store-listing.md` — reuse it, don't
 rewrite from scratch. Still needed:
 
 - [ ] Screenshots (Chrome Web Store requires at least one, 1280×800 or
@@ -62,7 +64,7 @@ rewrite from scratch. Still needed:
 - [ ] Small promo tile / icon assets sized per current Chrome Web Store spec
       (check current requirements at submission time — these change)
 - [ ] Short description (already drafted) and long description (already
-      drafted) — copy from `STORE_LISTING.md`, adjust only if the merged
+      drafted) — copy from `store-listing.md`, adjust only if the merged
       branches changed user-facing behavior
 - [ ] Privacy practices disclosure — Chrome Web Store now requires an
       explicit data-use declaration in the dashboard (separate from
@@ -82,7 +84,7 @@ rewrite from scratch. Still needed:
   actually asks for, since guessing wrong wastes a review cycle either
   direction.
 - **YouTube downloading**: yt-dlp-based YouTube downloads are the single
-  highest-risk item for takedown/rejection. `STORE_LISTING.md` already flags
+  highest-risk item for takedown/rejection. `store-listing.md` already flags
   this. Decide explicitly before submitting: ship YouTube support in the
   Web-Store build, or ship it GitHub-Releases-only and strip it from the
   store package. This is a real decision, not a checkbox — get a second

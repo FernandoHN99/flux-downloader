@@ -38,6 +38,9 @@ coverage/
 # Release artifacts built by the packaging scripts
 release/
 
+# The download page, built by `npm run build:site`
+_site/
+
 # Chrome/Edge extension builds
 *.zip
 *.crx

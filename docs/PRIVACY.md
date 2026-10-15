@@ -117,6 +117,6 @@ Users are responsible for complying with website terms, copyright, privacy, and 
 
 ## Changes and contact
 
-Material changes to storage, permissions, external services, or telemetry must update this file and the store listing before release.
+Material changes to storage, permissions, external services, or telemetry must update this file and the release notes before release.
 
 Questions can be filed in the [Flux Downloader GitHub repository](https://github.com/miroshArtem/MediaGrabber/issues).

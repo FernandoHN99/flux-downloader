@@ -1,5 +1,7 @@
 # Monetization strategy (Phase 3 — not started)
 
+> **Archived.** Flux is distributed on GitHub only. It is not published on a store and it is not for sale, so the plans below were dropped. They are kept as a record of the thinking, not as a to-do list.
+
 Depends on `backend-roadmap.md` Phase 2c (accounts + subscription check)
 existing first. Nothing here is implemented. This is the answer to "if we
 charge, how, and what does that break" — written down now so the decision
