@@ -70,7 +70,7 @@ Flux has no analytics, advertising, telemetry, or cloud account. Settings, up to
 
 The extension and local companion necessarily contact the page/media/CDN selected by the user; yt-dlp contacts YouTube for YouTube features. Files are written locally and are not uploaded to a Flux server.
 
-Read the complete [privacy policy](PRIVACY.md).
+Read the complete [privacy policy](../PRIVACY.md).
 
 ## Permission explanations
 
