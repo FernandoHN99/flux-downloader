@@ -225,19 +225,14 @@ HKCU\Software\Google\Chrome\NativeMessagingHosts\com.fluxdownloader.coapp
 HKCU\Software\Microsoft\Edge\NativeMessagingHosts\com.fluxdownloader.coapp
 ```
 
-macOS copies JSON into:
+macOS and Linux copy the JSON into each installed browser's `NativeMessagingHosts` folder (Chrome, Chromium, Brave, Edge, Vivaldi; a browser counts as installed when its profile folder exists, and Chrome is the fallback):
 
 ```text
-~/Library/Application Support/Google/Chrome/NativeMessagingHosts/
-~/Library/Application Support/Microsoft Edge/NativeMessagingHosts/
+~/Library/Application Support/<Browser>/NativeMessagingHosts/   (macOS)
+~/.config/<browser>/NativeMessagingHosts/                       (Linux, or $XDG_CONFIG_HOME)
 ```
 
-Linux copies JSON into:
-
-```text
-~/.config/google-chrome/NativeMessagingHosts/
-~/.config/microsoft-edge/NativeMessagingHosts/
-```
+The list lives in `nativeMessagingTargets()` in `coapp/src/paths.ts` and, in bash, in `scripts/install.sh`; a test keeps the two equal. Browsers installed as a Snap or Flatpak run in a sandbox that cannot start the host and are not supported.
 
 This repository does not register Firefox `allowed_extensions`.
 
@@ -259,13 +254,12 @@ This repository does not register Firefox `allowed_extensions`.
 3. Confirm `allowed_origins` contains the browser's actual extension ID.
 4. Confirm the Windows registry value points to that JSON.
 5. Reload the extension after registration.
-6. On a source checkout, prefer `coapp/scripts/register-dev-host.sh` (or
-   `.ps1` on Windows) over the raw `native-autoinstall-cli.js register` step —
+6. On a source checkout, run `scripts/install.sh` (macOS/Linux; `coapp/scripts/register-dev-host.sh` still works and calls it) or `coapp/scripts/register-dev-host.ps1` (Windows) over the raw `native-autoinstall-cli.js register` step —
    the latter only writes a manifest pointing at a `coapp` binary that has to
    already exist at the install root. If the repository was ever moved or
    renamed after registering, or its selected Node version was removed, an
    embedded path goes stale and Chrome reports the host as having exited
-   immediately; re-run the script to fix it. The macOS/Linux script records
+   immediately; re-run the script to fix it. The macOS/Linux installer records
    Node's physical `process.execPath`, avoiding fnm's disposable per-shell
    `fnm_multishells` executable path.
 
@@ -276,7 +270,8 @@ This repository does not register Firefox `allowed_extensions`.
 - Verify the built CommonJS files exist.
 - Verify the process does not exit due to a missing import/runtime exception.
 - For a source checkout, temporarily register with
-  `FLUX_DEV_HOST_LOG="$HOME/Library/Logs/FluxDownloader/native-host.log" ./scripts/register-dev-host.sh`.
+  `FLUX_HOST_LOG="$HOME/Library/Logs/FluxDownloader/native-host.log" ./scripts/install.sh`
+  (`FLUX_DEV_HOST_LOG` with the old script name still works).
   This redirects only the development host's stderr to that file; native RPC
   stdout stays untouched. Register again without the variable after diagnosis
   to disable persistent logging. Avoid sharing the log without reviewing it,

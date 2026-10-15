@@ -1,111 +1,13 @@
 #!/usr/bin/env bash
-# macOS/Linux equivalent of register-dev-host.ps1: builds a launcher that
-# execs the current `dist/main.js` and registers it as the native messaging
-# host, instead of the raw `native-autoinstall-cli.js register` step, which
-# only writes a manifest pointing at a `coapp` binary that has to already
-# exist at the install root.
+# Kept so existing instructions still work. Registering a source checkout as
+# the native messaging host is now what `scripts/install.sh` does when it runs
+# from a built checkout, and it covers more browsers than this script did.
+#
+# FLUX_DEV_HOST_LOG is still honoured: it is passed on as FLUX_HOST_LOG.
 set -euo pipefail
 
-EXTENSION_ID="${1:-}"
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-COAPP_ROOT="$PROJECT_ROOT/coapp"
-DIST_MAIN="$COAPP_ROOT/dist/main.js"
-MANIFEST_FILE="$PROJECT_ROOT/extension/manifest.json"
-
-DERIVED_ID="$(node "$PROJECT_ROOT/extension/scripts/get-extension-id.mjs" "$MANIFEST_FILE")"
-if [[ ! "$DERIVED_ID" =~ ^[a-p]{32}$ ]]; then
-  echo "Could not derive a valid extension ID from $MANIFEST_FILE" >&2
-  exit 1
+if [[ -n "${FLUX_DEV_HOST_LOG:-}" && -z "${FLUX_HOST_LOG:-}" ]]; then
+  export FLUX_HOST_LOG="$FLUX_DEV_HOST_LOG"
 fi
 
-if [[ -z "$EXTENSION_ID" ]]; then
-  EXTENSION_ID="$DERIVED_ID"
-elif [[ "$EXTENSION_ID" != "$DERIVED_ID" ]]; then
-  echo "Extension ID '$EXTENSION_ID' does not match the ID derived from $MANIFEST_FILE ('$DERIVED_ID')" >&2
-  exit 1
-fi
-
-if [[ ! -f "$DIST_MAIN" ]]; then
-  echo "CoApp build not found: $DIST_MAIN (run: cd coapp && npm run build)" >&2
-  exit 1
-fi
-
-case "$(uname -s)" in
-  Darwin*)
-    DEV_DIR="$HOME/Library/Application Support/FluxDownloaderDev"
-    BROWSER_DIRS=(
-      "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts"
-      "$HOME/Library/Application Support/Microsoft Edge/NativeMessagingHosts"
-    )
-    ;;
-  Linux*)
-    DEV_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/FluxDownloaderDev"
-    BROWSER_DIRS=(
-      "$HOME/.config/google-chrome/NativeMessagingHosts"
-      "$HOME/.config/microsoft-edge/NativeMessagingHosts"
-    )
-    ;;
-  *)
-    echo "Unsupported platform for register-dev-host.sh: $(uname -s). Use coapp/scripts/register-dev-host.ps1 on Windows." >&2
-    exit 1
-    ;;
-esac
-
-mkdir -p "$DEV_DIR"
-
-# fnm places a full Node executable under a per-shell `fnm_multishells`
-# directory. `command -v node` therefore looks valid during registration but
-# can become stale after that shell is cleaned up. Node resolves its own real,
-# versioned installation path for us, which remains executable across shells.
-NODE_BIN="$(node -p 'process.execPath')"
-if [[ ! -x "$NODE_BIN" ]]; then
-  echo "Could not resolve an executable Node runtime: $NODE_BIN" >&2
-  exit 1
-fi
-LAUNCHER="$DEV_DIR/flux-host-dev"
-DEV_LOG="${FLUX_DEV_HOST_LOG:-}"
-
-if [[ -n "$DEV_LOG" ]]; then
-  mkdir -p "$(dirname "$DEV_LOG")"
-  cat > "$LAUNCHER" <<EOF
-#!/bin/bash
-printf '[%s] Native host launch: %s\\n' "\$(date '+%Y-%m-%d %H:%M:%S')" "\$*" >> "$DEV_LOG"
-exec "$NODE_BIN" "$DIST_MAIN" "\$@" 2>> "$DEV_LOG"
-EOF
-else
-  cat > "$LAUNCHER" <<EOF
-#!/bin/bash
-exec "$NODE_BIN" "$DIST_MAIN" "\$@"
-EOF
-fi
-chmod +x "$LAUNCHER"
-
-MANIFEST_PATH="$DEV_DIR/com.fluxdownloader.coapp.json"
-cat > "$MANIFEST_PATH" <<EOF
-{
-  "name": "com.fluxdownloader.coapp",
-  "description": "Flux Downloader companion application (dev)",
-  "path": "$LAUNCHER",
-  "type": "stdio",
-  "allowed_origins": ["chrome-extension://$EXTENSION_ID/"]
-}
-EOF
-
-for dir in "${BROWSER_DIRS[@]}"; do
-  mkdir -p "$dir"
-  cp "$MANIFEST_PATH" "$dir/com.fluxdownloader.coapp.json"
-done
-
-echo "Dev native host registered."
-echo "Launcher: $LAUNCHER"
-echo "Manifest: $MANIFEST_PATH"
-echo "Extension ID: $EXTENSION_ID"
-echo "Node: $NODE_BIN"
-if [[ -n "$DEV_LOG" ]]; then
-  echo "Debug log: $DEV_LOG"
-fi
-echo
-echo "Note: the launcher embeds absolute paths to Node and dist/main.js. Re-run"
-echo "this script if you move/rename the repository or replace the Node version."
+exec "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../scripts/install.sh" "$@"

@@ -4,7 +4,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
-import { getHostBinaryPath, getInstallDir } from './paths';
+import { getHostBinaryPath, getInstallDir, installedNativeMessagingTargets, nativeMessagingTargets } from './paths';
 
 const MANIFEST_NAME = 'com.fluxdownloader.coapp.json';
 
@@ -65,10 +65,8 @@ export async function registerManifest(extensionIds?: string[]): Promise<void> {
   // Register based on platform
   if (process.platform === 'win32') {
     await registerWindows(manifestPath);
-  } else if (process.platform === 'darwin') {
-    await registerMac(manifestPath);
   } else {
-    await registerLinux(manifestPath);
+    await registerUnix(manifestPath);
   }
 }
 
@@ -78,10 +76,8 @@ export async function registerManifest(extensionIds?: string[]): Promise<void> {
 export async function unregisterManifest(): Promise<void> {
   if (process.platform === 'win32') {
     await unregisterWindows();
-  } else if (process.platform === 'darwin') {
-    await unregisterMac();
   } else {
-    await unregisterLinux();
+    await unregisterUnix();
   }
   
   // Remove manifest file
@@ -137,63 +133,22 @@ async function unregisterWindows(): Promise<void> {
   }
 }
 
-// macOS registration
-async function registerMac(manifestPath: string): Promise<void> {
-  const home = require('os').homedir();
-  const destinations = [
-    path.join(home, 'Library', 'Application Support', 'Google', 'Chrome', 'NativeMessagingHosts'),
-    path.join(home, 'Library', 'Application Support', 'Microsoft Edge', 'NativeMessagingHosts')
-  ];
-
-  for (const destDir of destinations) {
-    await fs.promises.mkdir(destDir, { recursive: true });
-    await fs.promises.copyFile(manifestPath, path.join(destDir, MANIFEST_NAME));
-    console.error(`[Flux] Manifest copied to: ${destDir}`);
+// macOS and Linux registration: one manifest file per installed browser.
+async function registerUnix(manifestPath: string): Promise<void> {
+  for (const { browser, dir } of installedNativeMessagingTargets()) {
+    await fs.promises.mkdir(dir, { recursive: true });
+    await fs.promises.copyFile(manifestPath, path.join(dir, MANIFEST_NAME));
+    console.error(`[Flux] Manifest copied for ${browser}: ${dir}`);
   }
 }
 
-async function unregisterMac(): Promise<void> {
-  const home = require('os').homedir();
-  const destinations = [
-    path.join(home, 'Library', 'Application Support', 'Google', 'Chrome', 'NativeMessagingHosts'),
-    path.join(home, 'Library', 'Application Support', 'Microsoft Edge', 'NativeMessagingHosts')
-  ];
-
-  for (const destDir of destinations) {
+async function unregisterUnix(): Promise<void> {
+  // Every known browser, not just the installed ones: a browser may have been
+  // removed since Flux registered with it.
+  for (const { browser, dir } of nativeMessagingTargets()) {
     try {
-      await fs.promises.unlink(path.join(destDir, MANIFEST_NAME));
-      console.error(`[Flux] Manifest removed from: ${destDir}`);
-    } catch {
-      // File may not exist
-    }
-  }
-}
-// Linux registration
-async function registerLinux(manifestPath: string): Promise<void> {
-  const home = require('os').homedir();
-  const destinations = [
-    path.join(home, '.config', 'google-chrome', 'NativeMessagingHosts'),
-    path.join(home, '.config', 'microsoft-edge', 'NativeMessagingHosts')
-  ];
-
-  for (const destDir of destinations) {
-    await fs.promises.mkdir(destDir, { recursive: true });
-    await fs.promises.copyFile(manifestPath, path.join(destDir, MANIFEST_NAME));
-    console.error(`[Flux] Manifest copied to: ${destDir}`);
-  }
-}
-
-async function unregisterLinux(): Promise<void> {
-  const home = require('os').homedir();
-  const destinations = [
-    path.join(home, '.config', 'google-chrome', 'NativeMessagingHosts'),
-    path.join(home, '.config', 'microsoft-edge', 'NativeMessagingHosts')
-  ];
-
-  for (const destDir of destinations) {
-    try {
-      await fs.promises.unlink(path.join(destDir, MANIFEST_NAME));
-      console.error(`[Flux] Manifest removed from: ${destDir}`);
+      await fs.promises.unlink(path.join(dir, MANIFEST_NAME));
+      console.error(`[Flux] Manifest removed for ${browser}: ${dir}`);
     } catch {
       // File may not exist
     }

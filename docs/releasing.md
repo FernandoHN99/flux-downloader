@@ -1,79 +1,88 @@
 # Releasing Flux Downloader
 
-Updated: 2026-09-03.
+Flux is distributed through GitHub Releases and loaded as an unpacked extension. It is not on the Chrome Web Store. Users get a portable archive for macOS and Linux, an installer for Windows, and the extension as a ZIP.
 
-Flux is currently distributed through GitHub Releases. The extension is sideloaded with **Load unpacked** and is not published in the Chrome Web Store.
+## What a release contains
 
-## Current scope
+| File | For |
+|---|---|
+| `flux-downloader-portable.tar.gz` | macOS and Linux: the built extension, the companion app, and `install.sh` |
+| `FluxDownloader-Setup-win-x64.exe` | Windows installer (embeds the companion app) |
+| `FluxDownloader-extension.zip` | the extension alone, for loading by hand |
+| `FluxDownloader-CoApp-win-x64.exe`, `ffmpeg-win-x64.exe`, `ffprobe-win-x64.exe`, `yt-dlp-win-x64.exe` | what the Windows installer downloads from the same release |
+| `THIRD_PARTY_NOTICES.txt` | licences of the bundled runtime binaries |
+| `SHA256SUMS.txt` | a checksum for every other file |
 
-The automated workflow builds **Windows x64 only**. Source code supports Chrome/Edge and contains cross-platform CoApp registration/runtime paths, but tagged macOS/Linux installer artifacts are not produced.
-
-Release naming retains Flux Downloader:
-
-- `FluxDownloader-extension.zip`
-- `FluxDownloader-CoApp-win-x64.exe`
-- `FluxDownloader-Setup-win-x64.exe`
-- `ffmpeg-win-x64.exe`
-- `ffprobe-win-x64.exe`
-- `yt-dlp-win-x64.exe`
-- `THIRD_PARTY_NOTICES.txt`
-- `SHA256SUMS.txt`
+The names are stable on purpose: `…/releases/latest/download/flux-downloader-portable.tar.gz` always points at the newest release, which is what the README and the download page link to.
 
 ## Source of truth
 
-- Workflow: `.github/workflows/release.yml`
-- Extension packager: `extension/scripts/package-extension.mjs`
-- Extension ID derivation: `extension/scripts/get-extension-id.mjs`
-- Runtime config: `coapp/scripts/create-release-config.mjs`
-- SEA builder: `coapp/scripts/build-sea.mjs`
-- Installer: `coapp/src/installer.ts`
-- Checksums: `coapp/scripts/create-checksums.mjs`
-- Notices: `THIRD_PARTY_NOTICES.md`
+| Piece | File |
+|---|---|
+| Pipeline | `.github/workflows/release.yml` |
+| Checks on every push and pull request | `.github/workflows/ci.yml` |
+| Portable archive | `scripts/make-portable-bundle.mjs` (run it with `npm run package:portable`) |
+| macOS/Linux installer | `scripts/install.sh` |
+| Install smoke test | `scripts/smoke-install.sh` (`npm run smoke:install`), `coapp/scripts/smoke-host.mjs` |
+| Version in every file | `scripts/set-version.mjs` (`npm run version:set -- X.Y.Z`) |
+| Extension files, shared by the ZIP and the archive | `extension/scripts/stage-extension.mjs` |
+| Extension ZIP | `extension/scripts/package-extension.mjs` |
+| Fixed extension ID | `extension/scripts/get-extension-id.mjs` |
+| Windows runtime config, SEA builder, installer | `coapp/scripts/create-release-config.mjs`, `coapp/scripts/build-sea.mjs`, `coapp/src/installer.ts` |
+| Licences | `THIRD_PARTY_NOTICES.md` |
 
-## Pre-release checklist
+## Cutting a release
 
-1. Ensure the intended commit is on the release branch and the worktree is clean.
-2. Choose a semantic version and update every checked-in version:
-   - root `package.json`;
-   - `extension/package.json`;
-   - `extension/manifest.json`;
-   - `coapp/package.json`;
-   - hard-coded `coapp/src/main.ts` `info().version`;
-   - `package-lock.json` via npm.
-3. Update `docs/changelog.md` and move relevant Unreleased items under that version.
-4. Review `README.md`, `docs/PRIVACY.md`, `docs/STORE_LISTING.md`, and this guide for changed behavior.
-5. If runtime versions changed, update workflow URLs and `THIRD_PARTY_NOTICES.md`.
-6. Run:
+1. Be on `main`, up to date, with a clean tree and a green CI.
+2. Pick a semantic version and write it everywhere in one go:
 
-```bash
-npm ci
-npm test
-npm run build
-npm run package:extension
-```
+   ```bash
+   npm run version:set -- 1.2.0
+   ```
 
-7. Inspect the extension ZIP contents and test the extracted package in a clean browser profile.
-8. Test CoApp registration, Settings connectivity, one direct download, one HLS/DASH download, progress, cancellation, and unique naming.
-9. Verify `Refresh tabs`, source-page grouping/linking, and history restoration in the packaged build.
+   It updates the root, extension and CoApp `package.json`, the manifest, `package-lock.json` and `coapp/src/version.ts`. A test fails if any of them disagree.
+3. Move the entries under *Unreleased* in `docs/changelog.md` to the new version.
+4. If the pinned FFmpeg or yt-dlp versions changed in `release.yml`, update `THIRD_PARTY_NOTICES.md` to match.
+5. Check it locally:
 
-The GitHub workflow currently runs `npm ci` and `npm run build` but **does not run `npm test`**. Passing local tests is therefore a maintainer responsibility until CI is changed.
+   ```bash
+   npm ci && npm test && npm run build
+   npm run package:portable && npm run smoke:install
+   ```
 
-## Package validation
+6. Commit through a pull request, merge, then tag the merge commit:
 
-The popup-CSS packaging blocker is resolved. `extension/scripts/package-extension.mjs` copies:
+   ```bash
+   git tag v1.2.0
+   git push origin v1.2.0
+   ```
 
-```text
-dist/background.js
-dist/content.js
-dist/mse-inject.js
-dist/popup.js
-dist/popup.css
-dist/settings.js
-```
+The workflow refuses a tag that does not match the version in `package.json`.
 
-Before creating the archive, the script parses local `src` and `href` references in packaged `popup.html` and `settings.html`. It fails when an asset is missing or resolves outside staging. This protects the split `dist/popup.css` and future local HTML assets by construction.
+## What the workflow does
 
-Unpacked development can still hide package-only errors. Keep `unzip -t`, file-list inspection, and a clean extracted-browser smoke test in release preflight.
+Three jobs, and the release is published only when both builds pass.
+
+1. **portable** (Ubuntu): builds everything, packs `flux-downloader-portable.tar.gz` and the extension ZIP, and runs the install smoke test against the archive it just made.
+2. **windows** (Windows): builds, downloads the pinned runtime binaries, writes `release-config.json` with their URLs and SHA-256 hashes, builds the companion app and the installer as Node single-executable applications.
+3. **publish** (tags only): collects both artifact sets, writes `SHA256SUMS.txt`, and creates the release with generated notes under a short install section.
+
+The same jobs run, without publishing, from the Actions tab and on any pull request that touches the release files, so a broken pipeline shows up before a tag needs it.
+
+## Pinned runtimes (Windows)
+
+The Windows installer downloads these from the release itself and checks each hash:
+
+- FFmpeg and ffprobe: GyanD Essentials 8.1.2;
+- yt-dlp 2026.07.04.
+
+On macOS and Linux nothing is bundled: the installer looks for FFmpeg on the system and can fetch yt-dlp (`--yt-dlp`), checking it against the hashes yt-dlp publishes.
+
+## SEA rule
+
+`build-sea.mjs` copies the current Node executable, creates a SEA blob, and injects it with postject.
+
+The installer embeds **gzip-compressed CoApp bytes**. Do not inject an already SEA-injected executable into another one: duplicate Node SEA sentinels can make postject target the wrong sentinel.
 
 ## Fixed extension ID
 
@@ -83,96 +92,23 @@ The public key in `extension/manifest.json` derives:
 igephdkobpgbfgdjmehckbhffbimgkii
 ```
 
-The workflow computes this with `get-extension-id.mjs` and embeds it into release configuration. The installer writes only that exact origin into `allowed_origins`.
+Both installers write only that origin into `allowed_origins`, and `install.sh` derives it from the manifest the same way the browser does. Do not remove or change the manifest key: it changes the ID and breaks the registration of everyone who installed.
 
-Do not remove/change the manifest key casually: it changes the extension ID and breaks native registration for installed users.
-
-## Tagging
-
-After preflight:
+## Checking a release
 
 ```bash
-git tag vX.Y.Z
-git push origin vX.Y.Z
-```
-
-Every `v*` tag triggers the `Release` workflow on `windows-latest` with Node 22.x.
-
-The workflow sets `MEDIA_GRABBER_VERSION` from the tag for the packaged manifest. This override does **not** update the checked-in packages or CoApp's hard-coded `info` version; that is why manual version synchronization remains required.
-
-## Workflow sequence
-
-1. Checkout and install dependencies with `npm ci`.
-2. Set packaged extension version from the tag.
-3. Build extension/CoApp and package the extension.
-4. Download pinned runtime binaries:
-   - FFmpeg/ffprobe GyanD Essentials 8.1.2;
-   - yt-dlp 2026.07.04.
-5. Rename/copy runtimes into the release directory.
-6. Derive fixed extension ID.
-7. Generate `release-config.json` with GitHub asset URLs and SHA-256 hashes.
-8. Bundle CoApp and installer as CommonJS.
-9. Build a Node SEA CoApp executable.
-10. Build a Node SEA installer embedding:
-    - `release-config.json`;
-    - gzip-compressed CoApp bytes as `coapp.bin.gz`.
-11. Copy extension ZIP and third-party notice.
-12. Generate `SHA256SUMS.txt` for every release file.
-13. Publish a GitHub Release with generated notes.
-
-## SEA rule
-
-`build-sea.mjs` copies the current Node executable, creates a SEA blob, and injects it with postject.
-
-The installer embeds **gzip-compressed CoApp bytes**. Do not directly inject an already SEA-injected executable as a raw nested SEA payload; duplicate Node SEA sentinels can make postject target the wrong sentinel.
-
-## Installer behavior
-
-The release installer:
-
-- installs under `%LOCALAPPDATA%\FluxDownloader` on Windows;
-- extracts/copies `coapp.exe`;
-- downloads each runtime from the same GitHub Release over HTTPS;
-- verifies each pinned SHA-256;
-- writes `com.fluxdownloader.coapp.json`;
-- registers Chrome and Edge HKCU keys;
-- allowlists the fixed extension origin.
-
-Users still need to extract the extension ZIP, enable Developer mode, and choose **Load unpacked**. A normal GitHub installer cannot silently install an unpacked Chrome/Edge extension.
-
-## Artifact verification
-
-Recommended checks:
-
-```bash
-unzip -l extension/FluxDownloader-extension.zip
 sha256sum -c SHA256SUMS.txt
+tar tzf flux-downloader-portable.tar.gz | head
+unzip -l FluxDownloader-extension.zip
 ```
-
-On Windows use `Get-FileHash` or a compatible checksum utility.
 
 Confirm:
 
-- ZIP root contains `manifest.json`;
-- every manifest/popup-referenced asset exists;
-- manifest version matches tag without a leading `v`;
-- extension ID derivation matches the installer origin;
-- installer rejects a modified runtime checksum;
-- CoApp `info` reports the release version;
-- runtime executables launch;
-- notices match exact runtime pins.
+- the ZIP root contains `manifest.json`, and its version matches the tag without the `v`;
+- the portable archive installs and uninstalls cleanly (`scripts/smoke-install.sh` does this);
+- on Windows, the installer rejects a runtime whose checksum was modified;
+- the companion app's `info` reports the release version.
 
-## Publishing corrections
+## Corrections
 
-Do not silently move an existing version tag to different binaries. Prefer a new patch version. If a release is unusable, mark it clearly, fix the source/workflow, and issue a new tag.
-
-## User installation summary
-
-1. Download setup + extension ZIP.
-2. Verify checksums if desired.
-3. Run setup.
-4. Extract ZIP permanently.
-5. Open `chrome://extensions` / `edge://extensions`.
-6. Enable Developer mode.
-7. Load the extracted directory containing `manifest.json`.
-8. Reload Flux and already-open media pages.
+Never move an existing tag to different binaries. If a release is unusable, say so in its notes, fix the cause, and publish a new patch version.

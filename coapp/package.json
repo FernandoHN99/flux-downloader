@@ -6,7 +6,7 @@
   "scripts": {
     "build": "tsc",
     "watch": "tsc --watch",
-    "bundle": "esbuild src/main.ts --bundle --platform=node --format=cjs --outfile=dist/main.bundle.cjs",
+    "bundle": "esbuild src/main.ts --bundle --platform=node --target=node18 --format=cjs --outfile=dist/main.bundle.cjs",
     "bundle:installer": "esbuild src/installer.ts --bundle --platform=node --format=cjs --outfile=dist/installer.bundle.cjs",
     "build:sea": "node scripts/build-sea.mjs",
     "start": "node dist/main.js",

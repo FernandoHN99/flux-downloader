@@ -37,7 +37,8 @@ Startup diagnostics use `console.error`. This is essential: stdout is reserved f
 | `src/native-autoinstall.ts` | native manifest registration |
 | `src/native-autoinstall-cli.ts` | register/unregister CLI |
 | `src/installer.ts` | release install/uninstall and verified runtime download |
-| `scripts/register-dev-host.sh` / `.ps1` | dev host launcher + registration (mac/Linux, Windows) |
+| `scripts/register-dev-host.sh` / `.ps1` | dev host registration: the `.sh` calls `scripts/install.sh`, the `.ps1` registers on Windows |
+| `scripts/smoke-host.mjs` | starts a host the way a browser does and checks it answers `info` |
 | `scripts/build-sea.mjs` | Node SEA executable creation |
 | `scripts/create-release-config.mjs` | release URLs/checksums/extension ID |
 | `scripts/create-checksums.mjs` | release `SHA256SUMS.txt` |
@@ -178,23 +179,25 @@ Registration destinations:
 | macOS | `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/` | `~/Library/Application Support/Microsoft Edge/NativeMessagingHosts/` |
 | Linux | `~/.config/google-chrome/NativeMessagingHosts/` | `~/.config/microsoft-edge/NativeMessagingHosts/` |
 
+On macOS and Linux, Chromium, Brave and Vivaldi are registered too, when their profile folder exists (`nativeMessagingTargets()` in `src/paths.ts`).
+
 Firefox manifests/IDs are not implemented.
 
-Development host (preferred for local builds — builds/registers a launcher
-that execs this checkout's `dist/main.js`, so it works without a `coapp`
-binary already sitting at the install root):
+Installing from a source checkout (preferred for local builds — writes a
+launcher that execs this checkout's `dist/main.js`, so it works without a
+`coapp` binary already sitting at the install root):
 
 ```bash
-cd coapp
-./scripts/register-dev-host.sh        # macOS/Linux
-scripts\register-dev-host.ps1         # Windows (PowerShell)
+npm run build
+scripts/install.sh                    # macOS/Linux (coapp/scripts/register-dev-host.sh calls it too)
+coapp\scripts\register-dev-host.ps1   # Windows (PowerShell)
 ```
 
 Both derive the extension ID from `extension/manifest.json`; pass one
 explicitly only to assert it matches. Re-run after moving/renaming the
 repository or replacing the selected Node version — the launcher embeds
 absolute paths to `dist/main.js` and the physical Node executable. On fnm,
-`register-dev-host.sh` obtains that executable from `process.execPath`; it must
+`install.sh` obtains that executable from `process.execPath`; it must
 not persist `command -v node`, which can point inside a disposable
 `fnm_multishells` directory. A stale path produces Chrome's "native host has
 exited" disconnect.
