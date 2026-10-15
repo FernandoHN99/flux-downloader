@@ -18,7 +18,7 @@
     "test:watch": "vitest"
   },
   "devDependencies": {
-    "@types/node": "^22.19.17",
+    "@types/node": "^26.6.5",
     "typescript": "^6.0.2",
     "esbuild": "^0.28.0",
     "postject": "^1.0.0-alpha.6",

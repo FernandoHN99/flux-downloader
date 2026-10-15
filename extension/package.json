@@ -14,7 +14,7 @@
   },
   "devDependencies": {
     "@types/chrome": "^0.0.260",
-    "@types/node": "^22.0.0",
+    "@types/node": "^26.6.5",
     "esbuild": "^0.28.0",
     "happy-dom": "^16.8.1",
     "typescript": "^6.0.2",
