@@ -41,7 +41,7 @@ The names are stable on purpose: `…/releases/latest/download/flux-downloader-p
    ```
 
    It updates the root, extension and CoApp `package.json`, the manifest, `package-lock.json` and `coapp/src/version.ts`. A test fails if any of them disagree.
-3. Move the entries under *Unreleased* in `docs/changelog.md` to the new version.
+3. Write the release's section in `docs/changelog.md`, headed `## X.Y.Z — date`. It becomes the release notes, so keep it readable.
 4. If the pinned FFmpeg or yt-dlp versions changed in `release.yml`, update `THIRD_PARTY_NOTICES.md` to match.
 5. Check it locally:
 
@@ -65,7 +65,7 @@ Three jobs, and the release is published only when both builds pass.
 
 1. **portable** (Ubuntu): builds everything, packs `flux-downloader-portable.tar.gz` and the extension ZIP, and runs the install smoke test against the archive it just made.
 2. **windows** (Windows): builds, downloads the pinned runtime binaries, writes `release-config.json` with their URLs and SHA-256 hashes, builds the companion app and the installer as Node single-executable applications.
-3. **publish** (tags only): collects both artifact sets, writes `SHA256SUMS.txt`, and creates the release with generated notes under a short install section.
+3. **publish**: collects both artifact sets, writes `SHA256SUMS.txt`, and builds the notes: a short install section, then this version's section of `docs/changelog.md`. Only on a tag does it create the release; otherwise it just lists what it would publish.
 
 The same jobs run, without publishing, from the Actions tab and on any pull request that touches the release files, so a broken pipeline shows up before a tag needs it.
 

@@ -10,7 +10,7 @@ This file is the authoritative implementation guide for AI agents working in thi
 - TypeScript is used throughout. The extension detects media; the CoApp performs filesystem, FFmpeg, direct HTTP, and yt-dlp work.
 - DRM bypass is out of scope.
 
-Current package version: `1.1.1` in the root, extension, CoApp, and manifest. This baseline is `main` after the domain restructure and the Flux Downloader rename.
+The package version lives in the root, extension and CoApp `package.json`, the manifest and `coapp/src/version.ts`. Never edit them by hand: `npm run version:set -- X.Y.Z` writes all of them, and a test fails if they disagree.
 
 ## Repository layout
 

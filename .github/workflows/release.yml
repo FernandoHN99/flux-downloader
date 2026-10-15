@@ -120,6 +120,7 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: release
@@ -129,7 +130,9 @@ jobs:
         run: sha256sum -- * > SHA256SUMS.txt
       - name: Release notes
         run: |
-          cat > notes.md <<'NOTES'
+          version="$(node -p "require('./package.json').version")"
+          {
+            cat <<'NOTES'
           ## Install
 
           **macOS and Linux** (Node.js 18 or newer, plus FFmpeg):
@@ -142,12 +145,16 @@ jobs:
 
           **Windows:** run `FluxDownloader-Setup-win-x64.exe`.
 
-          Then load the extension: open `chrome://extensions`, turn on *Developer mode*, choose *Load unpacked*, and pick the folder the installer prints.
+          Then load the extension: open `chrome://extensions`, turn on *Developer mode*, choose *Load unpacked*, and pick the folder the installer prints. The [install guide](https://github.com/FernandoHN99/flux-downloader/blob/main/docs/install.md) has the details and troubleshooting.
 
           Every file is listed in `SHA256SUMS.txt`.
 
           ## What changed
           NOTES
+            echo
+            # This version's section of the changelog, without its own heading.
+            awk -v v="$version" '$0 ~ "^## " v "( |$)" { found = 1; next } found && /^## / { exit } found' docs/changelog.md
+          } > notes.md
       - name: What would be published
         if: env.IS_TAG != 'true'
         run: ls -l release && cat release/SHA256SUMS.txt && cat notes.md
@@ -159,5 +166,4 @@ jobs:
           gh release create "$GITHUB_REF_NAME" release/* \
             --repo "$GITHUB_REPOSITORY" \
             --title "Flux Downloader $GITHUB_REF_NAME" \
-            --notes-file notes.md \
-            --generate-notes
+            --notes-file notes.md
