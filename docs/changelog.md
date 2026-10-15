@@ -2,9 +2,9 @@
 
 This is the project changelog. It replaces the old Video DownloadHelper historical timeline that previously occupied this file.
 
-## Unreleased — becomes 1.2.0
+## 1.2.0 — 2026-10-15
 
-Everything after the `v1.1.1` tag. Nothing here is in a tagged release yet.
+Everything after the `v1.1.1` tag. This is the first release with a macOS and Linux install, and the first built by CI on tag.
 
 ### Install and release (macOS, Linux, Windows)
 

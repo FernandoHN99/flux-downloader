@@ -67,7 +67,7 @@ process.stdout.write(payload);
   "type": "weh#rpc",
   "_reply": 17,
   "_result": {
-    "version": "1.1.1",
+    "version": "1.2.0",
     "platform": "win32"
   }
 }

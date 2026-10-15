@@ -8,7 +8,7 @@ Updated: 2026-09-04.
 |---|---|
 | UI/product name | Flux |
 | Repository/package/release prefix | Flux Downloader |
-| Version | `1.1.1` |
+| Version | see `package.json` (set everywhere with `npm run version:set`) |
 | Browsers | Chrome/Edge 102+, Manifest V3 |
 | Native host | `com.fluxdownloader.coapp` |
 | Fixed release extension ID | `igephdkobpgbfgdjmehckbhffbimgkii` |
