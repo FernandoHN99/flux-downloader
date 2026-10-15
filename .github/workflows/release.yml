@@ -111,9 +111,10 @@ jobs:
           path: release/*
           if-no-files-found: error
 
+  # Runs on every trigger so the checksums and the notes are exercised long
+  # before a tag needs them; only the last step is limited to tags.
   publish:
     name: Publish
-    if: startsWith(github.ref, 'refs/tags/v')
     needs: [portable, windows]
     runs-on: ubuntu-latest
     permissions:
@@ -147,7 +148,11 @@ jobs:
 
           ## What changed
           NOTES
+      - name: What would be published
+        if: env.IS_TAG != 'true'
+        run: ls -l release && cat release/SHA256SUMS.txt && cat notes.md
       - name: Create the release
+        if: env.IS_TAG == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
