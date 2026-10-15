@@ -4,13 +4,14 @@ This directory documents the implementation in this repository. It no longer des
 
 The product name displayed in the browser is **Flux**. Internal packages, the native host, install paths, GitHub repository, and release artifacts continue to use **Flux Downloader**.
 
-Documentation baseline: **2026-09-03**, version `1.1.1`, including the component popup, pure content/background boundaries, `TabStateStore`, central all-tab refresh, source-page attribution, parser/manifest projection, download lifecycle/concurrency, native reconnect coverage, package validation, the extension watch workflow, compact progress panel, and flat-list reorder inset.
+Documentation baseline: **2026-09-03**, version `1.1.1` (the 2026-10-15 install, release and popup changes are described in the guides that cover them), including the component popup, pure content/background boundaries, `TabStateStore`, central all-tab refresh, source-page attribution, parser/manifest projection, download lifecycle/concurrency, native reconnect coverage, package validation, the extension watch workflow, compact progress panel, and flat-list reorder inset.
 
 ## Start here
 
 | Document | Use it for |
 |---|---|
-| [Project README](../README.md) | installation, usage, source setup, common troubleshooting |
+| [Project README](../README.md) | what Flux is, install in a minute, how it works |
+| [Install guide](install.md) | installing and updating on macOS, Linux and Windows, and troubleshooting |
 | [Agent instructions](../AGENTS.md) | authoritative implementation invariants and recent refactor context |
 | [Architecture](architecture.md) | processes, ownership, state, popup, refresh, and download flows |
 | [Detection](detection.md) | network/DOM/MSE detection, navigation generations, parsers, source attribution |
@@ -20,11 +21,11 @@ Documentation baseline: **2026-09-03**, version `1.1.1`, including the component
 | [YouTube](youtube.md) | yt-dlp-only detection and download path |
 | [Download performance](performance.md) | fragment, HTTP-range, and batch parallelism |
 | [Quick reference](quick-reference.md) | commands, IDs, paths, keys, protocols |
-| [Releasing](releasing.md) | tag workflow, Windows assets, checksums, runtime pins |
+| [Releasing](releasing.md) | cutting a release, the release pipeline, assets, checksums, runtime pins |
 | [Privacy](PRIVACY.md) | locally stored data, network activity, permissions |
-| [Store listing](STORE_LISTING.md) | current product copy and distribution caveat |
 | [Changelog](changelog.md) | Flux Downloader releases and refactor history |
 | [Third-party notices](../THIRD_PARTY_NOTICES.md) | FFmpeg and yt-dlp licensing/pins |
+| [Archive](archive) | plans that were dropped: a store listing, monetization, a backend |
 
 ## Current engineering snapshot
 
@@ -39,7 +40,7 @@ Documentation baseline: **2026-09-03**, version `1.1.1`, including the component
 - One `DownloadRunGate` in the worker—not popup timing—enforces one user-visible run; a batch uses four native jobs concurrently.
 - `npm run dev:extension` watches all six browser bundles plus TypeScript; Chrome/Edge reloads remain manual.
 - Full verification: `npm test`, then `npm run build`.
-- Tagged release automation currently builds Windows x64 only.
+- Tagged releases build a portable macOS/Linux archive and a Windows installer; CI runs on all three systems.
 
 ## Documentation ownership
 

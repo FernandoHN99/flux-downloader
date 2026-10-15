@@ -1,5 +1,7 @@
 # Flux store/listing copy
 
+> **Archived.** Flux is not published on a store, and the Chrome Web Store does not allow downloaders like this one. The copy is kept for reference. The user-facing description lives in the README and the download page.
+
 Updated: 2026-09-04.
 
 Copy audit: reviewed against the 585-test post-refactor implementation and current GitHub-distributed `1.1.1` baseline.

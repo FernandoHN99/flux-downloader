@@ -1,5 +1,7 @@
 # Backend roadmap (Phase 2 — not started)
 
+> **Archived.** Flux is distributed on GitHub only. It is not published on a store and it is not for sale, so the plans below were dropped. They are kept as a record of the thinking, not as a to-do list.
+
 This describes a system that **does not exist yet**. Nothing in this file is
 implemented. It's here so the shape of the decision is written down before
 it's needed, not so it gets built on a schedule. Don't start this until the

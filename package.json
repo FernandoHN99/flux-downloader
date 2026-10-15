@@ -17,6 +17,7 @@
     "test": "npm run test --workspace=extension && npm run test --workspace=coapp",
     "package:portable": "npm run build && npm run bundle --workspace coapp && node scripts/make-portable-bundle.mjs",
     "smoke:install": "bash scripts/smoke-install.sh",
-    "version:set": "node scripts/set-version.mjs"
+    "version:set": "node scripts/set-version.mjs",
+    "build:site": "node site/build.mjs"
   }
 }

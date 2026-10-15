@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Ask a question or share an idea
+    url: https://github.com/FernandoHN99/flux-downloader/discussions
+    about: Not sure it is a bug? Start a discussion instead.
+  - name: Troubleshooting guide
+    url: https://github.com/FernandoHN99/flux-downloader/blob/main/docs/install.md#troubleshooting
+    about: The usual install and connection problems, and how to fix them.
+  - name: Report a security problem
+    url: https://github.com/FernandoHN99/flux-downloader/security/advisories/new
+    about: Please report vulnerabilities privately, not as an issue.
