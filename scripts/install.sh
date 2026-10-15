@@ -198,7 +198,7 @@ note "companion app: $LAUNCHER"
     description: "Flux Downloader companion application",
     path: launcher,
     type: "stdio",
-    allowed_origins: [`chrome-extension://${id}/`]
+    allowed_origins: ["chrome-extension://" + id + "/"]
   }, null, 2) + "\n");
 ' "$HOST_NAME" "$LAUNCHER" "$EXTENSION_ID" >"$INSTALL_DIR/$MANIFEST_FILE"
 
