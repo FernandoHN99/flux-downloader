@@ -303,33 +303,37 @@ chrome.runtime.onStartup.addListener(() => {
 
 // --- Media detection via webRequest (works in MV3 service worker) ---
 
+// These only observe: Manifest V3 has no blocking mode, so what they return is
+// ignored. The current typings still ask for a BlockingResponse, hence the `{}`.
 chrome.webRequest.onBeforeRequest.addListener(
   (details) => {
-    if (details.tabId < 0) return;
+    if (details.tabId < 0) return {};
 
     let parsedUrl: URL;
     try {
       parsedUrl = new URL(details.url);
     } catch {
-      return;
+      return {};
     }
 
-    if (!isMediaUrl(parsedUrl)) return;
+    if (!isMediaUrl(parsedUrl)) return {};
 
     void handleInterceptedMedia(details.tabId, details.url, undefined, getRequestReferer(details.initiator));
+    return {};
   },
   { urls: ['<all_urls>'] }
 );
 
 chrome.webRequest.onHeadersReceived.addListener(
   (details) => {
-    if (details.tabId < 0) return;
-    if (details.statusCode < 200 || details.statusCode >= 300) return;
+    if (details.tabId < 0) return {};
+    if (details.statusCode < 200 || details.statusCode >= 300) return {};
 
     const type = getMediaTypeFromContentType(getContentType(details.responseHeaders));
     if (type) {
       void handleInterceptedMedia(details.tabId, details.url, type, getRequestReferer(details.initiator));
     }
+    return {};
   },
   { urls: ['<all_urls>'] },
   ['responseHeaders']
