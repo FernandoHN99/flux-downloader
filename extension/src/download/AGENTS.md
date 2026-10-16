@@ -7,7 +7,8 @@ native messaging.
 | File | Owns |
 |---|---|
 | `native-client.ts` | `NativeClient` — the CoApp connection and RPC lifecycle |
-| `download-run-gate.ts` | The exclusive user-visible run lease |
+| `download-run-gate.ts` | The exclusive user-visible run lease, and the videos it locks |
+| `toolbar-spinner.ts`, `toolbar-icon.ts` | The toolbar icon that spins while a run holds the gate |
 | `download-tracker.ts` | Active IDs, outcomes, cancellation tombstones |
 | `download-key.ts` | Collision-safe FFmpeg/yt-dlp logical keys |
 | `batch-run.ts` | Batch queue transitions |
@@ -42,6 +43,19 @@ first `await`**, and holds it across popup instances and for the whole batch.
 Disabling buttons in the popup is feedback, not the lock: separate popup
 instances would otherwise both start a run. A batch holding one lease fans out
 to four native jobs through `batch-pool.ts`; do not reacquire the gate per item.
+
+The lease also carries `keys`: the videos the run was started for (`videoKey`).
+`gate.lockedKeys` is the one answer to "may this video be edited right now?",
+and it holds for the whole run, finished items included, not just the queue
+(`BatchStatus.keys` is that list for the popup; `remainingKeys` shrinks as items
+finish and cannot say it). The service worker refuses rename, delete, filing and
+folder edits on those keys; the popup does not offer them (`isLocked`).
+
+The gate's `changed` callback is what drives the toolbar icon: `ToolbarSpinner`
+animates it while a lease is held and puts the manifest icon back on release.
+The spinner owns timing (serialized frames, a frame that lands after the stop is
+discarded) and takes its drawing as a port; `toolbar-icon.ts` is the only part
+that needs a browser (OffscreenCanvas in the service worker, `action.setIcon`).
 
 `DownloadTracker` owns active IDs, outcomes and cancellation tombstones. There
 is exactly one settlement path that publishes process completion and releases

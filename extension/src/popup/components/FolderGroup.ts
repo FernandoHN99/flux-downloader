@@ -9,6 +9,8 @@ export interface FolderGroupState {
   renaming: boolean;
   /** No downloading while a run is going, rows are being picked, or it is empty. */
   downloadDisabled: boolean;
+  /** A video filed here is part of a running download: no renaming, no deleting. */
+  locked: boolean;
 }
 
 export interface FolderGroupHandlers {
@@ -51,7 +53,7 @@ export class FolderGroup extends Component<FolderGroupState> {
   }
 
   protected render(): void {
-    const { id, name, count, collapsed, renaming, downloadDisabled } = this.state;
+    const { id, name, count, collapsed, renaming, downloadDisabled, locked } = this.state;
     this.el.dataset.folderId = id;
     this.head.setAttribute('aria-expanded', String(!collapsed));
     this.head.replaceChildren(folderIcon());
@@ -69,7 +71,7 @@ export class FolderGroup extends Component<FolderGroupState> {
       badge.textContent = String(count);
       this.head.appendChild(badge);
 
-      this.head.appendChild(this.buildActions(id, count, downloadDisabled));
+      this.head.appendChild(this.buildActions(id, count, downloadDisabled, locked));
 
       const chevron = document.createElement('span');
       chevron.className = collapsed ? 'group-chevron' : 'group-chevron open';
@@ -81,7 +83,12 @@ export class FolderGroup extends Component<FolderGroupState> {
     this.body.classList.toggle('empty', count === 0);
   }
 
-  private buildActions(id: string, count: number, downloadDisabled: boolean): HTMLElement {
+  private buildActions(
+    id: string,
+    count: number,
+    downloadDisabled: boolean,
+    locked: boolean
+  ): HTMLElement {
     const actions = document.createElement('div');
     actions.className = 'folder-actions';
 
@@ -94,17 +101,22 @@ export class FolderGroup extends Component<FolderGroupState> {
       if (!download.disabled) this.handlers.onDownload(id);
     });
 
-    const rename = iconButton('rename', 'Rename folder');
+    const holdStill = 'Locked while its videos are downloading';
+    const rename = iconButton('rename', locked ? holdStill : 'Rename folder');
+    rename.disabled = locked;
     rename.addEventListener('click', (event) => {
       event.stopPropagation();
-      this.handlers.onStartRename(id);
+      if (!rename.disabled) this.handlers.onStartRename(id);
     });
 
-    const remove = iconButton('remove', 'Delete folder (its videos stay in the list)');
+    const remove = iconButton('remove', locked
+      ? holdStill
+      : count === 0 ? 'Delete folder' : 'Delete folder and the videos in it');
     remove.classList.add('folder-delete');
+    remove.disabled = locked;
     remove.addEventListener('click', (event) => {
       event.stopPropagation();
-      this.handlers.onDelete(id);
+      if (!remove.disabled) this.handlers.onDelete(id);
     });
 
     actions.append(download, rename, remove);

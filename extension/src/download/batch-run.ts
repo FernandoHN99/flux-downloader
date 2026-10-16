@@ -19,6 +19,7 @@ export class BatchRun {
       folder,
       cancelled: false,
       remainingKeys: videos.map((video) => videoKey(video.url)),
+      keys: videos.map((video) => videoKey(video.url)),
       activeSourceKeys: [],
       concurrency
     };
@@ -72,6 +73,7 @@ export class BatchRun {
     return {
       ...this.state,
       remainingKeys: [...(this.state.remainingKeys || [])],
+      keys: [...(this.state.keys || [])],
       activeSourceKeys: [...(this.state.activeSourceKeys || [])]
     };
   }

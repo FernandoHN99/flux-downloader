@@ -58,6 +58,8 @@ import { rewriteHlsManifestUris } from '../download/hls-rewrite';
 import { BatchRun } from '../download/batch-run';
 import { DownloadRunGate } from '../download/download-run-gate';
 import type { DownloadLease } from '../download/download-run-gate';
+import { createToolbarIconPorts } from '../download/toolbar-icon';
+import { ToolbarSpinner } from '../download/toolbar-spinner';
 import { prepareHlsInputArguments } from '../download/hls-arguments';
 import type { ManifestFile } from '../download/hls-arguments';
 import { DEFAULT_BATCH_CONCURRENCY, runBatchPool } from '../download/batch-pool';
@@ -111,7 +113,24 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 });
 
 const activeDownloads = new DownloadTracker();
-const downloadRunGate = new DownloadRunGate();
+// The toolbar icon spins for exactly as long as a run holds the gate, so the
+// two cannot disagree about whether a download is going.
+const toolbarSpinner = new ToolbarSpinner(createToolbarIconPorts());
+const downloadRunGate = new DownloadRunGate(() => toolbarSpinner.setBusy(downloadRunGate.busy));
+
+/**
+ * The videos a running download was started for. They are read-only until it
+ * ends: renaming, filing or deleting one under its own download would change
+ * the name, the folder or the very row the run is writing to.
+ */
+function lockedKeys(): ReadonlySet<string> {
+  return downloadRunGate.lockedKeys;
+}
+
+function unlocked(keys: readonly string[]): string[] {
+  const locked = lockedKeys();
+  return locked.size === 0 ? [...keys] : keys.filter((key) => !locked.has(key));
+}
 
 interface DownloadRunContext {
   lease: DownloadLease;
@@ -455,7 +474,7 @@ function broadcastBatch(): void {
 // pool. This preserves popup race protection without serializing the network.
 async function runBatchDownload(videos: VideoInfo[], tabId?: number, quality?: 'best' | 'worst'): Promise<void> {
   if (batch) return;
-  const lease = downloadRunGate.acquire('batch');
+  const lease = downloadRunGate.acquire('batch', videos.map((video) => videoKey(video.url)));
   if (!lease) {
     popupPorts.forEach((port) => postPopup(port, {
       type: 'ERROR',
@@ -796,7 +815,8 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: PopupRequest): void 
 
     case 'DOWNLOAD':
       {
-        const lease = downloadRunGate.acquire('single');
+        const sourceUrl = msg.sourceUrl || msg.video?.url;
+        const lease = downloadRunGate.acquire('single', sourceUrl ? [videoKey(sourceUrl)] : []);
         if (!lease) {
           postPopup(port, { type: 'ERROR', message: 'Another download is already running.' });
           break;
@@ -827,7 +847,11 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: PopupRequest): void 
         .catch(() => postPopup(port, { type: 'HISTORY_LIST', entries: [] }));
       break;
 
+    // Everything below that edits a video leaves alone the ones a download is
+    // running for. The popup does not offer these, so a request for one is a
+    // popup that has not caught up yet: dropping it is the right answer.
     case 'RENAME_HISTORY_ITEM':
+      if (lockedKeys().has(msg.key)) break;
       history.rename(msg.key, msg.title || '')
         .catch((error) => console.warn('[Flux] Failed to rename history entry:', error));
       break;
@@ -838,16 +862,21 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: PopupRequest): void 
       break;
 
     case 'RENAME_VIDEO':
+      if (lockedKeys().has(msg.key)) break;
       renameDetectedVideo(msg.tabId, msg.key, msg.title || '');
       break;
 
-    case 'DELETE_HISTORY_ITEMS':
-      history.remove(msg.keys || [])
-        .then(() => folderStore.forget(msg.keys || []))
+    case 'DELETE_HISTORY_ITEMS': {
+      const keys = unlocked(stringList(msg.keys));
+      history.remove(keys)
+        .then(() => folderStore.forget(keys))
         .catch((error) => console.warn('[Flux] Failed to delete history entries:', error));
       break;
+    }
 
     case 'CLEAR_HISTORY':
+      // Wiping the list would take the running videos with it.
+      if (lockedKeys().size > 0) break;
       history.clear()
         .then(() => folderStore.forgetAll())
         .catch((error) => console.warn('[Flux] Failed to clear history:', error));
@@ -855,28 +884,28 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: PopupRequest): void 
 
     case 'CREATE_FOLDER':
       if (typeof msg.name === 'string') {
-        folderStore.create(msg.name, stringList(msg.keys))
+        folderStore.create(msg.name, unlocked(stringList(msg.keys)))
           .catch((error) => console.warn('[Flux] Failed to create folder:', error));
       }
       break;
 
     case 'RENAME_FOLDER':
       if (typeof msg.id === 'string' && typeof msg.name === 'string') {
-        folderStore.rename(msg.id, msg.name)
+        void editFolderUnlessRunning(msg.id, () => folderStore.rename(msg.id, msg.name))
           .catch((error) => console.warn('[Flux] Failed to rename folder:', error));
       }
       break;
 
     case 'DELETE_FOLDER':
       if (typeof msg.id === 'string') {
-        folderStore.remove(msg.id)
+        void deleteFolderWithVideos(msg.id)
           .catch((error) => console.warn('[Flux] Failed to delete folder:', error));
       }
       break;
 
     case 'MOVE_TO_FOLDER':
       if (msg.folderId === null || typeof msg.folderId === 'string') {
-        folderStore.move(stringList(msg.keys), msg.folderId)
+        folderStore.move(unlocked(stringList(msg.keys)), msg.folderId)
           .catch((error) => console.warn('[Flux] Failed to move videos:', error));
       }
       break;
@@ -915,6 +944,30 @@ function handlePopupMessage(port: chrome.runtime.Port, msg: PopupRequest): void 
       break;
     }
   }
+}
+
+/**
+ * Runs `edit` on a folder unless a video filed in it is being downloaded. A
+ * running batch has already chosen each file's directory from its folder's
+ * name, and that must stay true until the run is over.
+ */
+async function editFolderUnlessRunning(id: string, edit: () => Promise<void>): Promise<void> {
+  const locked = lockedKeys();
+  if (locked.size > 0 && (await folderStore.keysIn(id)).some((key) => locked.has(key))) return;
+  await edit();
+}
+
+/**
+ * Deleting a folder deletes what is in it: the videos leave the list as well,
+ * so nothing is orphaned loose after the folder is gone. Refused while one of
+ * them is being downloaded.
+ */
+async function deleteFolderWithVideos(id: string): Promise<void> {
+  const keys = await folderStore.keysIn(id);
+  const locked = lockedKeys();
+  if (keys.some((key) => locked.has(key))) return;
+  await history.remove(keys);
+  await folderStore.remove(id);
 }
 
 function notifyPopups(_tabId?: number): void {
@@ -1091,24 +1144,28 @@ function mediaPlaylistDuration(urls: string[], referer?: string): Promise<number
   });
 }
 
-const durationLookups = new Set<string>();
+/** How often a row's length is asked for before giving up until the worker restarts. */
+const DURATION_LOOKUP_ATTEMPTS = 3;
+const durationLookups = new Map<string, number>();
 
 /**
  * Rows saved before their length was known stay blank until the page is seen
- * again, which for an old lesson is never. Ask their renditions once per
- * service-worker run and write the answer back; the popup is updated by the
- * store's own broadcast.
+ * again, which for an old lesson is never. Ask their renditions a few times
+ * per service-worker run (a signed link can fail once and answer later) and
+ * write the answer back; the popup is updated by the store's own broadcast.
  */
 async function backfillDurations(entries: HistoryEntry[]): Promise<void> {
   const learned = new Map<string, number>();
   for (const entry of entries) {
     const key = videoKey(entry.url);
-    if (entry.duration || entry.type !== 'hls' || durationLookups.has(key)) continue;
+    if (entry.duration || entry.type !== 'hls') continue;
+    const attempts = durationLookups.get(key) ?? 0;
+    if (attempts >= DURATION_LOOKUP_ATTEMPTS) continue;
     const urls = (entry.qualities || [])
       .filter((quality) => (quality.kind || 'video') === 'video')
       .map((quality) => quality.url);
     if (urls.length === 0) continue;
-    durationLookups.add(key);
+    durationLookups.set(key, attempts + 1);
     const seconds = await mediaPlaylistDuration(urls, entry.referer || entry.pageUrl);
     if (seconds) learned.set(key, seconds);
   }

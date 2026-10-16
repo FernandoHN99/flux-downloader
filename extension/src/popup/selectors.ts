@@ -1,6 +1,6 @@
 import type { HistoryEntry, VideoFolder } from '../shared/types';
 import { domainOf, videoKey } from '../detection/video-key';
-import type { AppState } from './state';
+import type { AppState, RemoteState } from './state';
 
 /** A video any open tab is playing right now. */
 export function isCurrent(state: AppState, key: string): boolean {
@@ -160,6 +160,48 @@ export function isDownloading(state: AppState, key: string): boolean {
   return (state.remote.batch?.remainingKeys || []).includes(key);
 }
 
+const lockedByRemote = new WeakMap<RemoteState, ReadonlySet<string>>();
+
+/**
+ * Every video a download was started for, finished ones included: the whole
+ * batch stays read-only until the run ends, not just the rows still going.
+ * Computed once per `remote` snapshot, since every row asks.
+ */
+export function lockedKeys(state: AppState): ReadonlySet<string> {
+  const cached = lockedByRemote.get(state.remote);
+  if (cached) return cached;
+  const { batch, manualDownloadKey } = state.remote;
+  const keys = new Set(batch?.keys ?? batch?.remainingKeys ?? []);
+  if (manualDownloadKey) keys.add(manualDownloadKey);
+  lockedByRemote.set(state.remote, keys);
+  return keys;
+}
+
+/** Part of a running download: it cannot be renamed, filed, picked or deleted. */
+export function isLocked(state: AppState, key: string): boolean {
+  return lockedKeys(state).has(key);
+}
+
+/** `keys` without the locked ones: what an edit is still allowed to touch. */
+export function editable(state: AppState, keys: readonly string[]): string[] {
+  const locked = lockedKeys(state);
+  return locked.size === 0 ? [...keys] : keys.filter((key) => !locked.has(key));
+}
+
+/**
+ * Folders holding a locked video. Renaming one would split a running batch
+ * across two directories, and deleting one would delete a video mid-download.
+ */
+export function lockedFolderIds(state: AppState): ReadonlySet<string> {
+  const locked = lockedKeys(state);
+  const ids = new Set<string>();
+  if (locked.size === 0) return ids;
+  for (const entry of state.remote.history) {
+    if (entry.folderId && locked.has(videoKey(entry.url))) ids.add(entry.folderId);
+  }
+  return ids;
+}
+
 /**
  * Active batch rows have independent percentages; work not dispatched yet is
  * still queued.
@@ -220,27 +262,30 @@ export function progressDetail(state: AppState): AppState['remote']['progress'] 
   };
 }
 
-/** Rows outside a reorder zone: pinned current ones, and any mid-download. */
+/** Rows outside a reorder zone: pinned current ones, and any part of a download. */
 export function canReorder(state: AppState, key: string): boolean {
-  return !isCurrent(state, key) && !isDownloading(state, key) && !state.ui.selectionMode;
+  return !isCurrent(state, key) && !isLocked(state, key) && !state.ui.selectionMode;
 }
 
 /**
  * Whether a row may be filed into a folder. A video playing right now can be;
- * only one being written cannot be shuffled under its download, and the whole
- * list holds still while rows are being picked for deletion.
+ * one that is part of a running download cannot be shuffled under it, and the
+ * whole list holds still while rows are being picked for deletion.
  */
 export function canMoveToFolder(state: AppState, key: string): boolean {
-  return !isDownloading(state, key) && !state.ui.selectionMode;
+  return !isLocked(state, key) && !state.ui.selectionMode;
 }
 
 /**
  * Every video not filed in a folder, whatever the search says: "all the loose
- * ones" means all of them, not just the ones currently on screen.
+ * ones" means all of them, not just the ones currently on screen. Videos of a
+ * running download are not loose to take: they cannot be filed right now.
  */
 export function unfiledEntries(state: AppState): HistoryEntry[] {
   const known = new Set(state.remote.folders.map((folder) => folder.id));
-  return orderedEntries(state).filter((entry) => !entry.folderId || !known.has(entry.folderId));
+  const locked = lockedKeys(state);
+  return orderedEntries(state).filter((entry) =>
+    (!entry.folderId || !known.has(entry.folderId)) && !locked.has(videoKey(entry.url)));
 }
 
 export interface FolderSection {

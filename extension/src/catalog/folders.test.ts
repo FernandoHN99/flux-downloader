@@ -6,6 +6,7 @@ import {
   deleteFolderFrom,
   folderDirectoryName,
   forgetKeys,
+  keysInFolder,
   moveKeys,
   normalizeFolderName,
   renameFolderIn,
@@ -85,8 +86,15 @@ describe('addFolder / renameFolderIn', () => {
   });
 });
 
+describe('keysInFolder', () => {
+  it('lists just the videos filed in that folder', () => {
+    expect(keysInFolder({ k1: '1', k2: '2', k3: '1' }, '1')).toEqual(['k1', 'k3']);
+    expect(keysInFolder({ k1: '1' }, 'nope')).toEqual([]);
+  });
+});
+
 describe('deleteFolderFrom', () => {
-  it('frees the folder videos instead of deleting them', () => {
+  it('drops the folder and every filing into it, leaving other folders alone', () => {
     const result = deleteFolderFrom(
       [folder('1', 'A'), folder('2', 'B')],
       { k1: '1', k2: '2', k3: '1' },

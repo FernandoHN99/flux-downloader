@@ -61,7 +61,7 @@ the row's **Select** button, **Shift-click** or **Ctrl/Cmd-click** on any row.
   last opened. With neither, it picks just that row. The range is computed from
   `displayOrder(state)` (pure, in `selectors.ts`): rows as the list draws them,
   folders first, skipping collapsed folders and sites and anything the search
-  hides. Rows being downloaded are skipped, like they cannot be filed.
+  hides. Rows of a running download are skipped, like they cannot be filed.
 - **Ctrl/Cmd-click**, or any plain click while picking, flips one row. Dropping
   the last picked row leaves the mode.
 - While Shift is held, `VideoList` previews the rows a click would pick
@@ -121,7 +121,11 @@ searching.
 - Creating and renaming use `FolderComposer` (mounted by `ListHeader`) and
   `FolderGroup`'s inline input,
   tagged with `data-focus-id` like the row rename so redraws keep the caret.
-- Deleting a folder never deletes its videos; they return to the main list.
+- Deleting a folder deletes the videos in it, from the list as well: the worker
+  removes them from the history (`DELETE_FOLDER`), so none is left loose. It is
+  refused, and the button disabled, while one of them is part of a running
+  download. Renaming such a folder is refused too: a batch has already chosen
+  each file's directory from the folder's name.
 - Row/list/header handler objects are required: tests must supply the folder
   handlers too.
 
@@ -136,6 +140,28 @@ items. A keyed progress update may select which active row supplies detail.
 One user-visible run owns the worker gate at a time. A batch uses up to four
 CoApp jobs inside that lease. Disabling popup buttons is feedback, not the lock.
 
+### While a download runs
+
+Every video the run was started for is **locked** (`isLocked`, from
+`BatchStatus.keys` or the one-off download's key) until it ends, the finished
+items of a batch as well as the running ones: no rename, no filing, no picking,
+no dragging, no deleting. A locked row shows a lock where its actions would be
+(a spinner while it is actually transferring) and keeps its length and type. A
+folder holding a locked video cannot be renamed or deleted. Rows outside the run
+stay editable, and `editable()` strips locked keys from every selection-based
+action, because a selection can predate the run. The worker enforces the same
+rule, so a popup that has not caught up cannot edit a running video.
+
+### The end-of-run notice
+
+"Download complete!" is `ui.notice`, not `ui.status`: the status line is
+rewritten by every scan and refresh, the notice has to outlast them. It is set
+once the whole run is over — a one-off download completing, or the batch going
+away (`endBatch`, from `BATCH_STATUS` going to `null`) — never per item. A batch
+with failures says how many instead, and a cancelled one claims nothing. It is
+cleared by a new run starting or by the × next to it, and ending a run empties
+the status line so dismissing the notice cannot uncover a stale "Downloading…".
+
 ## Styles
 
 Bundled from `styles/index.css`, split into `tokens`, `shell`, `list`, `folder`,
@@ -147,6 +173,12 @@ and keep text at 10px or more. Violet means "selected"
 or "the main action", green and red only mark state. Type is one family (the
 system UI font), weight and tabular numerals do the work: no monospace, no
 all-caps labels.
+
+**The `hidden` attribute loses to any `display` the element's class sets.** A
+`.btn-dismiss` that is `display: flex` stays visible with `hidden` on it (the ×
+of the status bar did, with no notice to dismiss). Give such an element its own
+`[hidden] { display: none }` rule. Unit tests read the property, not the pixels,
+so only looking at the popup catches this one.
 
 **Chrome action popups need explicit pixel sizing.** Do not replace the fixed
 width/min/max-height with `100vw`, `100vh` or `min()` viewport units — Chrome
