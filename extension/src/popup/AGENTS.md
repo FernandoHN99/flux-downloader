@@ -174,6 +174,12 @@ or "the main action", green and red only mark state. Type is one family (the
 system UI font), weight and tabular numerals do the work: no monospace, no
 all-caps labels.
 
+**The `hidden` attribute loses to any `display` the element's class sets.** A
+`.btn-dismiss` that is `display: flex` stays visible with `hidden` on it (the ×
+of the status bar did, with no notice to dismiss). Give such an element its own
+`[hidden] { display: none }` rule. Unit tests read the property, not the pixels,
+so only looking at the popup catches this one.
+
 **Chrome action popups need explicit pixel sizing.** Do not replace the fixed
 width/min/max-height with `100vw`, `100vh` or `min()` viewport units — Chrome
 can collapse the popup to about one pixel.
