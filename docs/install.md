@@ -66,6 +66,7 @@ Open a page with a video and start playing it. Click the Flux icon: the video ap
 
 - **Shift-click** a row to select a range, **Ctrl/Cmd-click** to pick single rows. A bar appears with **New folder**, **Move to…** and **Delete**.
 - Files are saved in your `Downloads` folder. A batch gets its own `Flux_…` folder there, and your Flux folders become subfolders of it.
+- Batch files are numbered by when the videos were added, in front of the name: `01-Lesson.mp4` is the oldest (the last row of the list), and the highest number is the newest. Drag rows to change the order before you download.
 
 Flux does not get around DRM. Save only what you are allowed to save.
 

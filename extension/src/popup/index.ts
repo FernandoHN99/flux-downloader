@@ -14,7 +14,7 @@ import { Messenger } from './messages';
 import type { QualityOption } from './quality';
 import {
   busyLabel, canMoveToFolder, displayOrder, downloadInProgress, isCurrent, isDownloading,
-  keysBetween, orderedEntries, progressDetail, progressView, unfiledEntries, visibleEntries
+  inStoredOrder, keysBetween, orderedEntries, progressDetail, progressView, unfiledEntries, visibleEntries
 } from './selectors';
 import { Store, type AppState, type BatchQuality } from './state';
 
@@ -415,7 +415,9 @@ class App {
     const state = this.store.get();
     if (videos.length === 0 || downloadInProgress(state)) return;
     this.messenger.send({
-      type: 'DOWNLOAD_ALL', videos, tabId: this.activeTabId, quality: state.ui.batchQuality
+      // Numbered by the order they were added, which the screen does not show.
+      type: 'DOWNLOAD_ALL', videos: inStoredOrder(state, videos), tabId: this.activeTabId,
+      quality: state.ui.batchQuality
     });
   }
 

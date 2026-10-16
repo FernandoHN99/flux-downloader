@@ -101,7 +101,18 @@ FFmpeg `out_time_ms` is treated as **nanoseconds** in this integration and
 divided by `1_000_000` for seconds. The field name is misleading; the tested
 behavior is correct.
 
-Batch names that collide are numbered oldest-first: the batch list is newest-first, so
-the last item is `_0` and the first is `_N` (every member of the group is suffixed,
-unique names stay bare). Output names are sanitized, and `file.uniquePath` appends `_1`, `_2`, … rather
-than overwriting an existing file.
+Every batch file is numbered by when its video was added, in front of the name:
+`01-Lesson.mp4`. The batch is newest-first (the order the history stores), so the
+last video is `01` and the first is the total; the width follows the total (two
+digits at least) so a file manager sorts it as the course runs. The number is the
+video's position in the list, whether or not that video could be planned, so a gap
+in the numbers shows a missing lesson; it is also what makes every name unique. A
+batch of one stays unnumbered. The numbering is batch-wide: videos filed into a
+folder keep their place in the whole run, so a folder can hold 05, 06 and 09.
+
+The popup must hand the batch over in **stored** order (`inStoredOrder` in
+`popup/selectors.ts`), not screen order: the screen pins the video playing now to
+the top, which would otherwise make the lesson open in a tab the highest number
+whatever its place in the course. Single downloads are not numbered. Output names
+are sanitized, and `file.uniquePath` appends `_1`, `_2`, … rather than overwriting
+an existing file.

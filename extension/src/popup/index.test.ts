@@ -365,6 +365,40 @@ describe('App picking rows', () => {
   });
 });
 
+describe('App Download all', () => {
+  const lesson = (n: number) => ({
+    id: `v${n}`, title: `Aula ${n}`, url: `https://cdn.example/l${n}/playlist.m3u8`,
+    type: 'hls', qualities: [], detectedAt: 0
+  });
+
+  beforeEach(() => {
+    postMessage = vi.fn();
+    const port = {
+      postMessage,
+      onMessage: { addListener: vi.fn((listener: (message: Incoming) => void) => { receive = listener; }) },
+      onDisconnect: { addListener: vi.fn() }
+    } as unknown as chrome.runtime.Port;
+    vi.mocked(chrome.runtime.connect).mockReturnValue(port);
+  });
+
+  it('sends the videos in the order they were added, even though the screen pins the one playing', async () => {
+    const app = new App(shell());
+    await app.start();
+    // Newest first, as stored: Aula 1 is the newest, Aula 3 the oldest.
+    receive({ type: 'HISTORY_LIST', folders: [], entries: [lesson(1), lesson(2), lesson(3)] as any });
+    // The oldest is the one open in a tab, so the list shows it first.
+    receive({ type: 'MEDIA_LIST', videos: [], currentKeys: ['https://cdn.example/l3/playlist.m3u8'] });
+    expect([...document.querySelectorAll('.media-title-text')].map((n) => n.textContent))
+      .toEqual(['Aula 3', 'Aula 1', 'Aula 2']);
+    postMessage.mockClear();
+
+    (document.getElementById('download-all-btn') as HTMLButtonElement).click();
+
+    const sent = postMessage.mock.calls.map(([message]) => message).find((m) => m.type === 'DOWNLOAD_ALL');
+    expect(sent.videos.map((video: { title: string }) => video.title)).toEqual(['Aula 1', 'Aula 2', 'Aula 3']);
+  });
+});
+
 describe('App folder collapse memory', () => {
   const entries = [{
     id: 'v1', title: 'Aula 1', url: 'https://cdn.example/l1/playlist.m3u8',

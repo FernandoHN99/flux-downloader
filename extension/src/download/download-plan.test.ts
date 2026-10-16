@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { VideoInfo, VideoQuality } from '../shared/types';
 import {
+  batchNumberPrefix,
   buildBatchDownloadPlans,
   ensureFilenameExtension,
   formatFfmpegError,
@@ -67,60 +68,82 @@ describe('download filenames', () => {
     expect(ensureFilenameExtension('lesson.part', 'webm')).toBe('lesson.part.webm');
   });
 
-  it('numbers repeated names oldest-first: last in the list is _0, first is _N', () => {
-    const first = video([quality(1080, { url: 'https://cdn.example/one' })]);
-    first.title = 'Lesson: 1';
-    const second = video([quality(720, { url: 'https://cdn.example/two' })]);
-    second.title = 'lesson? 1';
-    const third = video([]);
-    third.title = 'No quality';
-
-    const plans = buildBatchDownloadPlans([first, second, third], 'best');
-
-    expect(plans.map((plan) => plan.filename)).toEqual([
-      'Lesson_ 1_1.mp4',
-      'lesson_ 1_0.mp4',
-      undefined
-    ]);
-    expect(plans[0].selected?.url).toBe('https://cdn.example/one');
-    expect(plans[2].selected).toBeUndefined();
-  });
-
-  it('suffixes three repeated names from the oldest (last) as _0 and keeps unique names bare', () => {
-    const make = (title: string, url: string) => {
-      const item = video([quality(720, { url })]);
+  describe('batch numbering', () => {
+    const make = (title: string, url = `https://cdn.example/${title}`, qualities?: VideoQuality[]) => {
+      const item = video(qualities ?? [quality(720, { url })]);
       item.title = title;
       return item;
     };
+    const names = (videos: VideoInfo[]) =>
+      buildBatchDownloadPlans(videos, 'best').map((plan) => plan.filename);
 
-    const plans = buildBatchDownloadPlans([
-      make('Aula', 'https://cdn.example/new'),
-      make('Outra', 'https://cdn.example/other'),
-      make('Aula', 'https://cdn.example/mid'),
-      make('Aula', 'https://cdn.example/old')
-    ], 'best');
+    it('numbers every file by when it was added: the last in the list is 01, the first is the total', () => {
+      expect(names([make('Newest'), make('Middle'), make('Oldest')])).toEqual([
+        '03-Newest.mp4',
+        '02-Middle.mp4',
+        '01-Oldest.mp4'
+      ]);
+    });
 
-    expect(plans.map((plan) => plan.filename)).toEqual([
-      'Aula_2.mp4',
-      'Outra.mp4',
-      'Aula_1.mp4',
-      'Aula_0.mp4'
-    ]);
+    it('keeps lessons that a player titles alike apart, in order', () => {
+      expect(names([
+        make('Course', 'https://cdn.example/c'),
+        make('Course', 'https://cdn.example/b'),
+        make('Course', 'https://cdn.example/a')
+      ])).toEqual(['03-Course.mp4', '02-Course.mp4', '01-Course.mp4']);
+    });
+
+    it('sanitizes the name and keeps the number in front of it', () => {
+      expect(names([make('Lesson: 2?'), make('Lesson: 1?')])).toEqual([
+        '02-Lesson_ 2_.mp4',
+        '01-Lesson_ 1_.mp4'
+      ]);
+    });
+
+    it('keeps a video\'s number when another in the batch cannot be planned, so a gap shows a missing lesson', () => {
+      const plans = buildBatchDownloadPlans(
+        [make('Three'), make('Two', 'https://cdn.example/two', []), make('One')],
+        'best'
+      );
+
+      expect(plans.map((plan) => plan.filename)).toEqual(['03-Three.mp4', undefined, '01-One.mp4']);
+      expect(plans[1].selected).toBeUndefined();
+    });
+
+    it('pads to the width of the total, so a long course still sorts', () => {
+      const videos = Array.from({ length: 100 }, (_, index) => make(`Lesson ${index}`));
+      const plans = names(videos);
+
+      expect(plans[0]).toBe('100-Lesson 0.mp4');
+      expect(plans[99]).toBe('001-Lesson 99.mp4');
+      expect(new Set(plans).size).toBe(100);
+    });
+
+    it('leaves a batch of one unnumbered: there is nothing to order', () => {
+      expect(names([make('Only')])).toEqual(['Only.mp4']);
+    });
+
+    it('keeps the chosen rendition with its file', () => {
+      const plans = buildBatchDownloadPlans(
+        [make('B', 'https://cdn.example/b'), make('A', 'https://cdn.example/a')],
+        'best'
+      );
+
+      expect(plans.map((plan) => plan.selected?.url)).toEqual(['https://cdn.example/b', 'https://cdn.example/a']);
+    });
   });
 
-  it('never reuses a suffixed name already taken by a unique title', () => {
-    const make = (title: string) => {
-      const item = video([quality(720)]);
-      item.title = title;
-      return item;
-    };
+  describe('batchNumberPrefix', () => {
+    it('is two digits for a short batch and widens with the total', () => {
+      expect(batchNumberPrefix(1, 5)).toBe('01-');
+      expect(batchNumberPrefix(99, 99)).toBe('99-');
+      expect(batchNumberPrefix(7, 100)).toBe('007-');
+      expect(batchNumberPrefix(1, 1000)).toBe('0001-');
+    });
 
-    const names = buildBatchDownloadPlans(
-      [make('Aula'), make('Aula_0'), make('Aula')],
-      'best'
-    ).map((plan) => plan.filename!.toLowerCase());
-
-    expect(new Set(names).size).toBe(names.length);
+    it('is empty when nothing needs ordering', () => {
+      expect(batchNumberPrefix(1, 1)).toBe('');
+    });
   });
 
   it.each([

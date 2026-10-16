@@ -2,6 +2,10 @@
 
 This is the project changelog. It replaces the old Video DownloadHelper historical timeline that previously occupied this file.
 
+## Unreleased
+
+- **Batch downloads are numbered by when the videos were added**, in front of the name: `01-Lesson.mp4` is the oldest (the last row of the list), and the highest number is the newest. It replaces the `_0`, `_1` suffix, which only applied to repeated names and stopped applying once lessons got titles of their own. The number is the video's position in the batch, padded to the width of the total; a batch of one stays unnumbered. The popup now hands the batch over in stored order, so the video open in a tab keeps its place in the course.
+
 ## 1.2.0 — 2026-10-15
 
 Everything since 1.1.1, which was never tagged. This is the first release with a macOS and Linux install, and the first one built and published by CI.
