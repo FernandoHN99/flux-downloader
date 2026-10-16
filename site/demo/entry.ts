@@ -106,8 +106,9 @@ const port = {
         folders = folders.map((folder) => (folder.id === message.id ? { ...folder, name: message.name } : folder));
         return reply(snapshot());
       case 'DELETE_FOLDER':
+        // The videos filed in it go with it, as in the extension.
         folders = folders.filter((folder) => folder.id !== message.id);
-        for (const entry of entries) if (entry.folderId === message.id) delete entry.folderId;
+        for (let i = entries.length - 1; i >= 0; i--) if (entries[i].folderId === message.id) entries.splice(i, 1);
         return reply(snapshot());
       case 'RENAME_HISTORY_ITEM': {
         const entry = entryFor(message.key);

@@ -2,9 +2,9 @@ import { describe, it, expect } from 'vitest';
 import type { HistoryEntry } from '../shared/types';
 import { initialState, type AppState } from './state';
 import {
-  busyLabel, canMoveToFolder, canReorder, displayOrder, downloadInProgress, groupByDomain, inStoredOrder,
-  isDownloading, keysBetween, splitByFolder, unfiledEntries, orderedEntries, progressDetail,
-  progressView, visibleEntries
+  busyLabel, canMoveToFolder, canReorder, displayOrder, downloadInProgress, editable, groupByDomain,
+  inStoredOrder, isDownloading, isLocked, keysBetween, lockedFolderIds, splitByFolder, unfiledEntries,
+  orderedEntries, progressDetail, progressView, visibleEntries
 } from './selectors';
 
 const entry = (title: string, url: string, pageUrl?: string): HistoryEntry =>
@@ -458,5 +458,77 @@ describe('inStoredOrder', () => {
     inStoredOrder(state, given);
 
     expect(given.map((e) => e.title)).toEqual(['b', 'a']);
+  });
+});
+
+describe('locking the videos of a running download', () => {
+  const run = (patch: Record<string, unknown> = {}) => ({
+    total: 3, completed: 1, failed: 0, cancelled: false,
+    keys: [RS8, RS9, UDEMY], remainingKeys: [RS9, UDEMY], ...patch
+  });
+
+  it('keeps the whole batch locked, the items already done as well as the ones still going', () => {
+    const state = stateWith({ batch: run() as never });
+
+    expect(isLocked(state, RS8)).toBe(true);
+    expect(isLocked(state, RS9)).toBe(true);
+    expect(isDownloading(state, RS8)).toBe(false);
+    expect(isLocked(state, YT)).toBe(false);
+  });
+
+  it('locks the one video of a one-off download', () => {
+    const state = stateWith({ manualDownloadKey: RS9 });
+
+    expect(isLocked(state, RS9)).toBe(true);
+    expect(isLocked(state, RS8)).toBe(false);
+  });
+
+  it('falls back to the queue for a batch that reports no full list', () => {
+    const state = stateWith({ batch: run({ keys: undefined }) as never });
+
+    expect(isLocked(state, RS9)).toBe(true);
+    expect(isLocked(state, RS8)).toBe(false);
+  });
+
+  it('unlocks everything once the run is over', () => {
+    expect(isLocked(stateWith({ batch: null }), RS8)).toBe(false);
+  });
+
+  it('refuses to reorder or file a locked video, finished or not', () => {
+    const state = stateWith({ batch: run() as never });
+
+    expect(canReorder(state, RS8)).toBe(false);
+    expect(canMoveToFolder(state, RS8)).toBe(false);
+    expect(canMoveToFolder(state, YT)).toBe(true);
+  });
+
+  it('leaves out of "editable" just the locked keys', () => {
+    const state = stateWith({ batch: run() as never });
+
+    expect(editable(state, [RS8, YT, UDEMY])).toEqual([YT]);
+    expect(editable(stateWith(), [RS8, YT])).toEqual([RS8, YT]);
+  });
+
+  it('does not offer a locked video as one of the loose ones to take into a folder', () => {
+    const state = stateWith({
+      batch: run() as never,
+      history: [entry('running', RS8), entry('free', YT)]
+    });
+
+    expect(unfiledEntries(state).map((e) => e.title)).toEqual(['free']);
+  });
+
+  it('locks a folder that holds a video of the run, and only that folder', () => {
+    const state = stateWith({
+      batch: run() as never,
+      folders: [{ id: 'f1', name: 'Running' }, { id: 'f2', name: 'Idle' }],
+      history: [
+        { ...entry('running', RS8), folderId: 'f1' } as HistoryEntry,
+        { ...entry('free', YT), folderId: 'f2' } as HistoryEntry
+      ]
+    });
+
+    expect([...lockedFolderIds(state)]).toEqual(['f1']);
+    expect(lockedFolderIds(stateWith()).size).toBe(0);
   });
 });

@@ -308,6 +308,9 @@ function historySignature(entries: HistoryEntry[]): string {
     entry.pageUrl || '',
     entry.pageTitle || '',
     // A merge that only marks the title as the user's still has to be written.
-    entry.titleByUser ? 1 : 0
+    entry.titleByUser ? 1 : 0,
+    // So does one that only learns how long the video is: the length arrives
+    // after the row, and a signature blind to it would never save it.
+    entry.duration ? 1 : 0
   ]));
 }

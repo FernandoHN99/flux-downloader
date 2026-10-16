@@ -26,9 +26,22 @@ describe('BatchRun', () => {
       folder: 'Flux_123',
       cancelled: false,
       remainingKeys: [videoKey(one.url), videoKey(two.url)],
+      keys: [videoKey(one.url), videoKey(two.url)],
       activeSourceKeys: [],
       concurrency: 4
     });
+  });
+
+  it('keeps every video of the run listed after they finish, unlike the queue', () => {
+    const one = video('one');
+    const two = video('two');
+    const run = new BatchRun([one, two], 'Flux_123');
+
+    run.begin(one);
+    run.complete(one, true);
+
+    expect(run.snapshot().remainingKeys).toEqual([videoKey(two.url)]);
+    expect(run.snapshot().keys).toEqual([videoKey(one.url), videoKey(two.url)]);
   });
 
   it('tracks several active sources and counts independent outcomes', () => {
@@ -61,6 +74,7 @@ describe('BatchRun', () => {
       folder: 'Flux_123',
       cancelled: false,
       remainingKeys: [],
+      keys: [videoKey(one.url), videoKey(two.url)],
       activeSourceKeys: [],
       concurrency: 4,
       currentTitle: undefined,

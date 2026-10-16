@@ -124,7 +124,7 @@ describe('a one-off download', () => {
     applyIncoming(store, { type: 'DOWNLOAD_COMPLETE' });
     expect(store.get().remote.manualDownloadKey).toBeNull();
     expect(store.get().remote.progress).toBeNull();
-    expect(store.get().ui.status.tone).toBe('success');
+    expect(store.get().ui.notice).toEqual({ text: 'Download complete!', tone: 'success' });
   });
 
   it('frees the row on failure too, and says why', () => {
@@ -187,5 +187,81 @@ describe('ERROR', () => {
     applyIncoming(store, { type: 'ERROR', message: 'CoApp not running' });
     expect(store.get().ui.error).toBe('CoApp not running');
     expect(store.get().remote.manualDownloadKey).toBeNull();
+  });
+});
+
+describe('the "Download complete!" notice', () => {
+  const run = (patch: Record<string, unknown> = {}) => ({
+    total: 2, completed: 0, failed: 0, cancelled: false,
+    remainingKeys: [RS8, RS9], keys: [RS8, RS9], ...patch
+  });
+
+  it('waits for the whole batch, not for each item in it', () => {
+    applyIncoming(store, { type: 'BATCH_STATUS', batch: run() as never });
+    applyIncoming(store, { type: 'DOWNLOAD_COMPLETE', sourceKey: RS8 });
+    expect(store.get().ui.notice).toBeNull();
+
+    applyIncoming(store, { type: 'BATCH_STATUS', batch: run({ completed: 2, remainingKeys: [] }) as never });
+    expect(store.get().ui.notice).toBeNull();
+
+    applyIncoming(store, { type: 'BATCH_STATUS', batch: null });
+    expect(store.get().ui.notice).toEqual({ text: 'Download complete!', tone: 'success' });
+  });
+
+  it('says how many failed instead of calling a partly failed batch complete', () => {
+    applyIncoming(store, { type: 'BATCH_STATUS', batch: run() as never });
+    applyIncoming(store, {
+      type: 'BATCH_STATUS', batch: run({ completed: 1, failed: 1, remainingKeys: [] }) as never
+    });
+    applyIncoming(store, { type: 'BATCH_STATUS', batch: null });
+
+    expect(store.get().ui.notice).toEqual({ text: '1 downloaded, 1 failed', tone: 'error' });
+  });
+
+  it('claims nothing for a batch that was cancelled', () => {
+    applyIncoming(store, { type: 'BATCH_STATUS', batch: run() as never });
+    applyIncoming(store, { type: 'BATCH_STATUS', batch: run({ cancelled: true }) as never });
+    applyIncoming(store, { type: 'BATCH_STATUS', batch: null });
+
+    expect(store.get().ui.notice).toBeNull();
+    expect(store.get().ui.status).toEqual({ text: 'Download cancelled', tone: 'error' });
+  });
+
+  it('goes away when a new batch starts', () => {
+    store.setUi({ notice: { text: 'Download complete!', tone: 'success' } });
+    applyIncoming(store, { type: 'BATCH_STATUS', batch: run() as never });
+    expect(store.get().ui.notice).toBeNull();
+  });
+
+  it('goes away when a new one-off download starts, or the popup finds one running', () => {
+    store.setUi({ notice: { text: 'Download complete!', tone: 'success' } });
+    applyIncoming(store, { type: 'DOWNLOAD_STARTED', success: true, downloadId: 'd2' });
+    expect(store.get().ui.notice).toBeNull();
+
+    store.setUi({ notice: { text: 'Download complete!', tone: 'success' } });
+    applyIncoming(store, { type: 'ACTIVE_DOWNLOAD', downloadId: 'd2', sourceUrl: RS9 });
+    expect(store.get().ui.notice).toBeNull();
+  });
+
+  it('is not wiped by the media count that keeps arriving', () => {
+    applyIncoming(store, { type: 'DOWNLOAD_COMPLETE' });
+    applyIncoming(store, { type: 'MEDIA_LIST', videos: [], currentKeys: [RS9] });
+
+    expect(store.get().ui.notice).toEqual({ text: 'Download complete!', tone: 'success' });
+  });
+
+  it('empties the status line, so dismissing it never uncovers a stale "Downloading…"', () => {
+    store.setUi({ status: { text: 'Downloading…', tone: 'info' } });
+    applyIncoming(store, { type: 'DOWNLOAD_COMPLETE' });
+
+    expect(store.get().ui.status.text).toBe('');
+  });
+
+  it('is replaced by the error when a download fails', () => {
+    store.setUi({ notice: { text: 'Download complete!', tone: 'success' } });
+    applyIncoming(store, { type: 'DOWNLOAD_ERROR', error: 'boom' });
+
+    expect(store.get().ui.notice).toBeNull();
+    expect(store.get().ui.error).toBe('boom');
   });
 });

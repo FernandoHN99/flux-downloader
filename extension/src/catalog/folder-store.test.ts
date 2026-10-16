@@ -76,7 +76,20 @@ describe('FolderStore', () => {
     expect(data.folderAssignments).toEqual({});
   });
 
-  it('deleting a folder frees its videos', async () => {
+  it('lists the videos filed in a folder, after the writes already queued', async () => {
+    fakeStorage({
+      videoFolders: [{ id: 'f1', name: 'A' }, { id: 'f2', name: 'B' }],
+      folderAssignments: { [A]: 'f1' }
+    });
+    const { store } = makeStore();
+
+    void store.move([B], 'f1');
+
+    await expect(store.keysIn('f1')).resolves.toEqual([A, B]);
+    await expect(store.keysIn('f2')).resolves.toEqual([]);
+  });
+
+  it('deleting a folder drops its filings', async () => {
     const { data } = fakeStorage({
       videoFolders: [{ id: 'f1', name: 'A' }],
       folderAssignments: { [A]: 'f1' }

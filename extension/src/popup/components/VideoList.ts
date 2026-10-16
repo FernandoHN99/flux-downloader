@@ -18,6 +18,8 @@ export interface VideoListState {
   grouped: boolean;
   collapsedGroups: ReadonlySet<string>;
   downloadDisabled: boolean;
+  /** Folders holding a video of a running download. */
+  lockedFolders: ReadonlySet<string>;
   /** Everything a row needs that the list itself does not decide. */
   rowState(entry: HistoryEntry): Omit<VideoRowState, 'entry'>;
 }
@@ -80,7 +82,8 @@ export class VideoList extends Component<VideoListState> {
         count: entries.length,
         collapsed,
         renaming: this.state.renamingFolderId === folder.id,
-        downloadDisabled: this.state.downloadDisabled
+        downloadDisabled: this.state.downloadDisabled,
+        locked: this.state.lockedFolders.has(folder.id)
       },
       {
         onToggle: (id) => this.handlers.onToggleFolder(id),
