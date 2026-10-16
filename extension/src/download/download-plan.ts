@@ -48,15 +48,23 @@ export function rankFallbackRenditions(
 }
 
 /**
- * Pick every batch rendition up front and reserve distinct sanitized names.
- * A fresh batch directory is empty, but parallel starts can otherwise all see
- * the same title as available before any process creates its output file.
+ * Pick every batch rendition up front and give every file a distinct name.
+ *
+ * Files are numbered by when their video was added, so a course sorts in the
+ * order it was watched: `01-Lesson.mp4`. The batch is newest-first (the order
+ * the history stores), so the last video is 01 and the first is the total. The
+ * number is the position in the list, whether or not that video could be
+ * planned, so a gap in the numbers means a lesson is missing, and it also makes
+ * every name unique, which parallel starts need: they would otherwise all see
+ * the same title as free before any process creates its file. A batch of one
+ * has nothing to order and stays unnumbered.
  */
 export function buildBatchDownloadPlans(
   videos: readonly VideoInfo[],
   preference: QualityPreference
 ): BatchDownloadPlan[] {
-  const plans = videos.map((source) => {
+  const total = videos.length;
+  return videos.map((source, index) => {
     const quality = pickBatchQuality(source, preference);
     if (!quality) return { source };
     const selected: VideoInfo = { ...source, url: quality.url, qualities: [quality] };
@@ -69,46 +77,21 @@ export function buildBatchDownloadPlans(
       source,
       selected,
       filename: ensureFilenameExtension(
-        sanitizeFilename(source.title || 'video'),
+        `${batchNumberPrefix(total - index, total)}${sanitizeFilename(source.title || 'video')}`,
         getDefaultExtension(selected, type)
       )
     };
   });
+}
 
-  // The list is newest-first, so number each group of identical names from the
-  // end: the oldest video gets _0 and the newest gets _N. Every member of a
-  // colliding group is suffixed, including the first.
-  const groups = new Map<string, BatchDownloadPlan[]>();
-  for (const plan of plans) {
-    if (!plan.filename) continue;
-    const key = plan.filename.toLowerCase();
-    const group = groups.get(key);
-    if (group) group.push(plan);
-    else groups.set(key, [plan]);
-  }
-  const used = new Set<string>();
-  for (const group of groups.values()) {
-    if (group.length < 2) continue;
-    group.slice().reverse().forEach((plan, index) => {
-      plan.filename = appendFilenameSuffix(plan.filename as string, index);
-      used.add(plan.filename.toLowerCase());
-    });
-  }
-  // A suffixed name can still collide with another plan's own name.
-  for (const group of groups.values()) {
-    if (group.length > 1) continue;
-    const plan = group[0];
-    const original = plan.filename as string;
-    let candidate = original;
-    let suffix = 0;
-    while (used.has(candidate.toLowerCase())) {
-      suffix += 1;
-      candidate = appendFilenameSuffix(original, suffix);
-    }
-    used.add(candidate.toLowerCase());
-    plan.filename = candidate;
-  }
-  return plans;
+/**
+ * `01-` for the first of a batch, padded to the width of the total (two digits
+ * at least) so a file manager sorts the names as the course runs.
+ */
+export function batchNumberPrefix(position: number, total: number): string {
+  if (total < 2) return '';
+  const width = Math.max(2, String(total).length);
+  return `${String(position).padStart(width, '0')}-`;
 }
 
 export function sanitizeFilename(name: string, now = Date.now()): string {
@@ -122,12 +105,6 @@ export function ensureFilenameExtension(filename: string, extension: string): st
     ''
   );
   return `${baseName}.${extension.replace(/^\./, '')}`;
-}
-
-function appendFilenameSuffix(filename: string, suffix: number): string {
-  const dot = filename.lastIndexOf('.');
-  if (dot <= 0) return `${filename}_${suffix}`;
-  return `${filename.slice(0, dot)}_${suffix}${filename.slice(dot)}`;
 }
 
 export function getDefaultExtension(

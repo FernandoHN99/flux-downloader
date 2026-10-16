@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { HistoryEntry } from '../shared/types';
 import { initialState, type AppState } from './state';
 import {
-  busyLabel, canMoveToFolder, canReorder, displayOrder, downloadInProgress, groupByDomain,
+  busyLabel, canMoveToFolder, canReorder, displayOrder, downloadInProgress, groupByDomain, inStoredOrder,
   isDownloading, keysBetween, splitByFolder, unfiledEntries, orderedEntries, progressDetail,
   progressView, visibleEntries
 } from './selectors';
@@ -417,5 +417,46 @@ describe('keysBetween', () => {
 
   it('falls back to the target alone when the anchor is not on screen', () => {
     expect(keysBetween(order, 'gone', 'c')).toEqual(['c']);
+  });
+});
+
+describe('inStoredOrder', () => {
+  const A = 'https://cdn.example/a.m3u8';
+  const B = 'https://cdn.example/b.m3u8';
+  const C = 'https://cdn.example/c.m3u8';
+
+  it('puts videos in the order the history stores them, newest first', () => {
+    const state = stateWith({ history: [entry('a', A), entry('b', B), entry('c', C)] });
+
+    expect(inStoredOrder(state, [entry('c', C), entry('a', A), entry('b', B)]).map((e) => e.title))
+      .toEqual(['a', 'b', 'c']);
+  });
+
+  it('ignores what the screen pins: the video playing now keeps its place in the history', () => {
+    const state = stateWith({
+      history: [entry('new', A), entry('mid', B), entry('old', C)],
+      currentKeys: new Set([C])
+    });
+    const onScreen = visibleEntries(state);
+
+    expect(onScreen.map((e) => e.title)).toEqual(['old', 'new', 'mid']);
+    expect(inStoredOrder(state, onScreen).map((e) => e.title)).toEqual(['new', 'mid', 'old']);
+  });
+
+  it('matches a video whose signed link has rotated, and puts unknown ones last', () => {
+    const state = stateWith({ history: [entry('a', A), entry('b', B)] });
+
+    const ordered = inStoredOrder(state, [entry('stranger', C), entry('b', `${B}?token=new`), entry('a', A)]);
+
+    expect(ordered.map((e) => e.title)).toEqual(['a', 'b', 'stranger']);
+  });
+
+  it('does not change the list it was given', () => {
+    const state = stateWith({ history: [entry('a', A), entry('b', B)] });
+    const given = [entry('b', B), entry('a', A)];
+
+    inStoredOrder(state, given);
+
+    expect(given.map((e) => e.title)).toEqual(['b', 'a']);
   });
 });

@@ -73,6 +73,22 @@ export function matchesSearch(entry: HistoryEntry, search: string): boolean {
   return (entry.title || '').toLowerCase().includes(search.toLowerCase());
 }
 
+/**
+ * `videos` in the order they were added, newest first: the order the history
+ * stores, not the one on screen, which pins whatever is playing to the top.
+ * A batch is numbered from this order, so a lesson that is open in a tab must
+ * keep its place in the course instead of becoming the highest number.
+ */
+export function inStoredOrder(state: AppState, videos: readonly HistoryEntry[]): HistoryEntry[] {
+  const position = new Map<string, number>();
+  state.remote.history.forEach((entry, index) => {
+    const key = videoKey(entry.url);
+    if (!position.has(key)) position.set(key, index);
+  });
+  const placeOf = (entry: HistoryEntry): number => position.get(videoKey(entry.url)) ?? Infinity;
+  return [...videos].sort((a, b) => placeOf(a) - placeOf(b));
+}
+
 export function visibleEntries(state: AppState): HistoryEntry[] {
   return orderedEntries(state).filter((entry) => matchesSearch(entry, state.ui.search));
 }
