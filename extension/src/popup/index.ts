@@ -14,8 +14,8 @@ import { Messenger } from './messages';
 import type { QualityOption } from './quality';
 import {
   busyLabel, canMoveToFolder, displayOrder, downloadInProgress, editable, isCurrent, isDownloading,
-  isLocked, inStoredOrder, keysBetween, lockedFolderIds, orderedEntries, progressDetail, progressView,
-  unfiledEntries, visibleEntries
+  isLocked, inStoredOrder, keysBetween, lockedFolderIds, numberPrefixFor, orderedEntries, progressDetail,
+  progressView, unfiledEntries, visibleEntries
 } from './selectors';
 import { Store, type AppState, type BatchQuality } from './state';
 
@@ -496,7 +496,8 @@ class App {
           fileSize: option.fileSize, kind: option.kind, language: option.language
         }]
       },
-      filename: video.title || 'video'
+      // Numbered like it is in Download all: `07-Lesson`, in a folder or not.
+      filename: numberPrefixFor(state, video.url) + (video.title || 'video')
     });
   }
 

@@ -1,3 +1,4 @@
+import { numberPrefix } from '../shared/file-number';
 import type { HistoryEntry, VideoFolder } from '../shared/types';
 import { domainOf, videoKey } from '../detection/video-key';
 import type { AppState, RemoteState } from './state';
@@ -87,6 +88,20 @@ export function inStoredOrder(state: AppState, videos: readonly HistoryEntry[]):
   });
   const placeOf = (entry: HistoryEntry): number => position.get(videoKey(entry.url)) ?? Infinity;
   return [...videos].sort((a, b) => placeOf(a) - placeOf(b));
+}
+
+/**
+ * The `07-` a video downloaded on its own is named with: the number it gets in
+ * Download all, so a lesson has the same number either way. That is its place
+ * among every video in the list by when it was added (the last one is `01`),
+ * folder or not, ignoring the search box, which would otherwise renumber the
+ * course as you type. Empty for the only video, or one the list does not hold.
+ */
+export function numberPrefixFor(state: AppState, url: string): string {
+  const course = inStoredOrder(state, orderedEntries(state));
+  const key = videoKey(url);
+  const index = course.findIndex((entry) => videoKey(entry.url) === key);
+  return index < 0 ? '' : numberPrefix(course.length - index, course.length);
 }
 
 export function visibleEntries(state: AppState): HistoryEntry[] {

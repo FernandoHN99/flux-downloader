@@ -68,7 +68,7 @@ Open a page with a video and start playing it. Click the Flux icon: the video ap
 - Deleting a folder deletes the videos in it from the list too (never the files you already saved).
 - While a download runs, the toolbar icon spins and the videos you started are locked: you cannot rename, file, move or delete them until it ends. "Download complete!" appears once everything is done; the × beside it dismisses it.
 - Files are saved in your `Downloads` folder. A batch gets its own `Flux_…` folder there, and your Flux folders become subfolders of it.
-- Batch files are numbered by when the videos were added, in front of the name: `01-Lesson.mp4` is the oldest (the last row of the list), and the highest number is the newest. Drag rows to change the order before you download.
+- Files are numbered by when the videos were added, in front of the name: `01-Lesson.mp4` is the oldest (the last row of the list), and the highest number is the newest. This holds for a batch and for a video downloaded on its own, in a folder or not, which gets the number it would have in a batch. Drag rows to change the order before you download.
 
 Flux does not get around DRM. Save only what you are allowed to save.
 

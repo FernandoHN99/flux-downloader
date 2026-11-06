@@ -4,6 +4,7 @@ This is the project changelog. It replaces the old Video DownloadHelper historic
 
 ## Unreleased
 
+- **A video downloaded on its own is numbered too**, in a folder or not: `07-Lesson.mp4`, the same number it gets in Download all (its place in the list by when it was added, the last row being `01`). The search box does not change it, and the only video in the list stays unnumbered.
 - **The length no longer disappears.** A video's length is learned a moment after its row appears, and the history store compared rows without looking at it, so that update was treated as "nothing changed" and never saved: the row showed only `HLS` once its tab was gone or the popup was reopened. The comparison now notices that a length became known. Looking a length up for old rows is also retried a few times instead of giving up after one failure.
 - **Deleting a folder deletes the videos in it.** They used to go back to the main list. It is refused while one of them is being downloaded.
 - **"Download complete!" waits for the end of the run.** It used to appear after every single video of a batch. Now it shows once, when a one-off download or the whole batch is done (a batch with failures says how many), stays until a new download starts, and has a × to dismiss it.
