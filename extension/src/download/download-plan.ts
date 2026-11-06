@@ -1,3 +1,4 @@
+import { numberPrefix } from '../shared/file-number';
 import type { VideoInfo, VideoQuality } from '../shared/types';
 
 export type QualityPreference = 'best' | 'worst';
@@ -77,21 +78,11 @@ export function buildBatchDownloadPlans(
       source,
       selected,
       filename: ensureFilenameExtension(
-        `${batchNumberPrefix(total - index, total)}${sanitizeFilename(source.title || 'video')}`,
+        `${numberPrefix(total - index, total)}${sanitizeFilename(source.title || 'video')}`,
         getDefaultExtension(selected, type)
       )
     };
   });
-}
-
-/**
- * `01-` for the first of a batch, padded to the width of the total (two digits
- * at least) so a file manager sorts the names as the course runs.
- */
-export function batchNumberPrefix(position: number, total: number): string {
-  if (total < 2) return '';
-  const width = Math.max(2, String(total).length);
-  return `${String(position).padStart(width, '0')}-`;
 }
 
 export function sanitizeFilename(name: string, now = Date.now()): string {

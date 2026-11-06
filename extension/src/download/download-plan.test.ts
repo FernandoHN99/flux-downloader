@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { VideoInfo, VideoQuality } from '../shared/types';
 import {
-  batchNumberPrefix,
   buildBatchDownloadPlans,
   ensureFilenameExtension,
   formatFfmpegError,
@@ -130,19 +129,6 @@ describe('download filenames', () => {
       );
 
       expect(plans.map((plan) => plan.selected?.url)).toEqual(['https://cdn.example/b', 'https://cdn.example/a']);
-    });
-  });
-
-  describe('batchNumberPrefix', () => {
-    it('is two digits for a short batch and widens with the total', () => {
-      expect(batchNumberPrefix(1, 5)).toBe('01-');
-      expect(batchNumberPrefix(99, 99)).toBe('99-');
-      expect(batchNumberPrefix(7, 100)).toBe('007-');
-      expect(batchNumberPrefix(1, 1000)).toBe('0001-');
-    });
-
-    it('is empty when nothing needs ordering', () => {
-      expect(batchNumberPrefix(1, 1)).toBe('');
     });
   });
 

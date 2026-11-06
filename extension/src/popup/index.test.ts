@@ -399,6 +399,61 @@ describe('App Download all', () => {
   });
 });
 
+describe('App single download', () => {
+  const lesson = (n: number, extra: Record<string, unknown> = {}) => ({
+    id: `v${n}`, title: `Aula ${n}`, url: `https://cdn.example/l${n}/playlist.m3u8`,
+    type: 'hls', qualities: [], detectedAt: 0, ...extra
+  });
+
+  beforeEach(() => {
+    postMessage = vi.fn();
+    const port = {
+      postMessage,
+      onMessage: { addListener: vi.fn((listener: (message: Incoming) => void) => { receive = listener; }) },
+      onDisconnect: { addListener: vi.fn() }
+    } as unknown as chrome.runtime.Port;
+    vi.mocked(chrome.runtime.connect).mockReturnValue(port);
+  });
+
+  /** Opens the row of `title` and presses its Download button; returns what the worker was sent. */
+  async function downloadOne(title: string): Promise<{ filename: string }> {
+    const app = new App(shell());
+    await app.start();
+    // Newest first, as stored: Aula 1 is the newest (03), Aula 3 the oldest (01).
+    receive({
+      type: 'HISTORY_LIST',
+      folders: [{ id: 'f1', name: 'Curso' }],
+      entries: [lesson(1), lesson(2, { folderId: 'f1' }), lesson(3)] as any
+    });
+    const row = [...document.querySelectorAll<HTMLElement>('.media-item')]
+      .find((item) => item.textContent?.includes(title))!;
+    row.click();
+    postMessage.mockClear();
+    (document.querySelector('.expand-download-btn') as HTMLButtonElement).click();
+    return postMessage.mock.calls.map(([message]) => message).find((m) => m.type === 'DOWNLOAD');
+  }
+
+  it('numbers a video that is in no folder by when it was added', async () => {
+    expect((await downloadOne('Aula 3')).filename).toBe('01-Aula 3');
+  });
+
+  it('numbers a video in a folder the same way, by its place in the whole list', async () => {
+    expect((await downloadOne('Aula 2')).filename).toBe('02-Aula 2');
+  });
+
+  it('leaves the only video unnumbered', async () => {
+    const app = new App(shell());
+    await app.start();
+    receive({ type: 'HISTORY_LIST', folders: [], entries: [lesson(1)] as any });
+    [...document.querySelectorAll<HTMLElement>('.media-item')][0].click();
+    postMessage.mockClear();
+    (document.querySelector('.expand-download-btn') as HTMLButtonElement).click();
+
+    const sent = postMessage.mock.calls.map(([message]) => message).find((m) => m.type === 'DOWNLOAD');
+    expect(sent.filename).toBe('Aula 1');
+  });
+});
+
 describe('App folder collapse memory', () => {
   const entries = [{
     id: 'v1', title: 'Aula 1', url: 'https://cdn.example/l1/playlist.m3u8',

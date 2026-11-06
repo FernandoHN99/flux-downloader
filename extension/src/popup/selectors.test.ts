@@ -3,8 +3,8 @@ import type { HistoryEntry } from '../shared/types';
 import { initialState, type AppState } from './state';
 import {
   busyLabel, canMoveToFolder, canReorder, displayOrder, downloadInProgress, editable, groupByDomain,
-  inStoredOrder, isDownloading, isLocked, keysBetween, lockedFolderIds, splitByFolder, unfiledEntries,
-  orderedEntries, progressDetail, progressView, visibleEntries
+  inStoredOrder, isDownloading, isLocked, keysBetween, lockedFolderIds, numberPrefixFor, splitByFolder,
+  unfiledEntries, orderedEntries, progressDetail, progressView, visibleEntries
 } from './selectors';
 
 const entry = (title: string, url: string, pageUrl?: string): HistoryEntry =>
@@ -458,6 +458,70 @@ describe('inStoredOrder', () => {
     inStoredOrder(state, given);
 
     expect(given.map((e) => e.title)).toEqual(['b', 'a']);
+  });
+});
+
+describe('numberPrefixFor', () => {
+  const A = 'https://cdn.example/a.m3u8';
+  const B = 'https://cdn.example/b.m3u8';
+  const C = 'https://cdn.example/c.m3u8';
+
+  it('numbers a video by when it was added: the last in the list is 01', () => {
+    const state = stateWith({ history: [entry('new', A), entry('mid', B), entry('old', C)] });
+
+    expect(numberPrefixFor(state, A)).toBe('03-');
+    expect(numberPrefixFor(state, B)).toBe('02-');
+    expect(numberPrefixFor(state, C)).toBe('01-');
+  });
+
+  it('is the number the same video gets in Download all', () => {
+    const state = stateWith({ history: [entry('new', A), entry('mid', B), entry('old', C)] });
+    const batch = inStoredOrder(state, visibleEntries(state));
+
+    batch.forEach((video, index) => {
+      expect(numberPrefixFor(state, video.url)).toBe(`0${batch.length - index}-`);
+    });
+  });
+
+  it('keeps the place in the course of the video playing now, which the screen pins to the top', () => {
+    const state = stateWith({
+      history: [entry('new', A), entry('mid', B), entry('old', C)],
+      currentKeys: new Set([C])
+    });
+
+    expect(visibleEntries(state)[0].title).toBe('old');
+    expect(numberPrefixFor(state, C)).toBe('01-');
+  });
+
+  it('counts videos in folders and loose ones in the same course', () => {
+    const state = stateWith({
+      history: [entry('new', A), { ...entry('mid', B), folderId: 'f1' }, entry('old', C)],
+      folders: [{ id: 'f1', name: 'Curso' }] as AppState['remote']['folders']
+    });
+
+    expect(numberPrefixFor(state, B)).toBe('02-');
+  });
+
+  it('does not renumber the course while searching', () => {
+    const state = stateWith(
+      { history: [entry('new', A), entry('mid', B), entry('old', C)] },
+      { search: 'old' }
+    );
+
+    expect(visibleEntries(state)).toHaveLength(1);
+    expect(numberPrefixFor(state, C)).toBe('01-');
+    expect(numberPrefixFor(state, A)).toBe('03-');
+  });
+
+  it('matches a video whose signed link has rotated', () => {
+    const state = stateWith({ history: [entry('new', A), entry('old', B)] });
+
+    expect(numberPrefixFor(state, `${B}?token=new`)).toBe('01-');
+  });
+
+  it('is empty for the only video, and for one the list does not hold', () => {
+    expect(numberPrefixFor(stateWith({ history: [entry('only', A)] }), A)).toBe('');
+    expect(numberPrefixFor(stateWith({ history: [entry('a', A), entry('b', B)] }), C)).toBe('');
   });
 });
 

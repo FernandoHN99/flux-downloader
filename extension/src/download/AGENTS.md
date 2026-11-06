@@ -127,6 +127,14 @@ folder keep their place in the whole run, so a folder can hold 05, 06 and 09.
 The popup must hand the batch over in **stored** order (`inStoredOrder` in
 `popup/selectors.ts`), not screen order: the screen pins the video playing now to
 the top, which would otherwise make the lesson open in a tab the highest number
-whatever its place in the course. Single downloads are not numbered. Output names
-are sanitized, and `file.uniquePath` appends `_1`, `_2`, … rather than overwriting
-an existing file.
+whatever its place in the course.
+
+A video downloaded **on its own** is numbered too, with the number it gets in
+Download all: its place among every video in the list by when it was added
+(`numberPrefixFor` in `popup/selectors.ts`), whether it is filed in a folder or
+loose. The popup puts the prefix in the `filename` it sends, so the worker does
+not know about it, and the search box does not change it. The only video in the
+list stays unnumbered. The prefix rule itself is `numberPrefix` in
+`shared/file-number.ts`, used by both, so a batch and a single download cannot
+disagree. Output names are sanitized, and `file.uniquePath` appends `_1`, `_2`, …
+rather than overwriting an existing file.
