@@ -2,16 +2,23 @@
 
 This is the project changelog. It replaces the old Video DownloadHelper historical timeline that previously occupied this file.
 
-## Unreleased
+## 1.3.0 — 2026-11-06
 
-- **A video downloaded on its own is numbered too**, in a folder or not: `07-Lesson.mp4`, the same number it gets in Download all (its place in the list by when it was added, the last row being `01`). The search box does not change it, and the only video in the list stays unnumbered.
-- **The length no longer disappears.** A video's length is learned a moment after its row appears, and the history store compared rows without looking at it, so that update was treated as "nothing changed" and never saved: the row showed only `HLS` once its tab was gone or the popup was reopened. The comparison now notices that a length became known. Looking a length up for old rows is also retried a few times instead of giving up after one failure.
-- **Deleting a folder deletes the videos in it.** They used to go back to the main list. It is refused while one of them is being downloaded.
+### Numbered downloads
+
+- **Files are numbered by when the videos were added**, in front of the name: `01-Lesson.mp4` is the oldest (the last row of the list), and the highest number is the newest. This holds for a batch and for a video downloaded on its own, in a folder or not: a single download gets the number it would have in Download all. The search box does not change it, and a video that is alone in the list stays unnumbered.
+- For a batch, the number replaces the `_0`, `_1` suffix, which only applied to repeated names and stopped applying once lessons got titles of their own. It is the video's position in the batch, padded to the width of the total. The popup now hands the batch over in stored order, so the video open in a tab keeps its place in the course.
+
+### Downloads and folders
+
 - **"Download complete!" waits for the end of the run.** It used to appear after every single video of a batch. Now it shows once, when a one-off download or the whole batch is done (a batch with failures says how many), stays until a new download starts, and has a × to dismiss it.
 - **The toolbar icon spins while a download runs**, so it is clear from any tab that Flux is working, even with the popup closed.
 - **Videos put to download cannot be edited until the run ends**: no rename, no filing in a folder, no picking, no dragging, no deleting, and no renaming or deleting a folder that holds one. This covers the whole batch, finished items included, and is enforced by the service worker as well as the popup. A locked row shows a lock where its actions were.
+- **Deleting a folder deletes the videos in it.** They used to go back to the main list. It is refused while one of them is being downloaded.
 
-- **Batch downloads are numbered by when the videos were added**, in front of the name: `01-Lesson.mp4` is the oldest (the last row of the list), and the highest number is the newest. It replaces the `_0`, `_1` suffix, which only applied to repeated names and stopped applying once lessons got titles of their own. The number is the video's position in the batch, padded to the width of the total; a batch of one stays unnumbered. The popup now hands the batch over in stored order, so the video open in a tab keeps its place in the course.
+### Fixes
+
+- **The length no longer disappears.** A video's length is learned a moment after its row appears, and the history store compared rows without looking at it, so that update was treated as "nothing changed" and never saved: the row showed only `HLS` once its tab was gone or the popup was reopened. The comparison now notices that a length became known. Looking a length up for old rows is also retried a few times instead of giving up after one failure.
 
 ## 1.2.0 — 2026-10-15
 
