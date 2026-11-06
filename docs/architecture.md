@@ -268,6 +268,8 @@ The current compact layout uses one header row (summary, optional bytes/speed/ET
 
 Starting another user-visible run is disabled while manual or batch state owns the CoApp. This is only visual feedback: `DownloadRunGate` is the authoritative synchronous lock in the service worker, while a batch lease permits four internal jobs.
 
+The lease also names the videos the run was started for, and those stay read-only until it ends: the popup offers no rename, filing, picking or deleting on them (`isLocked`), and the worker refuses the same requests. While any lease is held the toolbar icon spins (`ToolbarSpinner`). The popup shows "Download complete!" once, when the whole run is over, with a button to dismiss it.
+
 ## Central refresh architecture
 
 There is one visible refresh control and one background implementation.

@@ -51,6 +51,21 @@
   opacity: 0.85;
 }
 
+/* Part of a running download but already done: still, with a lock where the
+   actions would be. It reads as "unavailable for now", not as an error. */
+.media-item.locked:not(.busy) {
+  cursor: default;
+}
+
+.row-lock {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto;
+  color: var(--text-dim);
+  opacity: 0.7;
+}
+
 .drag-handle {
   flex-shrink: 0;
   display: flex;
@@ -253,6 +268,10 @@
   border: 1.5px solid var(--text-dim);
   border-radius: 50%;
   box-sizing: border-box;
+}
+
+.select-dot.unavailable {
+  visibility: hidden;
 }
 
 .select-dot.checked {

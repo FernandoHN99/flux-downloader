@@ -63,7 +63,18 @@ export function renameFolderIn(folders: VideoFolder[], id: string, name: string)
   return folders.map((folder) => (folder.id === id ? { ...folder, name: next } : folder));
 }
 
-/** Deleting a folder frees its videos; it never deletes them. */
+/** The videos filed in a folder. */
+export function keysInFolder(assignments: FolderAssignments, id: string): string[] {
+  return Object.entries(assignments)
+    .filter(([, folder]) => folder === id)
+    .map(([key]) => key);
+}
+
+/**
+ * Takes the folder away along with every filing into it. The videos are the
+ * history's: whoever deletes a folder removes them there first (see
+ * `keysInFolder`), so none is left behind unfiled.
+ */
 export function deleteFolderFrom(
   folders: VideoFolder[],
   assignments: FolderAssignments,

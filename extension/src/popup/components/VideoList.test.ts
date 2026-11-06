@@ -29,14 +29,14 @@ function mount(overrides: Partial<VideoListState> = {}) {
     onDropToFolder: vi.fn()
   };
   const rowState = (e: HistoryEntry): Omit<VideoRowState, 'entry'> => ({
-    isCurrent: CURRENT.has(e.url), isBusy: false, busyLabel: '', selectionMode: false,
+    isCurrent: CURRENT.has(e.url), isBusy: false, isLocked: false, busyLabel: '', selectionMode: false,
     isPicked: false, isExpanded: false, isRenaming: false, downloadDisabled: false,
     selectedQualityIndex: 0, canMove: true, isMoving: false, folders: []
   });
   const list = new VideoList(
     { entries: ENTRIES, folders: [], searching: false, collapsedFolders: new Set(),
       renamingFolderId: null, rangeAnchor: null, grouped: false, collapsedGroups: new Set(),
-      downloadDisabled: false, rowState, ...overrides },
+      downloadDisabled: false, lockedFolders: new Set(), rowState, ...overrides },
     handlers
   );
   document.body.appendChild(list.el);

@@ -1,6 +1,6 @@
 import { videoKey } from '../detection/video-key';
 import type { Incoming } from './messages';
-import type { Store } from './state';
+import type { AppState, BatchStatus, Store } from './state';
 
 /**
  * Everything the background says, folded into the store.
@@ -37,6 +37,8 @@ export function applyIncoming(store: Store, message: Incoming): void {
     case 'BATCH_STATUS': {
       const batch = message.batch;
       const previous = store.get().remote;
+      if (batch && !previous.batch) store.setUi({ notice: null });
+      else if (!batch && previous.batch) endBatch(store, previous.batch);
       const activeKeys = new Set(
         batch?.activeSourceKeys || (batch?.currentSourceKey ? [batch.currentSourceKey] : [])
       );
@@ -68,7 +70,7 @@ export function applyIncoming(store: Store, message: Incoming): void {
     case 'DOWNLOAD_STARTED':
       if (message.success) {
         store.setRemote({ manualDownloadId: message.downloadId ?? null });
-        store.setUi({ status: { text: 'Download started…', tone: 'info' } });
+        store.setUi({ notice: null, status: { text: 'Download started…', tone: 'info' } });
       } else {
         finishDownload(store, message.error || 'Download failed');
       }
@@ -93,11 +95,15 @@ export function applyIncoming(store: Store, message: Incoming): void {
       break;
     }
 
-    case 'DOWNLOAD_COMPLETE':
+    case 'DOWNLOAD_COMPLETE': {
       removeProgress(store, message.sourceKey);
+      const insideBatch = store.get().remote.batch !== null;
       clearManualDownload(store);
-      store.setUi({ status: { text: 'Download complete!', tone: 'success' } });
+      // One item of a batch is not "complete": the run is, once all of it is.
+      // The batch announces that itself when it ends (see `endBatch`).
+      if (!insideBatch) finishRun(store, COMPLETE);
       break;
+    }
 
     case 'DOWNLOAD_ERROR':
       removeProgress(store, message.sourceKey);
@@ -126,7 +132,7 @@ export function applyIncoming(store: Store, message: Incoming): void {
         progress,
         progressByKey
       });
-      store.setUi({ status: { text: 'Downloading…', tone: 'info' } });
+      store.setUi({ notice: null, status: { text: 'Downloading…', tone: 'info' } });
       break;
     }
 
@@ -137,6 +143,27 @@ export function applyIncoming(store: Store, message: Incoming): void {
     case 'ERROR':
       finishDownload(store, message.message);
       break;
+  }
+}
+
+const COMPLETE = { text: 'Download complete!', tone: 'success' } as const;
+
+/**
+ * A run is over and says how it went. The status line is emptied so that, once
+ * the notice is dismissed, it does not fall back to a stale "Downloading…".
+ */
+function finishRun(store: Store, notice: NonNullable<AppState['ui']['notice']>): void {
+  store.setUi({ notice, status: { text: '', tone: 'info' } });
+}
+
+/** The batch is gone from the background: report it as a whole, not per item. */
+function endBatch(store: Store, last: BatchStatus): void {
+  if (last.cancelled) {
+    store.setUi({ notice: null, status: { text: 'Download cancelled', tone: 'error' } });
+  } else if (last.failed > 0) {
+    finishRun(store, { text: `${last.completed} downloaded, ${last.failed} failed`, tone: 'error' });
+  } else {
+    finishRun(store, COMPLETE);
   }
 }
 
@@ -164,5 +191,5 @@ function removeProgress(store: Store, sourceKey: string | undefined): void {
 
 function finishDownload(store: Store, error: string): void {
   clearManualDownload(store);
-  store.setUi({ error, status: { text: 'Error', tone: 'error' } });
+  store.setUi({ error, notice: null, status: { text: 'Error', tone: 'error' } });
 }

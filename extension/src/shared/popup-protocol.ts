@@ -12,6 +12,12 @@ export interface BatchStatus {
   activeSourceKeys?: string[];
   concurrency?: number;
   remainingKeys?: string[];
+  /**
+   * Every video the run was started for, finished or not. All of them stay
+   * locked against editing until the run ends; `remainingKeys` shrinks as
+   * items finish and cannot say that.
+   */
+  keys?: string[];
   folder?: string;
   cancelled: boolean;
 }

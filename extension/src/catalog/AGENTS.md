@@ -154,4 +154,9 @@ Never derive `pageUrl` from the media hostname when top-level metadata exists.
 `mergeDetectedVideosIntoHistory()` preserves and repairs page ownership, and a
 partial detection must not erase a previously known `pageUrl`.
 `sameHistoryContent()` compares `pageUrl` and `pageTitle` while ignoring
-volatile timestamps and signed query strings.
+volatile timestamps and signed query strings. It must also notice *whether a
+length is known*: the length is learned after the row (`learnLength`,
+`backfillDurations`), and a signature blind to it makes that merge look like a
+no-op, so the length is never written and the row loses it once the tab is gone.
+The value itself is not compared, only its presence, so a refined length does
+not rewrite the list.

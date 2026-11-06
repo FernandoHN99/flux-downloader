@@ -468,3 +468,179 @@ describe('App folder collapse memory', () => {
   });
 });
 
+
+describe('App while a download runs', () => {
+  const key = (n: number) => `https://cdn.example/l${n}/playlist.m3u8`;
+  const lesson = (n: number, extra: Record<string, unknown> = {}) => ({
+    id: `v${n}`, title: `Aula ${n}`, url: key(n), type: 'hls', qualities: [], detectedAt: 0,
+    duration: 600, ...extra
+  });
+  // Three lessons: the batch has the first two; the first is already done.
+  const batch = (patch: Record<string, unknown> = {}) => ({
+    total: 2, completed: 1, failed: 0, cancelled: false,
+    keys: [key(1), key(2)], remainingKeys: [key(2)], activeSourceKeys: [key(2)],
+    currentSourceKey: key(2), ...patch
+  });
+
+  const rows = () => [...document.querySelectorAll<HTMLElement>('.media-item')];
+  const status = () => document.getElementById('status-bar')!;
+  const dismiss = () => document.querySelector<HTMLButtonElement>('.status-dismiss')!;
+
+  async function open(extra: { folders?: any[]; entries?: any[] } = {}) {
+    postMessage = vi.fn();
+    const port = {
+      postMessage,
+      onMessage: { addListener: vi.fn((listener: (message: Incoming) => void) => { receive = listener; }) },
+      onDisconnect: { addListener: vi.fn() }
+    } as unknown as chrome.runtime.Port;
+    vi.mocked(chrome.runtime.connect).mockReturnValue(port);
+    const app = new App(shell());
+    await app.start();
+    receive({
+      type: 'HISTORY_LIST',
+      folders: extra.folders ?? [],
+      entries: (extra.entries ?? [lesson(1), lesson(2), lesson(3)]) as any
+    });
+    postMessage.mockClear();
+    return app;
+  }
+
+  describe('editing the videos that were put to download', () => {
+    it('locks the whole batch, the finished item as well as the running one, and nothing else', async () => {
+      await open();
+      receive({ type: 'BATCH_STATUS', batch: batch() as never });
+
+      const lockedKeys = rows().filter((row) => row.classList.contains('locked')).map((row) => row.dataset.key);
+      expect(lockedKeys.sort()).toEqual([key(1), key(2)]);
+      // Done item: a lock and its length back. Running item: a spinner. Free item: its actions.
+      expect(rows()[0].querySelector('.row-lock')).not.toBeNull();
+      expect(rows()[0].querySelector('.media-length')).not.toBeNull();
+      expect(rows()[1].querySelector('.row-spinner')).not.toBeNull();
+      expect(rows()[2].querySelector('.rename-btn')).not.toBeNull();
+      expect(document.querySelectorAll('.rename-btn')).toHaveLength(1);
+      expect(document.querySelectorAll('.select-btn')).toHaveLength(1);
+      expect(document.querySelectorAll('.move-btn')).toHaveLength(1);
+    });
+
+    it('lets the rest of the list be picked, but never a locked row', async () => {
+      await open();
+      receive({ type: 'BATCH_STATUS', batch: batch() as never });
+
+      rows()[0].dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }));
+      expect(document.querySelector('.selection-bar')).toBeNull();
+
+      rows()[2].dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }));
+      expect(document.querySelector('.selection-count')!.textContent).toBe('1 selected');
+      rows()[0].click();
+      expect(document.querySelector('.selection-count')!.textContent).toBe('1 selected');
+    });
+
+    it('leaves a locked row out of a Shift range and out of Select all', async () => {
+      await open();
+      receive({ type: 'BATCH_STATUS', batch: batch() as never });
+
+      rows()[2].dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }));
+      rows()[0].dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }));
+      expect(document.querySelector('.selection-count')!.textContent).toBe('1 selected');
+
+      (document.getElementById('select-all-btn') as HTMLButtonElement).click();
+      expect(document.querySelector('.selection-count')!.textContent).toBe('1 selected');
+    });
+
+    it('never sends a locked video to be deleted or filed', async () => {
+      await open();
+      (document.querySelectorAll('.select-btn')[0] as HTMLButtonElement).click();
+      rows()[1].dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }));
+      // The batch starts after the rows were picked, and takes one of them.
+      receive({ type: 'BATCH_STATUS', batch: batch({ keys: [key(1), key(3)] }) as never });
+      (document.getElementById('delete-selected-btn') as HTMLButtonElement).click();
+
+      expect(postMessage).toHaveBeenCalledWith({ type: 'DELETE_HISTORY_ITEMS', keys: [key(2)] });
+    });
+
+    it('unlocks everything when the run ends', async () => {
+      await open();
+      receive({ type: 'BATCH_STATUS', batch: batch() as never });
+      receive({ type: 'BATCH_STATUS', batch: null });
+
+      expect(rows().some((row) => row.classList.contains('locked'))).toBe(false);
+      expect(document.querySelectorAll('.rename-btn')).toHaveLength(3);
+    });
+
+    it('locks the video of a one-off download', async () => {
+      await open();
+      receive({ type: 'ACTIVE_DOWNLOAD', downloadId: 'd1', sourceUrl: key(2) } as never);
+
+      const locked = rows().filter((row) => row.classList.contains('locked')).map((row) => row.dataset.key);
+      expect(locked).toEqual([key(2)]);
+    });
+
+    it('will not delete or rename a folder holding a locked video', async () => {
+      await open({
+        folders: [{ id: 'f1', name: 'Curso' }, { id: 'f2', name: 'Sobras' }],
+        entries: [lesson(1, { folderId: 'f1' }), lesson(2, { folderId: 'f2' }), lesson(3)]
+      });
+      receive({ type: 'BATCH_STATUS', batch: batch({ keys: [key(1)], remainingKeys: [key(1)] }) as never });
+
+      const remove = (id: string) =>
+        document.querySelector<HTMLButtonElement>(`.user-folder[data-folder-id="${id}"] .folder-delete`)!;
+      expect(remove('f1').disabled).toBe(true);
+      expect(remove('f2').disabled).toBe(false);
+
+      remove('f1').click();
+      expect(postMessage).not.toHaveBeenCalled();
+      remove('f2').click();
+      expect(postMessage).toHaveBeenCalledWith({ type: 'DELETE_FOLDER', id: 'f2' });
+    });
+  });
+
+  describe('the "Download complete!" notice', () => {
+    it('appears once the run is over, with an X to dismiss it', async () => {
+      await open();
+      receive({ type: 'BATCH_STATUS', batch: batch() as never });
+      receive({ type: 'DOWNLOAD_COMPLETE', sourceKey: key(1) });
+      expect(status().textContent).not.toContain('Download complete!');
+
+      receive({ type: 'BATCH_STATUS', batch: batch({ completed: 2, remainingKeys: [] }) as never });
+      receive({ type: 'BATCH_STATUS', batch: null });
+
+      expect(status().querySelector('.status-text')!.textContent).toBe('Download complete!');
+      expect(status().classList.contains('success')).toBe(true);
+      expect(dismiss().hidden).toBe(false);
+    });
+
+    it('goes away with the X, and the bar with it', async () => {
+      await open();
+      receive({ type: 'DOWNLOAD_COMPLETE' });
+      dismiss().click();
+
+      expect(dismiss().hidden).toBe(true);
+      expect(status().classList.contains('hidden')).toBe(true);
+    });
+
+    it('stays put while the media count keeps being refreshed', async () => {
+      await open();
+      receive({ type: 'DOWNLOAD_COMPLETE' });
+      receive({ type: 'MEDIA_LIST', videos: [], currentKeys: [] });
+
+      expect(status().querySelector('.status-text')!.textContent).toBe('Download complete!');
+    });
+
+    it('vanishes the moment a new download starts', async () => {
+      await open();
+      receive({ type: 'DOWNLOAD_COMPLETE' });
+      receive({ type: 'BATCH_STATUS', batch: batch() as never });
+
+      expect(status().querySelector('.status-text')!.textContent).not.toBe('Download complete!');
+      expect(dismiss().hidden).toBe(true);
+    });
+
+    it('is a plain status line otherwise, with no X', async () => {
+      await open();
+      receive({ type: 'MEDIA_LIST', videos: [], currentKeys: [] });
+
+      expect(status().querySelector('.status-text')!.textContent).toBe('0 media found');
+      expect(dismiss().hidden).toBe(true);
+    });
+  });
+});

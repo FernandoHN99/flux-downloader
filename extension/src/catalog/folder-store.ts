@@ -6,6 +6,7 @@ import {
   deleteFolderFrom,
   folderDirectoryName,
   forgetKeys,
+  keysInFolder,
   moveKeys,
   renameFolderIn,
   type FolderAssignments
@@ -82,7 +83,13 @@ export class FolderStore {
     }));
   }
 
-  /** The folder goes; its videos stay in the list, just no longer filed. */
+  /** The videos filed in a folder, as of every write already queued. */
+  async keysIn(id: string): Promise<string[]> {
+    await this.writes;
+    return keysInFolder((await this.read()).assignments, id);
+  }
+
+  /** The folder goes, and with it every filing into it. */
   remove(id: string): Promise<void> {
     return this.enqueue(async (state) => deleteFolderFrom(state.folders, state.assignments, id));
   }

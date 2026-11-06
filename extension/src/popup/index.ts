@@ -13,8 +13,9 @@ import { applyIncoming } from './incoming';
 import { Messenger } from './messages';
 import type { QualityOption } from './quality';
 import {
-  busyLabel, canMoveToFolder, displayOrder, downloadInProgress, isCurrent, isDownloading,
-  inStoredOrder, keysBetween, orderedEntries, progressDetail, progressView, unfiledEntries, visibleEntries
+  busyLabel, canMoveToFolder, displayOrder, downloadInProgress, editable, isCurrent, isDownloading,
+  isLocked, inStoredOrder, keysBetween, lockedFolderIds, orderedEntries, progressDetail, progressView,
+  unfiledEntries, visibleEntries
 } from './selectors';
 import { Store, type AppState, type BatchQuality } from './state';
 
@@ -33,11 +34,21 @@ class App {
   private readonly progress: ProgressPanel;
   private readonly refresh: RefreshButton;
   private readonly list: VideoList;
+  /** The status line is its text and, while a run's notice is up, a way to dismiss it. */
+  private readonly statusText = document.createElement('span');
+  private readonly statusDismiss = document.createElement('button');
 
   constructor(private readonly root: {
     section: HTMLElement; progress: HTMLElement; refresh: HTMLElement;
     empty: HTMLElement; status: HTMLElement; error: HTMLElement;
   }) {
+    this.statusText.className = 'status-text';
+    this.statusDismiss.className = 'btn-dismiss status-dismiss';
+    this.statusDismiss.type = 'button';
+    this.statusDismiss.textContent = '\u00d7';
+    this.statusDismiss.setAttribute('aria-label', 'Dismiss');
+    this.statusDismiss.title = 'Dismiss';
+    this.statusDismiss.hidden = true;
     this.progress = new ProgressPanel({ view: null, detail: null }, () => this.stop());
     this.refresh = new RefreshButton({ refreshing: false }, () => this.refreshTabs());
 
@@ -66,10 +77,10 @@ class App {
     this.list = new VideoList(
       { entries: [], folders: [], searching: false, collapsedFolders: new Set(),
         renamingFolderId: null, rangeAnchor: null, grouped: false, collapsedGroups: new Set(),
-        downloadDisabled: false, rowState: (entry) => this.rowState(entry) },
+        downloadDisabled: false, lockedFolders: new Set(), rowState: (entry) => this.rowState(entry) },
       {
         onActivate: (key, modifiers) => this.activate(key, modifiers),
-        onStartRename: (key) => this.store.setUi({ renamingKey: key, expandedKey: null }),
+        onStartRename: (key) => this.startRename(key),
         onCommitRename: (key, title) => this.commitRename(key, title),
         onCancelRename: () => this.store.setUi({ renamingKey: null }),
         onSelect: (key) => this.enterSelection(key),
@@ -81,13 +92,12 @@ class App {
         onToggleMove: (key) => this.toggleMove(key),
         onMoveToFolder: (key, folderId) => this.moveToFolder([key], folderId),
         onNewFolderFor: (key) => this.store.setUi({
-          creatingFolder: { keys: [key] }, movingKey: null, renamingFolderId: null
+          creatingFolder: { keys: editable(this.store.get(), [key]) },
+          movingKey: null, renamingFolderId: null
         }),
         onToggleFolder: (id) => this.toggleFolder(id),
         onDownloadFolder: (id) => this.downloadFolder(id),
-        onStartRenameFolder: (id) => this.store.setUi({
-          renamingFolderId: id, creatingFolder: null, movingKey: null
-        }),
+        onStartRenameFolder: (id) => this.startRenameFolder(id),
         onCommitRenameFolder: (id, name) => this.commitRenameFolder(id, name),
         onCancelRenameFolder: () => this.store.setUi({ renamingFolderId: null }),
         onDeleteFolder: (id) => this.deleteFolder(id),
@@ -136,6 +146,8 @@ class App {
     document.getElementById('error-dismiss')?.addEventListener('click', () => {
       this.store.setUi({ error: null });
     });
+    this.root.status.replaceChildren(this.statusText, this.statusDismiss);
+    this.statusDismiss.addEventListener('click', () => this.store.setUi({ notice: null }));
     // Esc backs out one step: the name field first, then the picking itself.
     document.addEventListener('keydown', (event) => {
       if (event.key !== 'Escape' || event.target instanceof HTMLInputElement) return;
@@ -183,6 +195,7 @@ class App {
       grouped: state.ui.groupByDomain,
       collapsedGroups: state.ui.collapsedGroups,
       downloadDisabled: blocked || state.ui.selectionMode,
+      lockedFolders: lockedFolderIds(state),
       rowState: (entry) => this.rowState(entry)
     });
     // Folders the user made stay on screen even before any video is filed.
@@ -191,8 +204,12 @@ class App {
     this.root.empty.classList.toggle('hidden', !empty);
     this.root.section.classList.toggle('hidden', empty);
 
-    this.root.status.className = `status-bar ${state.ui.status.tone}`;
-    this.root.status.textContent = state.ui.status.text;
+    // How the last run ended outranks the line the scans keep rewriting.
+    const line = state.ui.notice ?? state.ui.status;
+    this.root.status.className = `status-bar ${line.tone}`;
+    this.root.status.classList.toggle('hidden', line.text === '');
+    this.statusText.textContent = line.text;
+    this.statusDismiss.hidden = state.ui.notice === null;
 
     this.root.error.classList.toggle('hidden', state.ui.error === null);
     const message = this.root.error.querySelector('#error-message');
@@ -202,14 +219,16 @@ class App {
   private rowState(entry: HistoryEntry): Omit<VideoRowState, 'entry'> {
     const state = this.store.get();
     const key = videoKey(entry.url);
+    const locked = isLocked(state, key);
     return {
       isCurrent: isCurrent(state, key),
       isBusy: isDownloading(state, key),
+      isLocked: locked,
       busyLabel: busyLabel(state, key),
       selectionMode: state.ui.selectionMode,
       isPicked: state.ui.selected.has(key),
       isExpanded: state.ui.expandedKey === key,
-      isRenaming: state.ui.renamingKey === key,
+      isRenaming: state.ui.renamingKey === key && !locked,
       downloadDisabled: downloadInProgress(state),
       selectedQualityIndex: state.ui.selectedQualityIndex,
       canMove: canMoveToFolder(state, key),
@@ -239,7 +258,10 @@ class App {
    * a plain click otherwise opens or closes it.
    */
   private activate(key: string, modifiers: RowModifiers): void {
-    const { ui } = this.store.get();
+    const state = this.store.get();
+    const { ui } = state;
+    // A video of a running download cannot be picked, however it is clicked.
+    if (isLocked(state, key) && (modifiers.range || modifiers.toggle || ui.selectionMode)) return;
     if (modifiers.range) return this.selectRange(key);
     if (modifiers.toggle || ui.selectionMode) return this.toggleSelection(key);
     this.store.setUi({
@@ -250,6 +272,7 @@ class App {
   }
 
   private toggleMove(key: string): void {
+    if (isLocked(this.store.get(), key)) return;
     const { ui } = this.store.get();
     this.store.setUi({
       movingKey: ui.movingKey === key ? null : key,
@@ -259,16 +282,18 @@ class App {
 
   /** Files videos into a folder, or (null) back out of one. */
   private moveToFolder(keys: string[], folderId: string | null): void {
-    if (keys.length === 0) return;
-    this.messenger.send({ type: 'MOVE_TO_FOLDER', keys, folderId });
+    const movable = editable(this.store.get(), keys);
+    if (movable.length === 0) return;
+    this.messenger.send({ type: 'MOVE_TO_FOLDER', keys: movable, folderId });
     this.store.setUi({ movingKey: null });
   }
 
   /** Opens the new-folder form, for the picked videos if some are picked. */
   private openNewFolder(): void {
-    const { ui } = this.store.get();
+    const state = this.store.get();
+    const { ui } = state;
     this.store.setUi({
-      creatingFolder: { keys: ui.selectionMode ? [...ui.selected] : [] },
+      creatingFolder: { keys: ui.selectionMode ? editable(state, [...ui.selected]) : [] },
       renamingFolderId: null, movingKey: null, expandedKey: null, movingSelection: false
     });
   }
@@ -280,7 +305,7 @@ class App {
     this.store.setUi({ creatingFolder: null });
     if (!pending || !name.trim()) return;
     const loose = withUnfiled ? unfiledEntries(state).map((entry) => videoKey(entry.url)) : [];
-    const keys = [...new Set([...pending.keys, ...loose])];
+    const keys = editable(state, [...new Set([...pending.keys, ...loose])]);
     this.messenger.send({ type: 'CREATE_FOLDER', name: name.trim(), keys });
     // The picked videos are filed now; keeping them picked would offer to file
     // or delete them a second time.
@@ -294,12 +319,25 @@ class App {
 
   private commitRenameFolder(id: string, name: string): void {
     this.store.setUi({ renamingFolderId: null });
+    if (lockedFolderIds(this.store.get()).has(id)) return;
     const current = this.store.get().remote.folders.find((folder) => folder.id === id);
     if (!name.trim() || name.trim() === current?.name) return;
     this.messenger.send({ type: 'RENAME_FOLDER', id, name: name.trim() });
   }
 
+  private startRename(key: string): void {
+    if (isLocked(this.store.get(), key)) return;
+    this.store.setUi({ renamingKey: key, expandedKey: null });
+  }
+
+  private startRenameFolder(id: string): void {
+    if (lockedFolderIds(this.store.get()).has(id)) return;
+    this.store.setUi({ renamingFolderId: id, creatingFolder: null, movingKey: null });
+  }
+
+  /** The folder goes with the videos in it: the background removes both. */
   private deleteFolder(id: string): void {
+    if (lockedFolderIds(this.store.get()).has(id)) return;
     this.messenger.send({ type: 'DELETE_FOLDER', id });
   }
 
@@ -335,9 +373,8 @@ class App {
     const anchor = ui.selectionAnchor ?? ui.expandedKey;
     if (!anchor) return this.enterSelection(key);
 
-    // A row being written cannot be filed or dropped from under its download.
-    const spanned = keysBetween(displayOrder(state), anchor, key)
-      .filter((spannedKey) => !isDownloading(state, spannedKey));
+    // A video of a running download cannot be filed or dropped from under it.
+    const spanned = editable(state, keysBetween(displayOrder(state), anchor, key));
     this.store.setUi({
       selectionMode: true,
       selected: new Set([...(ui.selectionMode ? ui.selected : []), ...spanned]),
@@ -351,12 +388,13 @@ class App {
 
   private selectAll(): void {
     const state = this.store.get();
-    const keys = displayOrder(state).filter((key) => !isDownloading(state, key));
+    const keys = editable(state, displayOrder(state));
     if (keys.length === 0) return;
     this.store.setUi({ selected: new Set(keys), movingSelection: false });
   }
 
   private enterSelection(key: string): void {
+    if (isLocked(this.store.get(), key)) return;
     this.store.setUi({
       selectionMode: true,
       selected: new Set([key]),
@@ -380,18 +418,19 @@ class App {
 
   private deleteSelected(): void {
     const state = this.store.get();
-    const keys = [...state.ui.selected];
+    const keys = editable(state, [...state.ui.selected]);
     if (keys.length === 0) return;
     // Everything picked is the whole list: wipe it, which also drops the rows
     // a master playlist hides, rather than leaving them behind to resurface.
     const everything = orderedEntries(state).map((entry) => videoKey(entry.url));
-    const wipe = everything.every((key) => state.ui.selected.has(key));
+    const wipe = everything.every((key) => keys.includes(key));
     this.messenger.send(wipe ? { type: 'CLEAR_HISTORY' } : { type: 'DELETE_HISTORY_ITEMS', keys });
     this.exitSelection();
   }
 
   private commitRename(key: string, title: string): void {
     this.store.setUi({ renamingKey: null });
+    if (isLocked(this.store.get(), key)) return;
     const entry = this.store.get().remote.history.find((e) => videoKey(e.url) === key);
     if (!title || title === entry?.title) return;
     this.messenger.send({ type: 'RENAME_HISTORY_ITEM', key, title });
@@ -414,6 +453,7 @@ class App {
   private downloadAll(videos: HistoryEntry[]): void {
     const state = this.store.get();
     if (videos.length === 0 || downloadInProgress(state)) return;
+    this.store.setUi({ notice: null });
     this.messenger.send({
       // Numbered by the order they were added, which the screen does not show.
       type: 'DOWNLOAD_ALL', videos: inStoredOrder(state, videos), tabId: this.activeTabId,
@@ -433,7 +473,11 @@ class App {
       activeDownloadKey: videoKey(video.url),
       progress: { percent: 0 }
     });
-    this.store.setUi({ expandedKey: null, status: { text: 'Downloading…', tone: 'info' } });
+    this.store.setUi({
+      expandedKey: null,
+      notice: null,
+      status: { text: 'Downloading…', tone: 'info' }
+    });
 
     this.messenger.send({
       type: 'DOWNLOAD',

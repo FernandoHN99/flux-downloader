@@ -32,7 +32,8 @@ export const PATHS = {
     'M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z',
     'M12 11v6M9 14h6'
   ],
-  download: ['M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4', 'M7 10l5 5 5-5', 'M12 15V3']
+  download: ['M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4', 'M7 10l5 5 5-5', 'M12 15V3'],
+  lock: ['M5 11h14v10H5z', 'M8 11V7a4 4 0 0 1 8 0v4']
 } as const;
 
 export function iconButton(kind: keyof typeof PATHS, label: string): HTMLButtonElement {
@@ -119,6 +120,17 @@ export function selectDot(checked: boolean): HTMLElement {
   dot.className = checked ? 'select-dot checked' : 'select-dot';
   dot.setAttribute('aria-hidden', 'true');
   return dot;
+}
+
+/** Marks a video that belongs to a running download and so cannot be edited. */
+export function lockBadge(): HTMLElement {
+  const el = document.createElement('span');
+  el.className = 'row-lock';
+  el.title = 'Part of the current download — it can be edited when it ends';
+  el.setAttribute('role', 'img');
+  el.setAttribute('aria-label', 'Locked while downloading');
+  el.appendChild(svg(PATHS.lock as unknown as string[], 12, '2.2'));
+  return el;
 }
 
 export function spinner(): HTMLElement {

@@ -56,6 +56,12 @@ export interface UiState {
   /** Index into the expanded row's quality list. */
   selectedQualityIndex: number;
   status: { text: string; tone: 'info' | 'error' | 'success' };
+  /**
+   * How the last run ended ("Download complete!"). Apart from `status` on
+   * purpose: that line is rewritten by every scan and refresh, and this one
+   * has to stay until a new download starts or the user dismisses it.
+   */
+  notice: { text: string; tone: 'error' | 'success' } | null;
   error: string | null;
 }
 
@@ -96,6 +102,7 @@ export function initialState(): AppState {
       groupByDomain: false,
       selectedQualityIndex: 0,
       status: { text: 'Checking for media…', tone: 'info' },
+      notice: null,
       error: null
     }
   };

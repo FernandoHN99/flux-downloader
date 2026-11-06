@@ -34,7 +34,7 @@
   cursor: default;
 }
 
-.folder-delete:hover {
+.folder-delete:not(:disabled):hover {
   color: var(--error);
 }
 

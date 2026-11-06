@@ -107,6 +107,37 @@ describe('sameHistoryContent', () => {
       [entry({ pageUrl: lessonUrl })]
     )).toBe(false);
   });
+
+  it('notices when the length is learned later', () => {
+    expect(sameHistoryContent(
+      [entry({ duration: undefined })],
+      [entry({ duration: 754 })]
+    )).toBe(false);
+  });
+
+  it('does not treat a refined length as a change', () => {
+    expect(sameHistoryContent(
+      [entry({ duration: 754 })],
+      [entry({ duration: 754.4 })]
+    )).toBe(true);
+  });
+});
+
+describe('a length learned after the row was saved', () => {
+  it('survives the merge that carries it', () => {
+    const saved = mergeDetectedVideosIntoHistory([], [video()], {}, 10);
+    const merged = mergeDetectedVideosIntoHistory(saved, [video({ duration: 754 })], {}, 20);
+
+    expect(merged[0].duration).toBe(754);
+    expect(sameHistoryContent(saved, merged)).toBe(false);
+  });
+
+  it('is kept when a later sighting reports none', () => {
+    const saved = mergeDetectedVideosIntoHistory([], [video({ duration: 754 })], {}, 10);
+    const merged = mergeDetectedVideosIntoHistory(saved, [video()], {}, 20);
+
+    expect(merged[0].duration).toBe(754);
+  });
 });
 
 describe('history list mutations', () => {

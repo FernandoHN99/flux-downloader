@@ -137,6 +137,26 @@
   color: var(--success);
 }
 
+.status-bar .status-text {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The X that clears a finished run's notice. It takes the line's own colour
+   rather than the error red of the banner it is borrowed from. */
+.status-bar .status-dismiss {
+  color: inherit;
+  min-width: 20px;
+  min-height: 20px;
+  font-size: 15px;
+  margin-left: auto;
+}
+
+/* `display: flex` above would otherwise win over the hidden attribute. */
+.status-bar .status-dismiss[hidden] {
+  display: none;
+}
+
 .status-bar.error {
   color: var(--error);
   background: var(--error-soft);

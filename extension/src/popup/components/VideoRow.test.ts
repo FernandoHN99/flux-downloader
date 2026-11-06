@@ -16,7 +16,7 @@ function mount(state: Partial<VideoRowState> = {}) {
     onToggleMove: vi.fn(), onMoveToFolder: vi.fn(), onNewFolderFor: vi.fn()
   };
   const row = new VideoRow({
-    entry: entry(), isCurrent: false, isBusy: false, busyLabel: '', selectionMode: false,
+    entry: entry(), isCurrent: false, isBusy: false, isLocked: false, busyLabel: '', selectionMode: false,
     isPicked: false, isExpanded: false, isRenaming: false, downloadDisabled: false,
     selectedQualityIndex: 0, canMove: true, isMoving: false, folders: [], ...state
   }, handlers);
@@ -123,6 +123,51 @@ describe('VideoRow', () => {
       expect(row.el.draggable).toBe(false);
       row.el.click();
       expect(handlers.onActivate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('as part of a running download', () => {
+    it('trades its actions for a lock, even when its own download is already done', () => {
+      const { row } = mount({ isLocked: true });
+      expect(q(row, '.row-lock')).not.toBeNull();
+      expect(q(row, '.media-actions')).toBeNull();
+      expect(q(row, '.rename-btn')).toBeNull();
+      expect(q(row, '.select-btn')).toBeNull();
+      expect(q(row, '.move-btn')).toBeNull();
+      expect(row.el.classList.contains('locked')).toBe(true);
+    });
+
+    it('still shows how long it is, since it is not mid-download', () => {
+      const { row } = mount({ isLocked: true });
+      expect(q(row, '.media-length')!.textContent).toBe('16 min 20 s');
+      expect(q(row, '.media-kind')!.textContent).toBe('HLS');
+    });
+
+    it('cannot be dragged', () => {
+      const { row } = mount({ isLocked: true });
+      expect(row.el.draggable).toBe(false);
+      expect(q(row, '.drag-handle')).toBeNull();
+    });
+
+    it('cannot be picked, by Shift, Ctrl or Cmd', () => {
+      const { row, handlers } = mount({ isLocked: true });
+      row.el.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }));
+      row.el.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }));
+      row.el.dispatchEvent(new MouseEvent('click', { bubbles: true, metaKey: true }));
+      expect(handlers.onActivate).not.toHaveBeenCalled();
+    });
+
+    it('shows no tick to pick while the list is being picked, but keeps the row aligned', () => {
+      const { row, handlers } = mount({ isLocked: true, selectionMode: true });
+      expect(q(row, '.select-dot.unavailable')).not.toBeNull();
+      expect(q(row, '.select-dot.checked')).toBeNull();
+      row.el.click();
+      expect(handlers.onActivate).not.toHaveBeenCalled();
+    });
+
+    it('never opens its move choices', () => {
+      const { row } = mount({ isLocked: true, isMoving: true, canMove: false });
+      expect(q(row, '.move-panel')).toBeNull();
     });
   });
 

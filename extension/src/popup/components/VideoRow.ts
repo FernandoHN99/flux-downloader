@@ -3,13 +3,18 @@ import { videoKey } from '../../detection/video-key';
 import { formatLength, getTypeLabel } from '../format';
 import type { QualityOption } from '../quality';
 import { Component } from './base';
-import { badge, dragHandle, iconButton, playIcon, selectDot, spinner } from './icons';
+import { badge, dragHandle, iconButton, lockBadge, playIcon, selectDot, spinner } from './icons';
 import { QualityPanel } from './QualityPanel';
 
 export interface VideoRowState {
   entry: HistoryEntry;
   isCurrent: boolean;
   isBusy: boolean;
+  /**
+   * Part of a running download, finished or not. Nothing about it can be
+   * edited: no rename, no filing, no picking, no dragging.
+   */
+  isLocked: boolean;
   /** What a busy row says: a percentage, or that it is waiting its turn. */
   busyLabel: string;
   selectionMode: boolean;
@@ -83,6 +88,8 @@ export class VideoRow extends Component<VideoRowState> {
 
   private activate(event: MouseEvent | KeyboardEvent): void {
     if (this.state.isBusy && !this.state.selectionMode) return;
+    // A locked row cannot be picked, by Shift, Ctrl/Cmd or while picking.
+    if (this.state.isLocked && (this.state.selectionMode || event.shiftKey || event.metaKey || event.ctrlKey)) return;
     this.handlers.onActivate(this.key, {
       range: event.shiftKey,
       toggle: event.metaKey || event.ctrlKey
@@ -90,13 +97,14 @@ export class VideoRow extends Component<VideoRowState> {
   }
 
   protected render(): void {
-    const { entry, isCurrent, isBusy, selectionMode, isPicked, isExpanded, isRenaming } = this.state;
+    const { entry, isCurrent, isBusy, isLocked, selectionMode, isPicked, isExpanded, isRenaming } = this.state;
 
     this.el.dataset.key = this.key;
     if (entry.folderId) this.el.dataset.folder = entry.folderId;
     else delete this.el.dataset.folder;
     this.el.classList.toggle('media-item-current-page', isCurrent);
     this.el.classList.toggle('busy', isBusy);
+    this.el.classList.toggle('locked', isLocked);
     this.el.classList.toggle('picked', selectionMode && isPicked);
     this.el.classList.toggle('expanded', isExpanded);
     this.el.classList.toggle('selected', isExpanded);
@@ -105,7 +113,7 @@ export class VideoRow extends Component<VideoRowState> {
     // Busy rows hold still, and so does the whole list while picking. The video
     // playing now can be dragged — into a folder — but stays pinned: it is not
     // reorderable, so the list keeps it out of every reorder zone.
-    this.el.draggable = !isBusy && !selectionMode && !isRenaming;
+    this.el.draggable = !isBusy && !isLocked && !selectionMode && !isRenaming;
     this.el.dataset.reorderable = String(this.el.draggable && !isCurrent);
     if (entry.pageUrl) this.el.title = entry.pageUrl;
 
@@ -114,8 +122,14 @@ export class VideoRow extends Component<VideoRowState> {
     head.className = 'media-head';
     this.el.appendChild(head);
 
-    if (selectionMode) head.appendChild(selectDot(isPicked));
-    else if (this.el.draggable) head.appendChild(dragHandle(isCurrent));
+    if (selectionMode) {
+      // A locked row cannot be picked: its dot stays, unseen, to keep the rows aligned.
+      const dot = selectDot(isPicked && !isLocked);
+      if (isLocked) dot.classList.add('unavailable');
+      head.appendChild(dot);
+    } else if (this.el.draggable) {
+      head.appendChild(dragHandle(isCurrent));
+    }
 
     head.appendChild(this.buildThumbnail());
     head.appendChild(isRenaming ? this.buildRenameForm() : this.buildInfo());
@@ -123,6 +137,7 @@ export class VideoRow extends Component<VideoRowState> {
     if (isRenaming) return;
 
     if (isBusy) head.appendChild(spinner());
+    else if (isLocked) head.appendChild(lockBadge());
     else if (!selectionMode) head.appendChild(this.buildActions());
 
     // Last, so it sits against the row's right edge rather than riding along
@@ -131,7 +146,7 @@ export class VideoRow extends Component<VideoRowState> {
       head.appendChild(badge('current-badge', 'On this page', 'Detected on the page you have open'));
     }
 
-    if (this.state.isMoving && this.state.canMove && !selectionMode && !isBusy) {
+    if (this.state.isMoving && this.state.canMove && !selectionMode && !isBusy && !isLocked) {
       this.el.appendChild(this.buildMovePanel());
     }
 
